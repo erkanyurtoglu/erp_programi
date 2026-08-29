@@ -60,11 +60,11 @@ ApplicationWindow {
 
             onModulSecildi: (modulKodu) => {
                 if (modulKodu === "SATIS")
-                    yiginGorunumu.push(gecmisTekliflerBileseni);
+                    yiginGorunumu.push(satisModuluBileseni, { baslangicSekmesi: 1 });
             }
 
             onTeklifVerSecildi: {
-                // TODO: Teklif Ver ekrani hazir olunca buraya baglanacak.
+                yiginGorunumu.push(satisModuluBileseni, { baslangicSekmesi: 0 });
             }
 
             onCikisYapildi: {
@@ -75,38 +75,10 @@ ApplicationWindow {
     }
 
     Component {
-        id: gecmisTekliflerBileseni
-        Item {
-            GecmisTekliflerPage {
-                anchors.fill: parent
-                anchors.topMargin: 60
-            }
-
-            // Geri donus icin basit bir ust bar (Ana Menu'ye donmek icin).
-            Button {
-                id: geriButonu
-                text: "◀ Ana Menü"
-                anchors.top: parent.top
-                anchors.left: parent.left
-                anchors.margins: 16
-                z: 5
-                height: 34
-                onClicked: yiginGorunumu.pop()
-                background: Rectangle {
-                    radius: Theme.radiusKucuk
-                    color: Theme.panel
-                    border.width: 1
-                    border.color: Theme.kenarlik
-                }
-                contentItem: Text {
-                    text: geriButonu.text
-                    color: Theme.metinBirincil
-                    font.family: Theme.fontAilesi
-                    font.pixelSize: Theme.fontBoyutKucuk
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-            }
+        id: satisModuluBileseni
+        SatisModuluPage {
+            oturum: pencere.oturum
+            onAnaMenuyeDon: yiginGorunumu.pop()
         }
     }
 }
