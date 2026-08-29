@@ -1,0 +1,24 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "qt-mingw",
+      "displayName": "Qt 6.7.3 MinGW 64-bit",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "C:/Qt/6.7.3/mingw_64",
+        "CMAKE_C_COMPILER": "C:/Qt/Tools/mingw1120_64/bin/gcc.exe",
+        "CMAKE_CXX_COMPILER": "C:/Qt/Tools/mingw1120_64/bin/g++.exe",
+        "CMAKE_MAKE_PROGRAM": "C:/Qt/Tools/Ninja/ninja.exe",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "qt-mingw",
+      "configurePreset": "qt-mingw"
+    }
+  ]
+}
