@@ -21,6 +21,20 @@ Item {
     // icin inline "component" olarak (dosyanin en ustunde, root'un dogrudan
     // cocugu olarak) tanimlaniyor -- QML'de inline component'ler boyle, tek
     // seviyeli olarak tanimlanmalidir.
+    // Manuel urun ekleme dialogundaki alan stili (bkz. UrunlerimPage.qml'deki
+    // ayni amacli FormAlani bileseni).
+    component ManuelUrunAlani: TextField {
+        Layout.fillWidth: true
+        Layout.preferredHeight: Theme.girdiYuksekligi + 6
+        color: Theme.metinBirincil
+        placeholderTextColor: Theme.metinCokSoluk
+        font.family: Theme.fontAilesi
+        font.pixelSize: Theme.fontBoyutNormal
+        leftPadding: 12
+        rightPadding: 12
+        background: Rectangle { color: Theme.arkaplan; radius: Theme.radiusKucuk; border.width: 1; border.color: Theme.kenarlik }
+    }
+
     component UcretAlani: Rectangle {
         property alias metin: girdi.text
         property string birim: "%"
@@ -326,6 +340,17 @@ Item {
     Rectangle {
         anchors.fill: parent
         color: Theme.arkaplan
+    }
+
+    // Bos alana (herhangi bir kontrole denk gelmeyen bolgeye) tiklaninca
+    // aktif odagi (ornegin Firma ara kutusundaki imleci) birakmak icin --
+    // QtQuick'te odaklanabilir olmayan bir alana tiklamak varsayilan olarak
+    // hicbir seyi odaktan cikarmiyor, bu yuzden acikca root'a odak veriyoruz.
+    // Diger kontroller bunun uzerinde durdugu icin onlara tiklamalar buraya
+    // gecmeden once kendi MouseArea/TextField'larinca yakalanir.
+    MouseArea {
+        anchors.fill: parent
+        onClicked: root.forceActiveFocus()
     }
 
     ColumnLayout {
@@ -1647,13 +1672,17 @@ Item {
         }
 
     // ---- Manuel urun ekleme dialogu ----
+    // WPF'teki manuel urun ekleme penceresiyle ayni bilgi kumesini toplar
+    // (kod, kategori, TR/EN aciklama, TL/USD/EUR birim fiyati, yurtici maliyet).
+    // USD/EUR alanlari sadece kayit/gorsel amacli tutulur -- sepet hesaplari
+    // (bkz. teklifVerisiOlustur) hala tek para biriminde (TL) calisir, WPF'ten
+    // gocte alinan karar bu (UrunlerimPage.qml'deki ayni not).
     Dialog {
         id: manuelUrunDialogu
-        title: "Sepete Manuel Ürün Ekle"
         modal: true
-        width: 380
+        width: 560
+        padding: 20
         anchors.centerIn: parent
-        standardButtons: Dialog.Ok | Dialog.Cancel
 
         background: Rectangle {
             color: Theme.panel
@@ -1662,84 +1691,163 @@ Item {
             border.width: 1
         }
 
-        onOpened: {
-            manuelAciklama.text = ""
-            manuelAdet.text = "1"
-            manuelFiyat.text = "0"
-            manuelMaliyet.text = "0"
+        header: Label {
+            text: "Manuel Ürün Ekle"
+            color: Theme.metinBirincil
+            font.family: Theme.fontAilesi
+            font.bold: true
+            font.pixelSize: Theme.fontBoyutOrta
+            padding: 20
         }
 
-        onAccepted: {
-            if (manuelAciklama.text.trim().length === 0)
+        onOpened: {
+            manuelKod.text = ""
+            manuelKategori.text = ""
+            manuelAciklama.text = ""
+            manuelAciklamaEn.text = ""
+            manuelFiyat.text = ""
+            manuelFiyatUsd.text = ""
+            manuelFiyatEur.text = ""
+            manuelMaliyet.text = ""
+            manuelHataMesaji.text = ""
+        }
+
+        function kaydet() {
+            if (manuelAciklama.text.trim().length === 0) {
+                manuelHataMesaji.text = "Ürün açıklaması zorunludur."
                 return
+            }
             root.sepeteEkle({
                 urunId: 0,
-                urunKodu: "MANUEL",
+                urunKodu: manuelKod.text.trim().length > 0 ? manuelKod.text.trim() : "MANUEL",
+                kategori: manuelKategori.text,
                 aciklama: manuelAciklama.text,
-                adet: parseInt(manuelAdet.text) || 1,
+                aciklamaEn: manuelAciklamaEn.text,
+                adet: 1,
                 birimFiyatTl: parseFloat(manuelFiyat.text) || 0,
+                birimFiyatUsd: parseFloat(manuelFiyatUsd.text) || 0,
+                birimFiyatEur: parseFloat(manuelFiyatEur.text) || 0,
                 maliyet: parseFloat(manuelMaliyet.text) || 0
             })
+            manuelUrunDialogu.close()
         }
 
-        // NOT: alanlara onOpened'da varsayilan metin ("1", "0") yazildigi icin
-        // placeholderText hicbir zaman gorunmuyor -- kullanici hangi alanin ne
-        // oldugunu anlayamiyordu. Bunun icin her alanin USTUNE, icerikten
-        // bagimsiz DAIMA gorunen kucuk bir Label ekliyoruz.
         contentItem: ColumnLayout {
-            spacing: 10
+            spacing: 14
 
-            ColumnLayout {
-                spacing: 3
+            Label {
+                id: manuelHataMesaji
+                color: Theme.tehlikeAcik
+                font.family: Theme.fontAilesi
+                font.pixelSize: Theme.fontBoyutKucuk
+                visible: text.length > 0
                 Layout.fillWidth: true
-                Label { text: "ÜRÜN AÇIKLAMASI"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                TextField {
-                    id: manuelAciklama
-                    Layout.fillWidth: true
-                    placeholderText: "Örn: Özel kesim conta"
-                    color: Theme.metinBirincil
-                    placeholderTextColor: Theme.metinCokSoluk
-                    background: Rectangle { color: Theme.arkaplan; radius: Theme.radiusKucuk; border.width: 1; border.color: Theme.kenarlik }
-                }
+                wrapMode: Text.WordWrap
             }
+
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 10
                 ColumnLayout {
                     spacing: 3
                     Layout.fillWidth: true
-                    Label { text: "ADET"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                    TextField {
-                        id: manuelAdet
-                        Layout.fillWidth: true
-                        validator: IntValidator { bottom: 1 }
-                        color: Theme.metinBirincil
-                        background: Rectangle { color: Theme.arkaplan; radius: Theme.radiusKucuk; border.width: 1; border.color: Theme.kenarlik }
-                    }
+                    Label { text: "ÜRÜN KODU"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                    ManuelUrunAlani { id: manuelKod; placeholderText: "Örn: BTP-500" }
                 }
                 ColumnLayout {
                     spacing: 3
                     Layout.fillWidth: true
-                    Label { text: "BİRİM FİYAT (TL)"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                    TextField {
-                        id: manuelFiyat
-                        Layout.fillWidth: true
-                        validator: DoubleValidator { bottom: 0; decimals: 2 }
-                        color: Theme.metinBirincil
-                        background: Rectangle { color: Theme.arkaplan; radius: Theme.radiusKucuk; border.width: 1; border.color: Theme.kenarlik }
-                    }
+                    Label { text: "KATEGORİ"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                    ManuelUrunAlani { id: manuelKategori; placeholderText: "Örn: Basma-Eğilme Test Cihazları" }
                 }
             }
+
             ColumnLayout {
                 spacing: 3
                 Layout.fillWidth: true
-                Label { text: "MALİYET (TL, OPSİYONEL)"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                TextField {
-                    id: manuelMaliyet
+                Label { text: "ÜRÜN AÇIKLAMASI"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                ManuelUrunAlani { id: manuelAciklama; placeholderText: "Örn: Otomatik Beton Test Presi" }
+            }
+
+            ColumnLayout {
+                spacing: 3
+                Layout.fillWidth: true
+                Label { text: "ÜRÜN AÇIKLAMASI (İNGİLİZCE)"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                ManuelUrunAlani { id: manuelAciklamaEn; placeholderText: "Ex: Automatic Concrete Compression Test Press" }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                ColumnLayout {
+                    spacing: 3
                     Layout.fillWidth: true
-                    validator: DoubleValidator { bottom: 0; decimals: 2 }
-                    color: Theme.metinBirincil
-                    background: Rectangle { color: Theme.arkaplan; radius: Theme.radiusKucuk; border.width: 1; border.color: Theme.kenarlik }
+                    Label { text: "BİRİM SATIŞ FİYATI (TL)"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                    ManuelUrunAlani { id: manuelFiyat; placeholderText: "0.00"; validator: DoubleValidator { bottom: 0; decimals: 2 } }
+                }
+                ColumnLayout {
+                    spacing: 3
+                    Layout.fillWidth: true
+                    Label { text: "DOLAR BİRİM FİYATI (USD)"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                    ManuelUrunAlani { id: manuelFiyatUsd; placeholderText: "0.00"; validator: DoubleValidator { bottom: 0; decimals: 2 } }
+                }
+                ColumnLayout {
+                    spacing: 3
+                    Layout.fillWidth: true
+                    Label { text: "EURO BİRİM FİYATI (EUR)"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                    ManuelUrunAlani { id: manuelFiyatEur; placeholderText: "0.00"; validator: DoubleValidator { bottom: 0; decimals: 2 } }
+                }
+            }
+
+            ColumnLayout {
+                spacing: 3
+                Layout.fillWidth: true
+                Label { text: "YURTİÇİ MALİYET BİRİM FİYATI (TL)"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                ManuelUrunAlani { id: manuelMaliyet; placeholderText: "0.00"; validator: DoubleValidator { bottom: 0; decimals: 2 } }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 6
+                spacing: 10
+
+                Button {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.girdiYuksekligi + 6
+                    text: "Kaydet"
+                    onClicked: manuelUrunDialogu.kaydet()
+                    background: Rectangle {
+                        radius: Theme.radiusKucuk
+                        color: parent.hovered ? Theme.vurguHover : Theme.vurgu
+                    }
+                    contentItem: Text {
+                        text: "Kaydet"
+                        color: "#ffffff"
+                        font.family: Theme.fontAilesi
+                        font.bold: true
+                        font.pixelSize: Theme.fontBoyutKucuk
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+                Button {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.girdiYuksekligi + 6
+                    text: "İptal"
+                    onClicked: manuelUrunDialogu.close()
+                    background: Rectangle {
+                        radius: Theme.radiusKucuk
+                        color: parent.hovered ? Theme.tehlikeHover : Theme.tehlike
+                    }
+                    contentItem: Text {
+                        text: "İptal"
+                        color: "#ffffff"
+                        font.family: Theme.fontAilesi
+                        font.bold: true
+                        font.pixelSize: Theme.fontBoyutKucuk
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
                 }
             }
         }
