@@ -18,7 +18,7 @@ Item {
     id: root
 
     property var oturum: null
-    property int baslangicSekmesi: 1   // varsayilan: Giden Tekliflerim
+    property int baslangicSekmesi: 0   // varsayilan: Teklif Ver
 
     signal anaMenuyeDon()
 
@@ -185,34 +185,46 @@ Item {
                 kullaniciId: root.kullaniciId
             }
 
+            // otomatikYukle: false -- StackLayout, gorunur olmayan sekmeleri de
+            // ANINDA olusturur; her biri kendi Component.onCompleted'inda
+            // senkron bir SQL sorgusu atsaydi (eskiden oldugu gibi), modul
+            // acilir acilmaz 6 sorgu ust uste UI thread'ini bloke ederdi.
+            // Bunun yerine yukleme, kullanici sekmeye GERCEKTEN tikladiginda
+            // (asagidaki sayfayiYukle cagrilariyla) yapilir.
             GecmisTekliflerPage {
                 id: gidenTekliflerPage
                 durumFiltresi: ""
                 baslikMetni: "Giden Tekliflerim"
+                otomatikYukle: false
             }
 
             GecmisTekliflerPage {
                 id: alinanTekliflerPage
                 durumFiltresi: "Kabul Edildi"
                 baslikMetni: "Alınan Tekliflerim"
+                otomatikYukle: false
             }
 
             GecmisTekliflerPage {
                 id: bitenTekliflerPage
                 durumFiltresi: "Tamamlandı"
                 baslikMetni: "Biten Tekliflerim"
+                otomatikYukle: false
             }
 
             MusterilerimPage {
                 id: musterilerimPage
+                otomatikYukle: false
             }
 
             UrunlerimPage {
                 id: urunlerimPage
+                otomatikYukle: false
             }
 
             PersonellerimPage {
                 id: personellerimPage
+                otomatikYukle: false
             }
         }
     }

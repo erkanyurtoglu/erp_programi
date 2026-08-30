@@ -4,6 +4,10 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <QSqlDatabase>
+#include <QThread>
+#include <QPointer>
+
+class AramaWorker;
 
 // Database: SQL Server'daki yeni "LiyaErpVeriTabani" veritabanina QODBC ile
 // baglanir ve QML ekranlarinin ihtiyac duydugu sorgulari Q_INVOKABLE metodlar olarak sunar.
@@ -53,10 +57,16 @@ public:
     // Teklif Ver ekrani: musteri/urun arama (canli, kucuk sonuc kumesi -- LIKE ile
     // ilk N eslesme). arama bos ise en son eklenen N kayit donulur (listeyi tamamen
     // bos gostermemek icin).
-    Q_INVOKABLE QVariantList musteriAra(const QString &arama, int limit = 20);
+    //
+    // ONEMLI: Bu ikisi ASYNC calisir (ayri bir thread + ayri SQL baglantisi
+    // uzerinde) -- QML tarafinda sonuc DOGRUDAN donmez, calisma bitince
+    // musteriSonuclariHazir/urunSonuclariHazir sinyali gelir. Boylece yazarken
+    // (veya sayfa acilirken) SQL Server yavas/erisilemez olsa bile UI thread'i
+    // bloke olmaz -- WPF tarafinda da benzer sekilde arka planda calistirilirdi.
+    Q_INVOKABLE void musteriAraBaslat(const QString &arama, int limit = 20);
     // "dil": "TR" veya "EN". EN secilirse UrunAciklamasiEn doner (bossa TR'ye
     // otomatik geri duser, boylece EN cevirisi girilmemis urunler bos gorunmez).
-    Q_INVOKABLE QVariantList urunAra(const QString &arama, int limit = 30, const QString &dil = QString("TR"));
+    Q_INVOKABLE void urunAraBaslat(const QString &arama, int limit = 30, const QString &dil = QString("TR"));
 
     // Yeni bir teklifi (teklifler + teklif_kalemleri + teklif_toplamlari) TEK
     // transaction icinde kaydeder. "teklif" QVariantMap anahtarlari:
@@ -138,6 +148,17 @@ public:
     // Donen: {basarili, dosyaYolu, hata}.
     Q_INVOKABLE QVariantMap satisSozlesmesiOlustur(const QVariantMap &teklif);
 
+    // musteriAraBaslat/urunAraBaslat icin sonuc sinyalleri. "arama" (ve urun icin
+    // "dil") istegi yapan tarafa aynen geri gonderilir; QML tarafi bunu arama
+    // kutusunun O ANKI metniyle karsilastirip eskimis sonuclari gormezden gelir.
+    Q_SIGNAL void musteriSonuclariHazir(const QString &arama, const QVariantList &sonuclar);
+    Q_SIGNAL void urunSonuclariHazir(const QString &arama, const QString &dil, const QVariantList &sonuclar);
+
+    // AramaWorker (ve ana baglanti) tarafindan paylasilan ODBC baglanti-acma mantigi.
+    // "baglantiAdi", ayni isimde birden fazla QSqlDatabase baglantisi acilabilmesi
+    // icin (ana baglanti + arama worker'inin kendi baglantisi) benzersiz olmalidir.
+    static bool baglantiAc(QSqlDatabase &db, const QString &baglantiAdi, QString &hataMesajiOut);
+
 private:
     bool baglan();
     // Ortak WHERE kosullarini (tarih + arama filtresi + durum filtresi) hem COUNT
@@ -156,4 +177,9 @@ private:
     QSqlDatabase m_db;
     bool m_baglantiHazir = false;
     QString m_sonHataMesaji;
+
+    // Firma/urun canli aramasini UI thread'inden ayirmak icin: worker, kendi
+    // QSqlDatabase baglantisiyla bu ayri thread uzerinde yasar (bkz. AramaWorker.h).
+    QThread m_aramaThread;
+    QPointer<AramaWorker> m_aramaWorker;
 };

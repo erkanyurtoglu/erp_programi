@@ -26,7 +26,17 @@ Item {
     property string aramaMetni: ""
     property var rolListesi: []
 
+    // Bkz. MusterilerimPage.qml'deki ayni not: SatisModuluPage tum sekmeleri
+    // ANINDA olusturur, otomatikYukle false ise burada sorgu atilmaz -- yukleme
+    // sekmeye gercekten gecince yapilir.
+    property bool otomatikYukle: true
+
     function sayfayiYukle(sayfaNo) {
+        // rolListesi burada (her sayfa yuklemesinde) da cekiliyor ki hem ilk
+        // acilista hem de otomatikYukle=false oldugu icin sadece sidebar
+        // tiklamasiyla gelen yuklemede (bkz. SatisModuluPage) personel
+        // ekle/duzenle dialogundaki rol secimi her zaman dolu olsun.
+        rolListesi = database.rolListesiGetir()
         const sonuc = database.personelListesiGetir(aramaMetni, sayfaNo, sayfaBoyutu)
         sayfaSonucu = sonuc
         personelListesi.model = []
@@ -34,10 +44,7 @@ Item {
         personelListesi.model = kayitlarListesi
     }
 
-    Component.onCompleted: {
-        rolListesi = database.rolListesiGetir()
-        sayfayiYukle(1)
-    }
+    Component.onCompleted: if (otomatikYukle) sayfayiYukle(1)
 
     Timer {
         id: aramaZamanlayici

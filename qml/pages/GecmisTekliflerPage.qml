@@ -25,6 +25,14 @@ Item {
     property string durumFiltresi: ""
     property string baslikMetni: "Giden Tekliflerim"
 
+    // SatisModuluPage, tum sekmeleri (bu da dahil) StackLayout icinde ANINDA
+    // olusturur -- sekme henuz gorunur olmasa da. otomatikYukle false ise
+    // Component.onCompleted burada sorgu atmaz; yukleme, kullanici bu sekmeye
+    // gercekten tikladiginda (bkz. SatisModuluPage'deki sayfayiYukle cagrisi)
+    // yapilir. Boylece modul acilir acilmaz butun sekmelerin ayni anda,
+    // UI thread'ini bloke eden senkron sorgular atmasi onlenir.
+    property bool otomatikYukle: true
+
     property var sayfaSonucu: ({ kayitlar: [], toplamKayit: 0, toplamSayfa: 1, mevcutSayfa: 1 })
     // ListView'in model'i DOGRUDAN "sayfaSonucu.kayitlar" iç-içe property yoluna
     // degil, duz (flat) bu property'e baglanir. Ic ice property-path binding'in
@@ -62,7 +70,7 @@ Item {
         teklifListesi.model = kayitlarListesi;
     }
 
-    Component.onCompleted: sayfayiYukle(1)
+    Component.onCompleted: if (otomatikYukle) sayfayiYukle(1)
 
     // Arama kutusunda her tus vurusunda degil, kullanici yazmayi biraktiktan
     // kisa bir sure sonra sorgu atiyoruz (WPF tarafindaki DispatcherTimer ile ayni fikir).

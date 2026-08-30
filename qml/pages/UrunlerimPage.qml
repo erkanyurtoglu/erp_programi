@@ -29,6 +29,11 @@ Item {
     property var kayitlarListesi: []
     property string aramaMetni: ""
 
+    // Bkz. MusterilerimPage.qml'deki ayni not: SatisModuluPage tum sekmeleri
+    // ANINDA olusturur, otomatikYukle false ise burada sorgu atilmaz -- yukleme
+    // sekmeye gercekten gecince yapilir.
+    property bool otomatikYukle: true
+
     function paraFormat(deger) {
         return deger.toLocaleString(Qt.locale("tr_TR"), 'f', 2)
     }
@@ -41,7 +46,7 @@ Item {
         urunListesi.model = kayitlarListesi
     }
 
-    Component.onCompleted: sayfayiYukle(1)
+    Component.onCompleted: if (otomatikYukle) sayfayiYukle(1)
 
     Timer {
         id: aramaZamanlayici

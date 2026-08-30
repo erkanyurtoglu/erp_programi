@@ -60,7 +60,7 @@ ApplicationWindow {
 
             onModulSecildi: (modulKodu) => {
                 if (modulKodu === "SATIS")
-                    yiginGorunumu.push(satisModuluBileseni, { baslangicSekmesi: 1 });
+                    yiginGorunumu.push(satisModuluBileseni, { baslangicSekmesi: 0 });
             }
 
             onTeklifVerSecildi: {

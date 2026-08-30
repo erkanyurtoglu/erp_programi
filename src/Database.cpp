@@ -1,4 +1,6 @@
 #include "Database.h"
+#include "AramaWorker.h"
+#include "AramaSorgulari.h"
 
 #include <QSqlQuery>
 #include <QSqlError>
@@ -49,15 +51,28 @@ namespace
 Database::Database(QObject *parent) : QObject(parent)
 {
     m_baglantiHazir = baglan();
+
+    // Arama worker'i kendi thread'ine tasi; baglantisini ANCAK thread fiilen
+    // baslayinca (kendi icinde) acar -- bkz. AramaWorker::baglantiyiAc().
+    m_aramaWorker = new AramaWorker();
+    m_aramaWorker->moveToThread(&m_aramaThread);
+    connect(&m_aramaThread, &QThread::started, m_aramaWorker, &AramaWorker::baglantiyiAc);
+    connect(m_aramaWorker, &AramaWorker::musteriSonucHazir, this, &Database::musteriSonuclariHazir);
+    connect(m_aramaWorker, &AramaWorker::urunSonucHazir, this, &Database::urunSonuclariHazir);
+    connect(&m_aramaThread, &QThread::finished, m_aramaWorker, &QObject::deleteLater);
+    m_aramaThread.start();
 }
 
 Database::~Database()
 {
+    m_aramaThread.quit();
+    m_aramaThread.wait();
+
     if (m_db.isOpen())
         m_db.close();
 }
 
-bool Database::baglan()
+bool Database::baglantiAc(QSqlDatabase &db, const QString &baglantiAdi, QString &hataMesajiOut)
 {
     // Windows'ta genelde birden fazla ODBC surucusu bulunabilir; en yeniden en eskiye
     // dogru sirayla dener, ilk basarili olani kullanir.
@@ -69,7 +84,7 @@ bool Database::baglan()
 
     for (const QString &surucu : surucuAdaylari)
     {
-        m_db = QSqlDatabase::addDatabase("QODBC", "erp_baglantisi");
+        db = QSqlDatabase::addDatabase("QODBC", baglantiAdi);
 
         QString baglantiDizesi;
         if (surucu == "SQL Server")
@@ -88,26 +103,32 @@ bool Database::baglan()
                                   .arg(surucu, SUNUCU, VERITABANI);
         }
 
-        m_db.setDatabaseName(baglantiDizesi);
+        db.setDatabaseName(baglantiDizesi);
 
-        if (m_db.open())
+        if (db.open())
         {
-            qInfo() << "Veritabanina baglanildi. Surucu:" << surucu << "Veritabani:" << VERITABANI;
+            qInfo() << "Veritabanina baglanildi. Surucu:" << surucu << "Veritabani:" << VERITABANI
+                     << "Baglanti:" << baglantiAdi;
             return true;
         }
 
-        m_sonHataMesaji = m_db.lastError().text();
+        hataMesajiOut = db.lastError().text();
 
-        // m_db'yi once bosaltip baglantiyi kapatiyoruz ki removeDatabase() cagrisi
-        // "connection is still in use" uyarisi vermesin (m_db hala o baglantiya
+        // db'yi once bosaltip baglantiyi kapatiyoruz ki removeDatabase() cagrisi
+        // "connection is still in use" uyarisi vermesin (db hala o baglantiya
         // referans tutan tek nesne, ustteki QSqlDatabase::addDatabase donusunden).
-        m_db.close();
-        m_db = QSqlDatabase();
-        QSqlDatabase::removeDatabase("erp_baglantisi");
+        db.close();
+        db = QSqlDatabase();
+        QSqlDatabase::removeDatabase(baglantiAdi);
     }
 
-    qWarning() << "Veritabanina baglanilamadi:" << m_sonHataMesaji;
+    qWarning() << "Veritabanina baglanilamadi (" << baglantiAdi << "):" << hataMesajiOut;
     return false;
+}
+
+bool Database::baglan()
+{
+    return baglantiAc(m_db, "erp_baglantisi", m_sonHataMesaji);
 }
 
 QVariantMap Database::girisYap(const QString &kullaniciAdi, const QString &sifre)
@@ -432,107 +453,20 @@ bool Database::teklifSil(int teklifId)
     return true;
 }
 
-QVariantList Database::musteriAra(const QString &arama, int limit)
+void Database::musteriAraBaslat(const QString &arama, int limit)
 {
-    QVariantList sonuc;
-    if (!m_baglantiHazir)
-        return sonuc;
-
-    const QString aramaTrim = arama.trimmed();
-
-    QSqlQuery query(m_db);
-    if (aramaTrim.isEmpty())
-    {
-        // Arama kutusu bosken listeyi bomboş gostermemek icin en son eklenen
-        // musterileri getiriyoruz (kullanici genelde en yeni firmalarla calisir).
-        query.prepare(QString(
-            "SELECT TOP (%1) MusteriId, FirmaAdi, FirmaAdresi, FirmaTelefonu, FirmaEposta, "
-            "       IlgiliKisi, IlgiliKisiTelefonu "
-            "FROM dbo.musteriler ORDER BY MusteriId DESC").arg(limit));
-    }
-    else
-    {
-        query.prepare(QString(
-            "SELECT TOP (%1) MusteriId, FirmaAdi, FirmaAdresi, FirmaTelefonu, FirmaEposta, "
-            "       IlgiliKisi, IlgiliKisiTelefonu "
-            "FROM dbo.musteriler "
-            "WHERE FirmaAdi LIKE :aramaLike OR IlgiliKisi LIKE :aramaLike "
-            "ORDER BY FirmaAdi").arg(limit));
-        query.bindValue(":aramaLike", "%" + aramaTrim + "%");
-    }
-
-    if (!query.exec())
-    {
-        qWarning() << "musteriAra basarisiz:" << query.lastError().text();
-        return sonuc;
-    }
-
-    while (query.next())
-    {
-        QVariantMap m;
-        m["musteriId"] = query.value("MusteriId").toInt();
-        m["firmaAdi"] = query.value("FirmaAdi").toString();
-        m["firmaAdresi"] = query.value("FirmaAdresi").toString();
-        m["firmaTelefonu"] = query.value("FirmaTelefonu").toString();
-        m["firmaEposta"] = query.value("FirmaEposta").toString();
-        m["ilgiliKisi"] = query.value("IlgiliKisi").toString();
-        m["ilgiliKisiTelefonu"] = query.value("IlgiliKisiTelefonu").toString();
-        sonuc << m;
-    }
-    return sonuc;
+    // Sorgu, UI thread'ini bloke etmemesi icin AramaWorker'in kendi thread'inde
+    // calisir; sonuc musteriSonuclariHazir sinyaliyle asenkron olarak doner.
+    if (m_aramaWorker)
+        QMetaObject::invokeMethod(m_aramaWorker, "musteriAraCalistir", Qt::QueuedConnection,
+                                   Q_ARG(QString, arama), Q_ARG(int, limit));
 }
 
-QVariantList Database::urunAra(const QString &arama, int limit, const QString &dil)
+void Database::urunAraBaslat(const QString &arama, int limit, const QString &dil)
 {
-    QVariantList sonuc;
-    if (!m_baglantiHazir)
-        return sonuc;
-
-    const QString aramaTrim = arama.trimmed();
-    const bool ingilizce = dil.compare("EN", Qt::CaseInsensitive) == 0;
-
-    QSqlQuery query(m_db);
-    if (aramaTrim.isEmpty())
-    {
-        query.prepare(QString(
-            "SELECT TOP (%1) UrunId, UrunKodu, Kategori, UrunAciklamasi, UrunAciklamasiEn, "
-            "       BirimFiyat, ParaBirimi, GuncelMaliyetTL "
-            "FROM dbo.urunler ORDER BY UrunId DESC").arg(limit));
-    }
-    else
-    {
-        query.prepare(QString(
-            "SELECT TOP (%1) UrunId, UrunKodu, Kategori, UrunAciklamasi, UrunAciklamasiEn, "
-            "       BirimFiyat, ParaBirimi, GuncelMaliyetTL "
-            "FROM dbo.urunler "
-            "WHERE UrunKodu LIKE :aramaLike OR UrunAciklamasi LIKE :aramaLike "
-            "   OR UrunAciklamasiEn LIKE :aramaLike "
-            "ORDER BY UrunKodu").arg(limit));
-        query.bindValue(":aramaLike", "%" + aramaTrim + "%");
-    }
-
-    if (!query.exec())
-    {
-        qWarning() << "urunAra basarisiz:" << query.lastError().text();
-        return sonuc;
-    }
-
-    while (query.next())
-    {
-        QVariantMap u;
-        u["urunId"] = query.value("UrunId").toInt();
-        u["urunKodu"] = query.value("UrunKodu").toString();
-        u["kategori"] = query.value("Kategori").toString();
-        const QString aciklamaTr = query.value("UrunAciklamasi").toString();
-        const QString aciklamaEn = query.value("UrunAciklamasiEn").toString();
-        // EN seciliyse ve EN cevirisi girilmisse onu, yoksa TR'ye geri duserek gosterir.
-        u["urunAciklamasi"] = (ingilizce && !aciklamaEn.trimmed().isEmpty()) ? aciklamaEn : aciklamaTr;
-        u["birimFiyat"] = query.value("BirimFiyat").toDouble();
-        u["paraBirimi"] = query.value("ParaBirimi").toString();
-        u["maliyet"] = query.value("GuncelMaliyetTL").isNull() ? 0.0 : query.value("GuncelMaliyetTL").toDouble();
-        sonuc << u;
-    }
-    return sonuc;
+    if (m_aramaWorker)
+        QMetaObject::invokeMethod(m_aramaWorker, "urunAraCalistir", Qt::QueuedConnection,
+                                   Q_ARG(QString, arama), Q_ARG(int, limit), Q_ARG(QString, dil));
 }
 
 QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
@@ -626,12 +560,16 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
         {
             // Manuel kalem: urunler tablosunda bu teklife ozel, kalici olmayan bir
             // satir olusturup UrunId'sini kullaniyoruz (FOREIGN KEY zorunlulugu var).
+            // Kod'u "MANUEL-<teklifId>" seklinde teklife baglayarak izlenebilir
+            // kiliyoruz; urunAra/urunListesiGetir bu "MANUEL%" kodlu satirlari
+            // ürün kataloğu aramalarindan/listelerinden dislar, boylece bu teklife
+            // ozel gecici satirlar normal urun kataloğunu kirletmez.
             QSqlQuery manuelUrun(m_db);
             manuelUrun.prepare(
                 "INSERT INTO dbo.urunler (UrunKodu, UrunAciklamasi, BirimFiyat, ParaBirimi) "
                 "OUTPUT INSERTED.UrunId "
                 "VALUES (:kod, :aciklama, :birimFiyat, :paraBirimi)");
-            manuelUrun.bindValue(":kod", kalem.value("urunKodu", "MANUEL").toString());
+            manuelUrun.bindValue(":kod", QString("MANUEL-%1").arg(teklifId));
             manuelUrun.bindValue(":aciklama", kalem.value("aciklama").toString());
             manuelUrun.bindValue(":birimFiyat", kalem.value("birimFiyat", 0).toDouble());
             manuelUrun.bindValue(":paraBirimi", kalem.value("paraBirimi", "TL").toString());
@@ -937,9 +875,11 @@ QVariantMap Database::urunListesiGetir(const QString &arama, int sayfaNo, int sa
         return sonuc;
 
     const QString aramaTrim = arama.trimmed();
-    QString whereClause;
+    // "MANUEL-<teklifId>" kodlu satirlar tekliflere ozel gecici kayitlardir,
+    // urun kataloğu listesinde gorunmemeli (bkz. urunAra ustundeki not).
+    QString whereClause = "WHERE UrunKodu NOT LIKE N'MANUEL%'";
     if (!aramaTrim.isEmpty())
-        whereClause = "WHERE UrunKodu LIKE :aramaLike OR UrunAciklamasi LIKE :aramaLike OR Kategori LIKE :aramaLike";
+        whereClause += " AND (UrunKodu LIKE :aramaLike OR UrunAciklamasi LIKE :aramaLike OR Kategori LIKE :aramaLike)";
 
     QSqlQuery sayimQuery(m_db);
     sayimQuery.prepare(QString("SELECT COUNT(*) FROM dbo.urunler %1").arg(whereClause));
@@ -1458,6 +1398,7 @@ QVariantMap Database::teklifPdfOlustur(int teklifId)
     const QString teslimatYeri = basQuery.value("TeslimatYeri").toString();
     const QString personelAdSoyad = basQuery.value("PersonelAdSoyad").toString();
     const QString paraBirimi = basQuery.value("ParaBirimi").toString();
+    const bool ingilizce = basQuery.value("Dil").toString().compare("EN", Qt::CaseInsensitive) == 0;
     const QString olusturmaTarihi = tarihStr(basQuery.value("OlusturmaTarihi"));
     const double genelIndirimOrani = basQuery.value("GenelIndirimOrani").toDouble();
     const double kdvOrani = basQuery.value("KdvOrani").toDouble();
@@ -1496,36 +1437,64 @@ QVariantMap Database::teklifPdfOlustur(int teklifId)
             .arg(QString::number(kalemQuery.value("ToplamTutar").toDouble(), 'f', 2));
     }
 
+    // Basliklar Dil alanina (TR/EN) gore secilir; kalemlerdeki UrunAciklamasi zaten
+    // kaydedilirken secili dile gore yazilmisti (bkz. urunAra), burada ayrica
+    // cevrilmesine gerek yok. Parasal alanlarda hep "TL" yazmak yerine teklifin
+    // gercek ParaBirimi'ni kullaniyoruz (teklifKaydet artik tum kalem/toplam
+    // tutarlarini kaydedilecegi para birimine cevirip kaydediyor).
+    const QString basliklarHtml = ingilizce
+        ? "<h2 style='margin-bottom:0;'>LİYA LABORATORY DEVICES</h2>"
+        : "<h2 style='margin-bottom:0;'>LİYA LABORATUVAR CİHAZLARI</h2>";
+    const QString etkTeklifNo = ingilizce ? "Quotation No" : "Teklif No";
+    const QString etkTarih = ingilizce ? "Date" : "Tarih";
+    const QString etkFirma = ingilizce ? "Customer" : "Firma";
+    const QString etkIlgiliKisi = ingilizce ? "Contact Person" : "İlgili Kişi";
+    const QString etkTeklifiYapan = ingilizce ? "Prepared By" : "Teklifi Yapan";
+    const QString etkTeslimatSekli = ingilizce ? "Delivery Method" : "Teslimat Şekli";
+    const QString etkTeslimatYeri = ingilizce ? "Delivery Location" : "Teslimat Yeri";
+    const QString etkParaBirimi = ingilizce ? "Currency" : "Para Birimi";
+    const QString etkUrunKodu = ingilizce ? "Product Code" : "Ürün Kodu";
+    const QString etkAciklama = ingilizce ? "Description" : "Açıklama";
+    const QString etkAdet = ingilizce ? "Qty" : "Adet";
+    const QString etkBirimFiyat = ingilizce ? "Unit Price (Discounted)" : "Birim Fiyat (İndirimli)";
+    const QString etkToplam = ingilizce ? "Total" : "Toplam";
+    const QString etkIndirimOrani = ingilizce ? "Discount Rate" : "İndirim Oranı";
+    const QString etkIndirimliToplam = ingilizce ? "Discounted Subtotal" : "İndirimli Toplam";
+    const QString etkKdv = ingilizce ? "VAT" : "KDV";
+    const QString etkPaketleme = ingilizce ? "Packaging Fee" : "Paketleme Ücreti";
+    const QString etkTasima = ingilizce ? "Shipping Fee" : "Taşıma Ücreti";
+    const QString etkGenelToplam = ingilizce ? "GRAND TOTAL" : "GENEL TOPLAM";
+
     const QString html = QString(
         "<html><body style='font-family:Segoe UI, Arial; font-size:12px; color:#111;'>"
-        "<h2 style='margin-bottom:0;'>LİYA LABORATUVAR CİHAZLARI</h2>"
-        "<div style='color:#555;margin-bottom:16px;'>Teklif No: <b>#%1</b> &nbsp;&nbsp; Tarih: <b>%2</b></div>"
+        "%20"
+        "<div style='color:#555;margin-bottom:16px;'>%21: <b>#%1</b> &nbsp;&nbsp; %22: <b>%2</b></div>"
         "<table style='width:100%;margin-bottom:16px;'>"
         "<tr><td style='width:50%;vertical-align:top;'>"
-        "<b>Firma:</b> %3<br/>%4<br/>"
-        "<b>İlgili Kişi:</b> %5 %6<br/>%7"
+        "<b>%23:</b> %3<br/>%4<br/>"
+        "<b>%24:</b> %5 %6<br/>%7"
         "</td>"
         "<td style='width:50%;vertical-align:top;'>"
-        "<b>Teklifi Yapan:</b> %8<br/>"
-        "<b>Teslimat Şekli:</b> %9<br/>"
-        "<b>Teslimat Yeri:</b> %10<br/>"
-        "<b>Para Birimi:</b> %11"
+        "<b>%25:</b> %8<br/>"
+        "<b>%26:</b> %9<br/>"
+        "<b>%27:</b> %10<br/>"
+        "<b>%28:</b> %11"
         "</td></tr></table>"
         "<table style='width:100%;border-collapse:collapse;margin-bottom:16px;'>"
         "<tr style='background:#f0f0f0;'>"
-        "<th style='padding:6px 8px;text-align:left;'>Ürün Kodu</th>"
-        "<th style='padding:6px 8px;text-align:left;'>Açıklama</th>"
-        "<th style='padding:6px 8px;'>Adet</th>"
-        "<th style='padding:6px 8px;text-align:right;'>Birim Fiyat (İndirimli)</th>"
-        "<th style='padding:6px 8px;text-align:right;'>Toplam</th>"
+        "<th style='padding:6px 8px;text-align:left;'>%29</th>"
+        "<th style='padding:6px 8px;text-align:left;'>%30</th>"
+        "<th style='padding:6px 8px;'>%31</th>"
+        "<th style='padding:6px 8px;text-align:right;'>%32</th>"
+        "<th style='padding:6px 8px;text-align:right;'>%33</th>"
         "</tr>%12</table>"
         "<table style='margin-left:auto;width:320px;'>"
-        "<tr><td>İndirim Oranı</td><td style='text-align:right;'>%13%</td></tr>"
-        "<tr><td>İndirimli Toplam</td><td style='text-align:right;'>%14 TL</td></tr>"
-        "<tr><td>KDV (%15%)</td><td style='text-align:right;'>%16 TL</td></tr>"
-        "<tr><td>Paketleme Ücreti</td><td style='text-align:right;'>%17 TL</td></tr>"
-        "<tr><td>Taşıma Ücreti</td><td style='text-align:right;'>%18 TL</td></tr>"
-        "<tr style='font-weight:bold;font-size:14px;'><td>GENEL TOPLAM</td><td style='text-align:right;'>%19 TL</td></tr>"
+        "<tr><td>%34</td><td style='text-align:right;'>%13%</td></tr>"
+        "<tr><td>%35</td><td style='text-align:right;'>%14 %11</td></tr>"
+        "<tr><td>%36 (%15%)</td><td style='text-align:right;'>%16 %11</td></tr>"
+        "<tr><td>%37</td><td style='text-align:right;'>%17 %11</td></tr>"
+        "<tr><td>%38</td><td style='text-align:right;'>%18 %11</td></tr>"
+        "<tr style='font-weight:bold;font-size:14px;'><td>%39</td><td style='text-align:right;'>%19 %11</td></tr>"
         "</table>"
         "</body></html>")
         .arg(teklifId)
@@ -1546,7 +1515,27 @@ QVariantMap Database::teklifPdfOlustur(int teklifId)
         .arg(QString::number(kdvTutari, 'f', 2))
         .arg(QString::number(paketlemeUcreti, 'f', 2))
         .arg(QString::number(tasimaUcreti, 'f', 2))
-        .arg(QString::number(genelToplam, 'f', 2));
+        .arg(QString::number(genelToplam, 'f', 2))
+        .arg(basliklarHtml)
+        .arg(etkTeklifNo)
+        .arg(etkTarih)
+        .arg(etkFirma)
+        .arg(etkIlgiliKisi)
+        .arg(etkTeklifiYapan)
+        .arg(etkTeslimatSekli)
+        .arg(etkTeslimatYeri)
+        .arg(etkParaBirimi)
+        .arg(etkUrunKodu)
+        .arg(etkAciklama)
+        .arg(etkAdet)
+        .arg(etkBirimFiyat)
+        .arg(etkToplam)
+        .arg(etkIndirimOrani)
+        .arg(etkIndirimliToplam)
+        .arg(etkKdv)
+        .arg(etkPaketleme)
+        .arg(etkTasima)
+        .arg(etkGenelToplam);
 
     const QString klasor = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/Liya ERP Teklifler";
     QDir().mkpath(klasor);
@@ -1636,33 +1625,53 @@ QVariantMap Database::satisSozlesmesiOlustur(const QVariantMap &teklif)
     const QString teslimatSekli = teklif.value("teslimatSekli").toString();
     const QString teslimatYeri = teklif.value("teslimatYeri").toString();
     const double genelToplam = teklif.value("genelToplam").toDouble();
+    const bool ingilizce = teklif.value("dil").toString().compare("EN", Qt::CaseInsensitive) == 0;
+
+    const QString baslikHtml = ingilizce ? "SALES AGREEMENT" : "SATIŞ SÖZLEŞMESİ";
+    const QString etkTarih = ingilizce ? "Date" : "Tarih";
+    const QString etkSatici = ingilizce ? "Seller" : "Satıcı";
+    const QString etkAlici = ingilizce ? "Buyer" : "Alıcı";
+    const QString etkIlgiliKisi = ingilizce ? "Contact Person" : "İlgili Kişi";
+    const QString etkAcikMetin = ingilizce
+        ? "The products/services listed below are subject to sale under terms mutually agreed by the parties:"
+        : "Aşağıda belirtilen ürün/hizmetler, taraflar arasında mutabık kalınan şartlarla satışa konu edilmiştir:";
+    const QString etkAciklama = ingilizce ? "Description" : "Açıklama";
+    const QString etkAdet = ingilizce ? "Qty" : "Adet";
+    const QString etkBirimFiyat = ingilizce ? "Unit Price" : "Birim Fiyat";
+    const QString etkToplam = ingilizce ? "Total" : "Toplam";
+    const QString etkTeslimatSekli = ingilizce ? "Delivery Method" : "Teslimat Şekli";
+    const QString etkTeslimatYeri = ingilizce ? "Delivery Location" : "Teslimat Yeri";
+    const QString etkParaBirimi = ingilizce ? "Currency" : "Para Birimi";
+    const QString etkGenelToplam = ingilizce ? "GRAND TOTAL" : "GENEL TOPLAM";
+    const QString etkKapanis = ingilizce
+        ? "The parties accept and undertake the terms of this agreement."
+        : "Taraflar işbu sözleşme şartlarını kabul ve taahhüt eder.";
 
     const QString html = QString(
         "<html><body style='font-family:Segoe UI, Arial; font-size:12px; color:#111;'>"
-        "<h2 style='margin-bottom:0;'>SATIŞ SÖZLEŞMESİ</h2>"
-        "<div style='color:#555;margin-bottom:16px;'>Tarih: <b>%1</b></div>"
-        "<p><b>Satıcı:</b> Liya Laboratuvar Cihazları<br/>"
-        "<b>Alıcı:</b> %2<br/>%3"
-        "<b>İlgili Kişi:</b> %4</p>"
-        "<p>Aşağıda belirtilen ürün/hizmetler, taraflar arasında mutabık kalınan"
-        " şartlarla satışa konu edilmiştir:</p>"
+        "<h2 style='margin-bottom:0;'>%10</h2>"
+        "<div style='color:#555;margin-bottom:16px;'>%11: <b>%1</b></div>"
+        "<p><b>%12:</b> Liya Laboratuvar Cihazları<br/>"
+        "<b>%13:</b> %2<br/>%3"
+        "<b>%14:</b> %4</p>"
+        "<p>%15</p>"
         "<table style='width:100%;border-collapse:collapse;margin-bottom:16px;'>"
         "<tr style='background:#f0f0f0;'>"
-        "<th style='padding:6px 8px;text-align:left;'>Açıklama</th>"
-        "<th style='padding:6px 8px;'>Adet</th>"
-        "<th style='padding:6px 8px;text-align:right;'>Birim Fiyat</th>"
-        "<th style='padding:6px 8px;text-align:right;'>Toplam</th>"
+        "<th style='padding:6px 8px;text-align:left;'>%16</th>"
+        "<th style='padding:6px 8px;'>%17</th>"
+        "<th style='padding:6px 8px;text-align:right;'>%18</th>"
+        "<th style='padding:6px 8px;text-align:right;'>%19</th>"
         "</tr>%5</table>"
-        "<p><b>Teslimat Şekli:</b> %6<br/>"
-        "<b>Teslimat Yeri:</b> %7<br/>"
-        "<b>Para Birimi:</b> %8</p>"
+        "<p><b>%20:</b> %6<br/>"
+        "<b>%21:</b> %7<br/>"
+        "<b>%22:</b> %8</p>"
         "<table style='margin-left:auto;width:260px;'>"
-        "<tr style='font-weight:bold;font-size:14px;'><td>GENEL TOPLAM</td><td style='text-align:right;'>%9 %8</td></tr>"
+        "<tr style='font-weight:bold;font-size:14px;'><td>%23</td><td style='text-align:right;'>%9 %8</td></tr>"
         "</table>"
-        "<p style='margin-top:32px;'>Taraflar işbu sözleşme şartlarını kabul ve taahhüt eder.</p>"
+        "<p style='margin-top:32px;'>%24</p>"
         "<table style='width:100%;margin-top:24px;'>"
-        "<tr><td style='width:50%;'>Satıcı<br/><br/>__________________</td>"
-        "<td style='width:50%;'>Alıcı<br/><br/>__________________</td></tr>"
+        "<tr><td style='width:50%;'>%12<br/><br/>__________________</td>"
+        "<td style='width:50%;'>%13<br/><br/>__________________</td></tr>"
         "</table>"
         "</body></html>")
         .arg(bugununTarihi)
@@ -1673,7 +1682,22 @@ QVariantMap Database::satisSozlesmesiOlustur(const QVariantMap &teklif)
         .arg(teslimatSekli.toHtmlEscaped())
         .arg(teslimatYeri.toHtmlEscaped())
         .arg(paraBirimi)
-        .arg(QString::number(genelToplam, 'f', 2));
+        .arg(QString::number(genelToplam, 'f', 2))
+        .arg(baslikHtml)
+        .arg(etkTarih)
+        .arg(etkSatici)
+        .arg(etkAlici)
+        .arg(etkIlgiliKisi)
+        .arg(etkAcikMetin)
+        .arg(etkAciklama)
+        .arg(etkAdet)
+        .arg(etkBirimFiyat)
+        .arg(etkToplam)
+        .arg(etkTeslimatSekli)
+        .arg(etkTeslimatYeri)
+        .arg(etkParaBirimi)
+        .arg(etkGenelToplam)
+        .arg(etkKapanis);
 
     const QString klasor = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/Liya ERP Teklifler";
     QDir().mkpath(klasor);

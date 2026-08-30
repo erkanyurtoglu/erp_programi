@@ -31,6 +31,11 @@ QtObject {
     readonly property color metinSoluk: "#6b7280"      // Daha az onemli / placeholder
     readonly property color metinCokSoluk: "#4b5563"   // En dusuk vurgulu (tablo basligi vb.)
 
+    // --- Yukseltilmis / vurgulu yuzeyler (ozet kartlari, one cikan tutarlar icin) ---
+    readonly property color panelYukseltilmis: "#161c2c"       // Vurgu rengine yakin, panel'den bir tık daha aydinlik zemin
+    readonly property color vurguZeminSoluk: "#182338"         // Vurgu renginin çok soluk, dolgu olarak kullanilabilecek versiyonu
+    readonly property color kenarlikVurguSoluk: "#26436b"      // Vurgu renginin soluk kenarlik versiyonu (aktif olmayan ama one cikan kartlar icin)
+
     // --- Durum renkleri ---
     readonly property color basari: "#16a34a"
     readonly property color basariAcik: "#4ade80"

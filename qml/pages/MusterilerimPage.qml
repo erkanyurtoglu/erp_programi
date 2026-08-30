@@ -26,6 +26,13 @@ Item {
     property var kayitlarListesi: []
     property string aramaMetni: ""
 
+    // SatisModuluPage tum sekmeleri (bu da dahil) StackLayout icinde ANINDA
+    // olusturur -- gorunmese bile. otomatikYukle false ise onCompleted burada
+    // sorgu atmaz; yukleme kullanici bu sekmeye gercekten gecince yapilir
+    // (bkz. SatisModuluPage), boylece modul acilirken tum sekmelerin ayni anda
+    // UI thread'ini bloke eden senkron sorgu atmasi onlenir.
+    property bool otomatikYukle: true
+
     function sayfayiYukle(sayfaNo) {
         const sonuc = database.musteriListesiGetir(aramaMetni, sayfaNo, sayfaBoyutu)
         sayfaSonucu = sonuc
@@ -34,7 +41,7 @@ Item {
         musteriListesi.model = kayitlarListesi
     }
 
-    Component.onCompleted: sayfayiYukle(1)
+    Component.onCompleted: if (otomatikYukle) sayfayiYukle(1)
 
     Timer {
         id: aramaZamanlayici

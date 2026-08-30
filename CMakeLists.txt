@@ -14,6 +14,10 @@ qt_add_executable(erp_programi
     main.cpp
     src/Database.h
     src/Database.cpp
+    src/AramaWorker.h
+    src/AramaWorker.cpp
+    src/AramaSorgulari.h
+    src/AramaSorgulari.cpp
 )
 
 # Theme.qml bir "pragma Singleton" dosyasidir; QML tarafinda "Theme.xxx" olarak
