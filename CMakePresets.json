@@ -13,12 +13,27 @@
         "CMAKE_MAKE_PROGRAM": "C:/Qt/Tools/Ninja/ninja.exe",
         "CMAKE_BUILD_TYPE": "Debug"
       }
+    },
+    {
+      "name": "qt-msvc",
+      "displayName": "Qt 6.7.3 MSVC 64-bit (WebEngine)",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build-msvc",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "C:/Qt/6.7.3/msvc2019_64"
+      }
     }
   ],
   "buildPresets": [
     {
       "name": "qt-mingw",
       "configurePreset": "qt-mingw"
+    },
+    {
+      "name": "qt-msvc",
+      "configurePreset": "qt-msvc",
+      "configuration": "Debug"
     }
   ]
 }

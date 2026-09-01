@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\3bf5e0187499f58affb9f1860c68a52d\all_qmllint_json.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\all_qmllint_json" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{E0245DF5-D133-3724-BBFE-DC213B4B94F1}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,400 @@
+
+---
+events:
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineSystem.cmake:205 (message)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      The system is: Windows - 10.0.26200 - AMD64
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCXXCompiler.cmake:126 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" succeeded.
+      Compiler:  
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      .NET Framework i├ğin MSBuild s├╝r├╝m 17.14.10+8b8e13593
+      Olu┼şturma ba┼şlat─▒ld─▒: 1.09.2026 12:10:38.
+      
+      1 d├╝─ş├╝m├╝nde "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\3.30.5\\CompilerIdCXX\\CompilerIdCXX.vcxproj" projesi (varsay─▒lan hedefler).
+      PrepareForBuild:
+        "Debug\\" dizini olu┼şturuluyor.
+        Yap─▒land─▒r─▒lm─▒┼ş ├ğ─▒k─▒┼ş etkinle┼ştirildi. Derleyici tan─▒lamas─▒n─▒n bi├ğimlendirmesi hata hiyerar┼şisini yans─▒t─▒r. Daha fazla ayr─▒nt─▒ i├ğin bkz. https://aka.ms/cpp/structured-output.
+        "Debug\\CompilerIdCXX.tlog\\" dizini olu┼şturuluyor.
+      InitializeBuildStatus:
+        "AlwaysCreate" belirtildi─şi i├ğin "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild" olu┼şturuluyor.
+        "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild" ├Â─şesine eri┼şiliyor.
+      ClCompile:
+        C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc143.pdb" /external:W0 /Gd /TP /FC /errorReport:queue CMakeCXXCompilerId.cpp
+        CMakeCXXCompilerId.cpp
+      Link:
+        C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:".\\CompilerIdCXX.exe" /INCREMENTAL:NO /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /PDB:".\\CompilerIdCXX.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:".\\CompilerIdCXX.lib" /MACHINE:X64 Debug\\CMakeCXXCompilerId.obj
+        CompilerIdCXX.vcxproj -> C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\3.30.5\\CompilerIdCXX\\CompilerIdCXX.exe
+      PostBuildEvent:
+        for %%i in (cl.exe) do @echo CMAKE_CXX_COMPILER=%%~$PATH:i
+        :VCEnd
+        CMAKE_CXX_COMPILER=C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe
+      FinalizeBuildStatus:
+        "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild" dosyas─▒ siliniyor.
+        "Debug\\CompilerIdCXX.tlog\\CompilerIdCXX.lastbuildstate" ├Â─şesine eri┼şiliyor.
+      "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\3.30.5\\CompilerIdCXX\\CompilerIdCXX.vcxproj" Projesini Olu┼şturma ─░┼şlemi Tamamland─▒ (varsay─▒lan hedefler).
+      
+      Olu┼şturma ba┼şar─▒l─▒ oldu.
+          0 Uyar─▒
+          0 Hata
+      
+      Ge├ğen S├╝re 00:00:00.82
+      
+      
+      Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.exe"
+      
+      Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.vcxproj"
+      
+      The CXX compiler identification is MSVC, found in:
+        C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/3.30.5/CompilerIdCXX/CompilerIdCXX.exe
+      
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompilerABI.cmake:74 (try_compile)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:2 (project)"
+    checks:
+      - "Detecting CXX compiler ABI info"
+    directories:
+      source: "C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-z3uy42"
+      binary: "C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-z3uy42"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /EHsc"
+      CMAKE_CXX_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
+      CMAKE_CXX_SCAN_FOR_MODULES: "OFF"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+    buildResult:
+      variable: "CMAKE_CXX_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-z3uy42'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_7db65.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        .NET Framework i├ğin MSBuild s├╝r├╝m 17.14.10+8b8e13593
+        Olu┼şturma ba┼şlat─▒ld─▒: 1.09.2026 12:10:39.
+        
+        1 d├╝─ş├╝m├╝nde "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-z3uy42\\cmTC_7db65.vcxproj" projesi (varsay─▒lan hedefler).
+        PrepareForBuild:
+          "cmTC_7db65.dir\\Debug\\" dizini olu┼şturuluyor.
+          Yap─▒land─▒r─▒lm─▒┼ş ├ğ─▒k─▒┼ş etkinle┼ştirildi. Derleyici tan─▒lamas─▒n─▒n bi├ğimlendirmesi hata hiyerar┼şisini yans─▒t─▒r. Daha fazla ayr─▒nt─▒ i├ğin bkz. https://aka.ms/cpp/structured-output.
+          "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-z3uy42\\Debug\\" dizini olu┼şturuluyor.
+          "cmTC_7db65.dir\\Debug\\cmTC_7db65.tlog\\" dizini olu┼şturuluyor.
+        InitializeBuildStatus:
+          "AlwaysCreate" belirtildi─şi i├ğin "cmTC_7db65.dir\\Debug\\cmTC_7db65.tlog\\unsuccessfulbuild" olu┼şturuluyor.
+          "cmTC_7db65.dir\\Debug\\cmTC_7db65.tlog\\unsuccessfulbuild" ├Â─şesine eri┼şiliyor.
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_7db65.dir\\Debug\\\\" /Fd"cmTC_7db65.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Qt\\Tools\\CMake_64\\share\\cmake-3.30\\Modules\\CMakeCXXCompilerABI.cpp"
+          x64 i├ğin Microsoft (R) C/C++ ─░yile┼ştirmeli Derleyicisi S├╝r├╝m 19.44.35209
+          Telif Hakk─▒ (C) Microsoft Corporation. T├╝m haklar─▒ sakl─▒d─▒r.
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_7db65.dir\\Debug\\\\" /Fd"cmTC_7db65.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Qt\\Tools\\CMake_64\\share\\cmake-3.30\\Modules\\CMakeCXXCompilerABI.cpp"
+          CMakeCXXCompilerABI.cpp
+        Link:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-z3uy42\\Debug\\cmTC_7db65.exe" /INCREMENTAL /ILK:"cmTC_7db65.dir\\Debug\\cmTC_7db65.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-z3uy42/Debug/cmTC_7db65.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-z3uy42/Debug/cmTC_7db65.lib" /MACHINE:X64  /machine:x64 cmTC_7db65.dir\\Debug\\CMakeCXXCompilerABI.obj
+          cmTC_7db65.vcxproj -> C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-z3uy42\\Debug\\cmTC_7db65.exe
+        FinalizeBuildStatus:
+          "cmTC_7db65.dir\\Debug\\cmTC_7db65.tlog\\unsuccessfulbuild" dosyas─▒ siliniyor.
+          "cmTC_7db65.dir\\Debug\\cmTC_7db65.tlog\\cmTC_7db65.lastbuildstate" ├Â─şesine eri┼şiliyor.
+        "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-z3uy42\\cmTC_7db65.vcxproj" Projesini Olu┼şturma ─░┼şlemi Tamamland─▒ (varsay─▒lan hedefler).
+        
+        Olu┼şturma ba┼şar─▒l─▒ oldu.
+            0 Uyar─▒
+            0 Hata
+        
+        Ge├ğen S├╝re 00:00:00.90
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompilerABI.cmake:218 (message)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      Parsed CXX implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(\\.[a-z]+)?|link\\.exe|lld-link(\\.exe)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(\\.[a-z]+)?|link\\.exe|lld-link(\\.exe)?))("|,| |$)]
+        linker tool for 'CXX': C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/link.exe
+        implicit libs: []
+        implicit objs: []
+        implicit dirs: []
+        implicit fwks: []
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Internal/CMakeDetermineLinkerId.cmake:40 (message)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompilerABI.cmake:255 (cmake_determine_linker_id)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      Running the CXX compiler's linker: "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/link.exe" "-v"
+      Microsoft (R) Incremental Linker Version 14.44.35209.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CheckCXXSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/FindThreads.cmake:99 (CHECK_CXX_SOURCE_COMPILES)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/FindThreads.cmake:163 (_threads_check_libc)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeFindDependencyMacro.cmake:76 (find_package)"
+      - "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/QtPublicDependencyHelpers.cmake:36 (find_dependency)"
+      - "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/Qt6Dependencies.cmake:27 (_qt_internal_find_third_party_dependencies)"
+      - "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/Qt6Config.cmake:124 (include)"
+      - "CMakeLists.txt:9 (find_package)"
+    checks:
+      - "Performing Test CMAKE_HAVE_LIBC_PTHREAD"
+    directories:
+      source: "C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-0q9mu2"
+      binary: "C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-0q9mu2"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /EHsc"
+      CMAKE_CXX_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MODULE_PATH: "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6;C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/3rdparty/extra-cmake-modules/find-modules;C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/3rdparty/kwin"
+    buildResult:
+      variable: "CMAKE_HAVE_LIBC_PTHREAD"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-0q9mu2'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_56d53.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        .NET Framework i├ğin MSBuild s├╝r├╝m 17.14.10+8b8e13593
+        Olu┼şturma ba┼şlat─▒ld─▒: 1.09.2026 12:10:41.
+        
+        1 d├╝─ş├╝m├╝nde "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-0q9mu2\\cmTC_56d53.vcxproj" projesi (varsay─▒lan hedefler).
+        PrepareForBuild:
+          "cmTC_56d53.dir\\Debug\\" dizini olu┼şturuluyor.
+          Yap─▒land─▒r─▒lm─▒┼ş ├ğ─▒k─▒┼ş etkinle┼ştirildi. Derleyici tan─▒lamas─▒n─▒n bi├ğimlendirmesi hata hiyerar┼şisini yans─▒t─▒r. Daha fazla ayr─▒nt─▒ i├ğin bkz. https://aka.ms/cpp/structured-output.
+          "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-0q9mu2\\Debug\\" dizini olu┼şturuluyor.
+          "cmTC_56d53.dir\\Debug\\cmTC_56d53.tlog\\" dizini olu┼şturuluyor.
+        InitializeBuildStatus:
+          "AlwaysCreate" belirtildi─şi i├ğin "cmTC_56d53.dir\\Debug\\cmTC_56d53.tlog\\unsuccessfulbuild" olu┼şturuluyor.
+          "cmTC_56d53.dir\\Debug\\cmTC_56d53.tlog\\unsuccessfulbuild" ├Â─şesine eri┼şiliyor.
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /std:c++17 /Fo"cmTC_56d53.dir\\Debug\\\\" /Fd"cmTC_56d53.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-0q9mu2\\src.cxx"
+          x64 i├ğin Microsoft (R) C/C++ ─░yile┼ştirmeli Derleyicisi S├╝r├╝m 19.44.35209
+          Telif Hakk─▒ (C) Microsoft Corporation. T├╝m haklar─▒ sakl─▒d─▒r.
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /std:c++17 /Fo"cmTC_56d53.dir\\Debug\\\\" /Fd"cmTC_56d53.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-0q9mu2\\src.cxx"
+          src.cxx
+        C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-0q9mu2\\src.cxx(1,10): error C1083: i├ğerme dosyas─▒ a├ğ─▒lam─▒yor: 'pthread.h': No such file or directory [C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-0q9mu2\\cmTC_56d53.vcxproj]
+        "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-0q9mu2\\cmTC_56d53.vcxproj" Projesini Olu┼şturma ─░┼şlemi Tamamland─▒ (varsay─▒lan hedefler) -- BA┼ŞARISIZ OLDU.
+        
+        Olu┼şturma BA┼ŞARISIZ OLDU.
+        
+        "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-0q9mu2\\cmTC_56d53.vcxproj" (varsay─▒lan hedef) (1) ->
+        (ClCompile hedefi) -> 
+          C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-0q9mu2\\src.cxx(1,10): error C1083: i├ğerme dosyas─▒ a├ğ─▒lam─▒yor: 'pthread.h': No such file or directory [C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-0q9mu2\\cmTC_56d53.vcxproj]
+        
+            0 Uyar─▒
+            1 Hata
+        
+        Ge├ğen S├╝re 00:00:00.73
+        
+      exitCode: 1
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CheckLibraryExists.cmake:69 (try_compile)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/FindThreads.cmake:112 (CHECK_LIBRARY_EXISTS)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/FindThreads.cmake:175 (_threads_check_lib)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeFindDependencyMacro.cmake:76 (find_package)"
+      - "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/QtPublicDependencyHelpers.cmake:36 (find_dependency)"
+      - "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/Qt6Dependencies.cmake:27 (_qt_internal_find_third_party_dependencies)"
+      - "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/Qt6Config.cmake:124 (include)"
+      - "CMakeLists.txt:9 (find_package)"
+    checks:
+      - "Looking for pthread_create in pthreads"
+    directories:
+      source: "C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-g4nmbo"
+      binary: "C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-g4nmbo"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /EHsc"
+      CMAKE_CXX_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MODULE_PATH: "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6;C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/3rdparty/extra-cmake-modules/find-modules;C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/3rdparty/kwin"
+    buildResult:
+      variable: "CMAKE_HAVE_PTHREADS_CREATE"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-g4nmbo'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_cbbb6.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        .NET Framework i├ğin MSBuild s├╝r├╝m 17.14.10+8b8e13593
+        Olu┼şturma ba┼şlat─▒ld─▒: 1.09.2026 12:10:42.
+        
+        1 d├╝─ş├╝m├╝nde "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-g4nmbo\\cmTC_cbbb6.vcxproj" projesi (varsay─▒lan hedefler).
+        PrepareForBuild:
+          "cmTC_cbbb6.dir\\Debug\\" dizini olu┼şturuluyor.
+          Yap─▒land─▒r─▒lm─▒┼ş ├ğ─▒k─▒┼ş etkinle┼ştirildi. Derleyici tan─▒lamas─▒n─▒n bi├ğimlendirmesi hata hiyerar┼şisini yans─▒t─▒r. Daha fazla ayr─▒nt─▒ i├ğin bkz. https://aka.ms/cpp/structured-output.
+          "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-g4nmbo\\Debug\\" dizini olu┼şturuluyor.
+          "cmTC_cbbb6.dir\\Debug\\cmTC_cbbb6.tlog\\" dizini olu┼şturuluyor.
+        InitializeBuildStatus:
+          "AlwaysCreate" belirtildi─şi i├ğin "cmTC_cbbb6.dir\\Debug\\cmTC_cbbb6.tlog\\unsuccessfulbuild" olu┼şturuluyor.
+          "cmTC_cbbb6.dir\\Debug\\cmTC_cbbb6.tlog\\unsuccessfulbuild" ├Â─şesine eri┼şiliyor.
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /std:c++17 /Fo"cmTC_cbbb6.dir\\Debug\\\\" /Fd"cmTC_cbbb6.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-g4nmbo\\CheckFunctionExists.cxx"
+          x64 i├ğin Microsoft (R) C/C++ ─░yile┼ştirmeli Derleyicisi S├╝r├╝m 19.44.35209
+          Telif Hakk─▒ (C) Microsoft Corporation. T├╝m haklar─▒ sakl─▒d─▒r.
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /std:c++17 /Fo"cmTC_cbbb6.dir\\Debug\\\\" /Fd"cmTC_cbbb6.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-g4nmbo\\CheckFunctionExists.cxx"
+          CheckFunctionExists.cxx
+        Link:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-g4nmbo\\Debug\\cmTC_cbbb6.exe" /INCREMENTAL /ILK:"cmTC_cbbb6.dir\\Debug\\cmTC_cbbb6.ilk" /NOLOGO pthreads.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-g4nmbo/Debug/cmTC_cbbb6.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-g4nmbo/Debug/cmTC_cbbb6.lib" /MACHINE:X64  /machine:x64 cmTC_cbbb6.dir\\Debug\\CheckFunctionExists.obj
+        LINK : fatal error LNK1104: 'pthreads.lib' dosyas─▒ a├ğ─▒lam─▒yor [C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-g4nmbo\\cmTC_cbbb6.vcxproj]
+        "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-g4nmbo\\cmTC_cbbb6.vcxproj" Projesini Olu┼şturma ─░┼şlemi Tamamland─▒ (varsay─▒lan hedefler) -- BA┼ŞARISIZ OLDU.
+        
+        Olu┼şturma BA┼ŞARISIZ OLDU.
+        
+        "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-g4nmbo\\cmTC_cbbb6.vcxproj" (varsay─▒lan hedef) (1) ->
+        (Link hedefi) -> 
+          LINK : fatal error LNK1104: 'pthreads.lib' dosyas─▒ a├ğ─▒lam─▒yor [C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-g4nmbo\\cmTC_cbbb6.vcxproj]
+        
+            0 Uyar─▒
+            1 Hata
+        
+        Ge├ğen S├╝re 00:00:00.74
+        
+      exitCode: 1
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CheckLibraryExists.cmake:69 (try_compile)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/FindThreads.cmake:112 (CHECK_LIBRARY_EXISTS)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/FindThreads.cmake:176 (_threads_check_lib)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeFindDependencyMacro.cmake:76 (find_package)"
+      - "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/QtPublicDependencyHelpers.cmake:36 (find_dependency)"
+      - "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/Qt6Dependencies.cmake:27 (_qt_internal_find_third_party_dependencies)"
+      - "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/Qt6Config.cmake:124 (include)"
+      - "CMakeLists.txt:9 (find_package)"
+    checks:
+      - "Looking for pthread_create in pthread"
+    directories:
+      source: "C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-iycmow"
+      binary: "C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-iycmow"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /EHsc"
+      CMAKE_CXX_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MODULE_PATH: "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6;C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/3rdparty/extra-cmake-modules/find-modules;C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/3rdparty/kwin"
+    buildResult:
+      variable: "CMAKE_HAVE_PTHREAD_CREATE"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-iycmow'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_23d85.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        .NET Framework i├ğin MSBuild s├╝r├╝m 17.14.10+8b8e13593
+        Olu┼şturma ba┼şlat─▒ld─▒: 1.09.2026 12:10:43.
+        
+        1 d├╝─ş├╝m├╝nde "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-iycmow\\cmTC_23d85.vcxproj" projesi (varsay─▒lan hedefler).
+        PrepareForBuild:
+          "cmTC_23d85.dir\\Debug\\" dizini olu┼şturuluyor.
+          Yap─▒land─▒r─▒lm─▒┼ş ├ğ─▒k─▒┼ş etkinle┼ştirildi. Derleyici tan─▒lamas─▒n─▒n bi├ğimlendirmesi hata hiyerar┼şisini yans─▒t─▒r. Daha fazla ayr─▒nt─▒ i├ğin bkz. https://aka.ms/cpp/structured-output.
+          "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-iycmow\\Debug\\" dizini olu┼şturuluyor.
+          "cmTC_23d85.dir\\Debug\\cmTC_23d85.tlog\\" dizini olu┼şturuluyor.
+        InitializeBuildStatus:
+          "AlwaysCreate" belirtildi─şi i├ğin "cmTC_23d85.dir\\Debug\\cmTC_23d85.tlog\\unsuccessfulbuild" olu┼şturuluyor.
+          "cmTC_23d85.dir\\Debug\\cmTC_23d85.tlog\\unsuccessfulbuild" ├Â─şesine eri┼şiliyor.
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /std:c++17 /Fo"cmTC_23d85.dir\\Debug\\\\" /Fd"cmTC_23d85.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-iycmow\\CheckFunctionExists.cxx"
+          x64 i├ğin Microsoft (R) C/C++ ─░yile┼ştirmeli Derleyicisi S├╝r├╝m 19.44.35209
+          Telif Hakk─▒ (C) Microsoft Corporation. T├╝m haklar─▒ sakl─▒d─▒r.
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /std:c++17 /Fo"cmTC_23d85.dir\\Debug\\\\" /Fd"cmTC_23d85.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-iycmow\\CheckFunctionExists.cxx"
+          CheckFunctionExists.cxx
+        Link:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-iycmow\\Debug\\cmTC_23d85.exe" /INCREMENTAL /ILK:"cmTC_23d85.dir\\Debug\\cmTC_23d85.ilk" /NOLOGO pthread.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-iycmow/Debug/cmTC_23d85.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-iycmow/Debug/cmTC_23d85.lib" /MACHINE:X64  /machine:x64 cmTC_23d85.dir\\Debug\\CheckFunctionExists.obj
+        LINK : fatal error LNK1104: 'pthread.lib' dosyas─▒ a├ğ─▒lam─▒yor [C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-iycmow\\cmTC_23d85.vcxproj]
+        "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-iycmow\\cmTC_23d85.vcxproj" Projesini Olu┼şturma ─░┼şlemi Tamamland─▒ (varsay─▒lan hedefler) -- BA┼ŞARISIZ OLDU.
+        
+        Olu┼şturma BA┼ŞARISIZ OLDU.
+        
+        "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-iycmow\\cmTC_23d85.vcxproj" (varsay─▒lan hedef) (1) ->
+        (Link hedefi) -> 
+          LINK : fatal error LNK1104: 'pthread.lib' dosyas─▒ a├ğ─▒lam─▒yor [C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-iycmow\\cmTC_23d85.vcxproj]
+        
+            0 Uyar─▒
+            1 Hata
+        
+        Ge├ğen S├╝re 00:00:00.68
+        
+      exitCode: 1
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CheckCXXSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/FindWrapAtomic.cmake:36 (check_cxx_source_compiles)"
+      - "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeFindDependencyMacro.cmake:76 (find_package)"
+      - "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/QtPublicDependencyHelpers.cmake:36 (find_dependency)"
+      - "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6Core/Qt6CoreDependencies.cmake:33 (_qt_internal_find_third_party_dependencies)"
+      - "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6Core/Qt6CoreConfig.cmake:45 (include)"
+      - "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/Qt6Config.cmake:169 (find_package)"
+      - "CMakeLists.txt:9 (find_package)"
+    checks:
+      - "Performing Test HAVE_STDATOMIC"
+    directories:
+      source: "C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-1g70le"
+      binary: "C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-1g70le"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /EHsc"
+      CMAKE_CXX_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MODULE_PATH: "C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6;C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/3rdparty/extra-cmake-modules/find-modules;C:/Qt/6.7.3/msvc2019_64/lib/cmake/Qt6/3rdparty/kwin"
+    buildResult:
+      variable: "HAVE_STDATOMIC"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-1g70le'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_99a0e.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        .NET Framework i├ğin MSBuild s├╝r├╝m 17.14.10+8b8e13593
+        Olu┼şturma ba┼şlat─▒ld─▒: 1.09.2026 12:10:44.
+        
+        1 d├╝─ş├╝m├╝nde "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-1g70le\\cmTC_99a0e.vcxproj" projesi (varsay─▒lan hedefler).
+        PrepareForBuild:
+          "cmTC_99a0e.dir\\Debug\\" dizini olu┼şturuluyor.
+          Yap─▒land─▒r─▒lm─▒┼ş ├ğ─▒k─▒┼ş etkinle┼ştirildi. Derleyici tan─▒lamas─▒n─▒n bi├ğimlendirmesi hata hiyerar┼şisini yans─▒t─▒r. Daha fazla ayr─▒nt─▒ i├ğin bkz. https://aka.ms/cpp/structured-output.
+          "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-1g70le\\Debug\\" dizini olu┼şturuluyor.
+          "cmTC_99a0e.dir\\Debug\\cmTC_99a0e.tlog\\" dizini olu┼şturuluyor.
+        InitializeBuildStatus:
+          "AlwaysCreate" belirtildi─şi i├ğin "cmTC_99a0e.dir\\Debug\\cmTC_99a0e.tlog\\unsuccessfulbuild" olu┼şturuluyor.
+          "cmTC_99a0e.dir\\Debug\\cmTC_99a0e.tlog\\unsuccessfulbuild" ├Â─şesine eri┼şiliyor.
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D HAVE_STDATOMIC /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /std:c++17 /Fo"cmTC_99a0e.dir\\Debug\\\\" /Fd"cmTC_99a0e.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-1g70le\\src.cxx"
+          x64 i├ğin Microsoft (R) C/C++ ─░yile┼ştirmeli Derleyicisi S├╝r├╝m 19.44.35209
+          Telif Hakk─▒ (C) Microsoft Corporation. T├╝m haklar─▒ sakl─▒d─▒r.
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D HAVE_STDATOMIC /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /std:c++17 /Fo"cmTC_99a0e.dir\\Debug\\\\" /Fd"cmTC_99a0e.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-1g70le\\src.cxx"
+          src.cxx
+        Link:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-1g70le\\Debug\\cmTC_99a0e.exe" /INCREMENTAL /ILK:"cmTC_99a0e.dir\\Debug\\cmTC_99a0e.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-1g70le/Debug/cmTC_99a0e.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/CMakeScratch/TryCompile-1g70le/Debug/cmTC_99a0e.lib" /MACHINE:X64  /machine:x64 cmTC_99a0e.dir\\Debug\\src.obj
+          cmTC_99a0e.vcxproj -> C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-1g70le\\Debug\\cmTC_99a0e.exe
+        FinalizeBuildStatus:
+          "cmTC_99a0e.dir\\Debug\\cmTC_99a0e.tlog\\unsuccessfulbuild" dosyas─▒ siliniyor.
+          "cmTC_99a0e.dir\\Debug\\cmTC_99a0e.tlog\\cmTC_99a0e.lastbuildstate" ├Â─şesine eri┼şiliyor.
+        "C:\\Users\\yurto\\Documents\\GitHub\\erp_programi\\build-msvc\\CMakeFiles\\CMakeScratch\\TryCompile-1g70le\\cmTC_99a0e.vcxproj" Projesini Olu┼şturma ─░┼şlemi Tamamland─▒ (varsay─▒lan hedefler).
+        
+        Olu┼şturma ba┼şar─▒l─▒ oldu.
+            0 Uyar─▒
+            0 Hata
+        
+        Ge├ğen S├╝re 00:00:00.94
+        
+      exitCode: 0
+...

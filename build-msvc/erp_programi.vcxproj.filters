@@ -1,0 +1,251 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi_autogen\mocs_compilation_Debug.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\src\Database.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\src\AramaWorker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\src\AramaSorgulari.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\src\TeklifPdfOlusturucu.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi_qmltyperegistrations.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.qt\rcc\qrc_qmake_erp_programi.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.rcc\qmlcache\erp_programi_qmlcache_loader.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.rcc\qmlcache\erp_programi_qml\Main_qml.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.rcc\qmlcache\erp_programi_qml\Theme_qml.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.rcc\qmlcache\erp_programi_qml\pages\GecmisTekliflerPage_qml.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.rcc\qmlcache\erp_programi_qml\pages\GirisPage_qml.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.rcc\qmlcache\erp_programi_qml\pages\AnaMenuPage_qml.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.rcc\qmlcache\erp_programi_qml\pages\TeklifVerPage_qml.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.rcc\qmlcache\erp_programi_qml\pages\SatisModuluPage_qml.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.rcc\qmlcache\erp_programi_qml\pages\MusterilerimPage_qml.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.rcc\qmlcache\erp_programi_qml\pages\UrunlerimPage_qml.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.rcc\qmlcache\erp_programi_qml\pages\PersonellerimPage_qml.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.rcc\qmlcache\erp_programi_qml\components\ModulIkonu_qml.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.rcc\qmlcache\erp_programi_qml\components\TarihTakvimi_qml.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.qt\rcc\qrc_erp_programi_raw_qml_0.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi_autogen\mocs_compilation_Release.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi_autogen\mocs_compilation_MinSizeRel.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi_autogen\mocs_compilation_RelWithDebInfo.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\yurto\Documents\GitHub\erp_programi\src\Database.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\yurto\Documents\GitHub\erp_programi\src\AramaWorker.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\yurto\Documents\GitHub\erp_programi\src\AramaSorgulari.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\yurto\Documents\GitHub\erp_programi\src\TeklifPdfOlusturucu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\ddf_erp_programi.h">
+      <Filter>Source Files\Generated</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.qt\rcc\qmake_erp_programi.qrc">
+      <Filter>Source Files\Generated</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi\qmldir">
+      <Filter>Source Files\Generated</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.qt\rcc\erp_programi_raw_qml_0.qrc">
+      <Filter>Source Files\Generated</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\cbcfff94ed29f0dbeaa043bd6a4ec02b\qt6erp_programi_metatypes.json.gen.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\a986194124dff3c64208680e99771e3f\erp_programi_qmltyperegistrations.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\75e21e6968b617a36bec0d20495b6d07\qrc_qmake_erp_programi.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\a29db09e868cb35094763c65e9587825\erp_programi_qmlcache_loader.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\f9979877904c1fd4cdc85db48c1d1fbd\Main_qml.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\f9979877904c1fd4cdc85db48c1d1fbd\Theme_qml.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\ad9b03f494b664c99c34f71934655c3d\GecmisTekliflerPage_qml.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\ad9b03f494b664c99c34f71934655c3d\GirisPage_qml.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\ad9b03f494b664c99c34f71934655c3d\AnaMenuPage_qml.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\ad9b03f494b664c99c34f71934655c3d\TeklifVerPage_qml.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\ad9b03f494b664c99c34f71934655c3d\SatisModuluPage_qml.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\ad9b03f494b664c99c34f71934655c3d\MusterilerimPage_qml.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\ad9b03f494b664c99c34f71934655c3d\UrunlerimPage_qml.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\ad9b03f494b664c99c34f71934655c3d\PersonellerimPage_qml.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\0ec99466b3c9fd400e512f9a05f44b0a\ModulIkonu_qml.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\0ec99466b3c9fd400e512f9a05f44b0a\TarihTakvimi_qml.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\75e21e6968b617a36bec0d20495b6d07\qrc_erp_programi_raw_qml_0.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\meta_types\qt6erp_programi_metatypes.json.gen">
+      <Filter>Source Files\Generated</Filter>
+    </None>
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\qml\Main.qml">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\qml\Theme.qml">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\qml\pages\GecmisTekliflerPage.qml">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\qml\pages\GirisPage.qml">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\qml\pages\AnaMenuPage.qml">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\qml\pages\TeklifVerPage.qml">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\qml\pages\SatisModuluPage.qml">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\qml\pages\MusterilerimPage.qml">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\qml\pages\UrunlerimPage.qml">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\qml\pages\PersonellerimPage.qml">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\qml\components\ModulIkonu.qml">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\qml\components\TarihTakvimi.qml">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="C:\Qt\6.7.3\msvc2019_64\metatypes\qt6core_metatypes.json">
+      <Filter>Source Files\Generated</Filter>
+    </None>
+    <None Include="C:\Qt\6.7.3\msvc2019_64\metatypes\qt6qml_metatypes.json">
+      <Filter>Source Files\Generated</Filter>
+    </None>
+    <None Include="C:\Qt\6.7.3\msvc2019_64\metatypes\qt6qmlbuiltins_metatypes.json">
+      <Filter>Source Files\Generated</Filter>
+    </None>
+    <None Include="C:\Qt\6.7.3\msvc2019_64\metatypes\qt6network_metatypes.json">
+      <Filter>Source Files\Generated</Filter>
+    </None>
+    <None Include="C:\Qt\6.7.3\msvc2019_64\metatypes\qt6quick_metatypes.json">
+      <Filter>Source Files\Generated</Filter>
+    </None>
+    <None Include="C:\Qt\6.7.3\msvc2019_64\metatypes\qt6gui_metatypes.json">
+      <Filter>Source Files\Generated</Filter>
+    </None>
+    <None Include="C:\Qt\6.7.3\msvc2019_64\metatypes\qt6qmlmodels_metatypes.json">
+      <Filter>Source Files\Generated</Filter>
+    </None>
+    <None Include="C:\Qt\6.7.3\msvc2019_64\metatypes\qt6opengl_metatypes.json">
+      <Filter>Source Files\Generated</Filter>
+    </None>
+    <None Include="C:\Qt\6.7.3\msvc2019_64\metatypes\qt6sql_metatypes.json">
+      <Filter>Source Files\Generated</Filter>
+    </None>
+    <None Include="C:\Qt\6.7.3\msvc2019_64\metatypes\qt6webenginecore_metatypes.json">
+      <Filter>Source Files\Generated</Filter>
+    </None>
+    <None Include="C:\Qt\6.7.3\msvc2019_64\metatypes\qt6webchannel_metatypes.json">
+      <Filter>Source Files\Generated</Filter>
+    </None>
+    <None Include="C:\Qt\6.7.3\msvc2019_64\metatypes\qt6positioning_metatypes.json">
+      <Filter>Source Files\Generated</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{E0245DF5-D133-3724-BBFE-DC213B4B94F1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{71783976-772D-3B78-9E58-2FB29E00DC49}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{CB624F5F-BD13-3B86-9FCA-4F28D5724BCD}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Generated">
+      <UniqueIdentifier>{BD7EAB87-6B7F-3F0F-A4BF-B7CE7C2BDF7B}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,61 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\7e605c752f0b4b88858a621acfc89201\Main.qml.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\7e605c752f0b4b88858a621acfc89201\Theme.qml.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\e6727983cecdcd38e228fe2789de3268\GecmisTekliflerPage.qml.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\e6727983cecdcd38e228fe2789de3268\GirisPage.qml.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\e6727983cecdcd38e228fe2789de3268\AnaMenuPage.qml.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\e6727983cecdcd38e228fe2789de3268\TeklifVerPage.qml.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\e6727983cecdcd38e228fe2789de3268\SatisModuluPage.qml.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\e6727983cecdcd38e228fe2789de3268\MusterilerimPage.qml.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\e6727983cecdcd38e228fe2789de3268\UrunlerimPage.qml.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\e6727983cecdcd38e228fe2789de3268\PersonellerimPage.qml.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\b9e218ad2c6fb48974cd25112924758e\ModulIkonu.qml.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\CMakeFiles\b9e218ad2c6fb48974cd25112924758e\TarihTakvimi.qml.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\yurto\Documents\GitHub\erp_programi\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi\qml\Main.qml" />
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi\qml\Theme.qml" />
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi\qml\pages\GecmisTekliflerPage.qml" />
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi\qml\pages\GirisPage.qml" />
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi\qml\pages\AnaMenuPage.qml" />
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi\qml\pages\TeklifVerPage.qml" />
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi\qml\pages\SatisModuluPage.qml" />
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi\qml\pages\MusterilerimPage.qml" />
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi\qml\pages\UrunlerimPage.qml" />
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi\qml\pages\PersonellerimPage.qml" />
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi\qml\components\ModulIkonu.qml" />
+    <None Include="C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\erp_programi\qml\components\TarihTakvimi.qml" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{E0245DF5-D133-3724-BBFE-DC213B4B94F1}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,10 @@
+-I
+C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc
+-I
+C:/Qt/6.7.3/msvc2019_64/qml
+--resource
+C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/.qt/rcc/qmake_erp_programi.qrc
+--resource
+C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/.qt/rcc/erp_programi_raw_qml_0.qrc
+--module
+erp_programi

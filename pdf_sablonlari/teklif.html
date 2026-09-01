@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<style>
+    @page {
+        size: A4;
+        margin: 15mm;
+    }
+
+    body {
+        font-family: "Segoe UI", Arial, sans-serif;
+        font-size: 11px;
+        color: #111;
+        margin: 0;
+    }
+
+    .baslik {
+        text-align: center;
+        border-bottom: 2px solid #333;
+        padding-bottom: 6px;
+        margin-bottom: 14px;
+    }
+
+    .baslik span {
+        font-size: 18px;
+        font-weight: bold;
+        letter-spacing: 1px;
+    }
+
+    .bilgi-blok {
+        display: flex;
+        width: 100%;
+        margin-bottom: 14px;
+    }
+
+    .bilgi-blok .sol {
+        width: 50%;
+        padding-right: 12px;
+    }
+
+    .bilgi-blok .sag {
+        width: 50%;
+    }
+
+    .bilgi-blok div {
+        margin-bottom: 4px;
+    }
+
+    .urunler-baslik {
+        text-align: center;
+        font-weight: bold;
+        font-size: 14px;
+        padding: 8px 0;
+        border-top: 1px solid #333;
+        border-bottom: 1px solid #333;
+        margin: 0 0 10px 0;
+    }
+
+    /* Kalem tablosu: SADECE yatay ince gri cizgiler var, dikey izgara/kenarlik yok. */
+    table.kalem-tablosu {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+    }
+
+    table.kalem-tablosu th {
+        padding: 6px 8px;
+        font-weight: bold;
+        border-bottom: 1.5px solid #333;
+        text-align: left;
+    }
+
+    table.kalem-tablosu th.sag {
+        text-align: right;
+    }
+
+    table.kalem-tablosu td {
+        padding: 6px 8px;
+        border-bottom: 1px solid #ddd;
+    }
+
+    table.kalem-tablosu td.sag {
+        text-align: right;
+    }
+
+    table.kalem-tablosu tbody tr {
+        break-inside: avoid;
+    }
+
+    table.kalem-tablosu tbody tr.zebra {
+        background-color: #f5f5f5;
+    }
+
+    /* Indirim sutunu varken/yokken iki farkli sutun genislik seti. */
+    table.indirim-var col:nth-child(1) { width: 6%; }
+    table.indirim-var col:nth-child(2) { width: 12%; }
+    table.indirim-var col:nth-child(3) { width: 25%; }
+    table.indirim-var col:nth-child(4) { width: 8%; }
+    table.indirim-var col:nth-child(5) { width: 13%; }
+    table.indirim-var col:nth-child(6) { width: 19%; }
+    table.indirim-var col:nth-child(7) { width: 17%; }
+
+    table.indirim-yok col:nth-child(1) { width: 7%; }
+    table.indirim-yok col:nth-child(2) { width: 15%; }
+    table.indirim-yok col:nth-child(3) { width: 38%; }
+    table.indirim-yok col:nth-child(4) { width: 8%; }
+    table.indirim-yok col:nth-child(5) { width: 16%; }
+    table.indirim-yok col:nth-child(6) { width: 16%; }
+
+    /* Toplam blogu: kenarliksiz, saga yasli. */
+    .toplam-blok {
+        width: 100%;
+        margin-top: 4px;
+    }
+
+    .toplam-blok table {
+        width: 320px;
+        margin-left: auto;
+        border-collapse: collapse;
+    }
+
+    .toplam-blok td {
+        border: none;
+        padding: 3px 0 3px 8px;
+        text-align: right;
+    }
+
+    .toplam-blok tr.genel-toplam td {
+        font-weight: bold;
+        border-top: 1px solid #333;
+        padding-top: 6px;
+    }
+</style>
+</head>
+<body>
+    <div class="baslik"><span>{{BASLIK}}</span></div>
+
+    <div class="bilgi-blok">
+        <div class="sol">{{SOL_BLOK}}</div>
+        <div class="sag">{{SAG_BLOK}}</div>
+    </div>
+
+    <div class="urunler-baslik">{{URUNLER_BASLIK}}</div>
+
+    <table class="kalem-tablosu {{INDIRIM_SINIFI}}">
+        <colgroup>{{KOLON_GRUBU}}</colgroup>
+        <thead>
+            <tr>{{KALEM_BASLIK}}</tr>
+        </thead>
+        <tbody>{{KALEM_SATIRLARI}}</tbody>
+    </table>
+
+    <div class="toplam-blok">
+        <table>{{TOPLAM_SATIRLARI}}</table>
+    </div>
+</body>
+</html>

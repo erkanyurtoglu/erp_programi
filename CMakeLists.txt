@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Quick Qml Sql PrintSupport)
+find_package(Qt6 REQUIRED COMPONENTS Core Quick Qml Sql WebEngineCore)
 
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -18,6 +18,19 @@ qt_add_executable(erp_programi
     src/AramaWorker.cpp
     src/AramaSorgulari.h
     src/AramaSorgulari.cpp
+    src/TeklifPdfOlusturucu.h
+    src/TeklifPdfOlusturucu.cpp
+)
+
+target_compile_definitions(erp_programi PRIVATE
+    $<$<CONFIG:Debug>:PDF_SABLON_KAYNAK_DIZINI="${CMAKE_SOURCE_DIR}/pdf_sablonlari">
+)
+
+add_custom_command(TARGET erp_programi POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/pdf_sablonlari"
+            "$<TARGET_FILE_DIR:erp_programi>/pdf_sablonlari"
+    COMMENT "PDF sablonlari (pdf_sablonlari/) exe yanina kopyalaniyor"
 )
 
 # Theme.qml bir "pragma Singleton" dosyasidir; QML tarafinda "Theme.xxx" olarak
@@ -51,7 +64,7 @@ target_link_libraries(erp_programi PRIVATE
     Qt6::Quick
     Qt6::Qml
     Qt6::Sql
-    Qt6::PrintSupport
+    Qt6::WebEngineCore
 )
 
 set_target_properties(erp_programi PROPERTIES

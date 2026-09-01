@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <ProjectOutputs>
+    <ProjectOutput>
+      <FullPath>C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\x64\Debug\ZERO_CHECK</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\x64\Debug\erp_programi_qmlimportscan</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\x64\Debug\erp_programi_tooling</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\x64\Debug\erp_programi_autogen</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\x64\Debug\erp_programi_automoc_json_extraction</FullPath>
+    </ProjectOutput>
+  </ProjectOutputs>
+  <ContentFiles />
+  <SatelliteDlls />
+  <NonRecipeFileRefs />
+</Project>

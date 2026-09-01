@@ -1,0 +1,32 @@
+^C:\USERS\YURTO\DOCUMENTS\GITHUB\ERP_PROGRAMI\BUILD-MSVC\CMAKEFILES\C1196D960B74BAF16E5E62E479E0A613\ERP_PROGRAMI_BUILD.CMAKE.RULE
+setlocal
+cd C:\Users\yurto\Documents\GitHub\erp_programi
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+call C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc\.qt\bin\qt_setup_tool_path.bat C:/Qt/6.7.3/msvc2019_64/bin/qmlimportscanner.exe @C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/.qt/qml_imports/erp_programi_build.rsp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\YURTO\DOCUMENTS\GITHUB\ERP_PROGRAMI\BUILD-MSVC\CMAKEFILES\3BF5E0187499F58AFFB9F1860C68A52D\ERP_PROGRAMI_QMLIMPORTSCAN.RULE
+setlocal
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\YURTO\DOCUMENTS\GITHUB\ERP_PROGRAMI\CMAKELISTS.TXT
+setlocal
+C:\Qt\Tools\CMake_64\bin\cmake.exe -SC:/Users/yurto/Documents/GitHub/erp_programi -BC:/Users/yurto/Documents/GitHub/erp_programi/build-msvc --check-stamp-file C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

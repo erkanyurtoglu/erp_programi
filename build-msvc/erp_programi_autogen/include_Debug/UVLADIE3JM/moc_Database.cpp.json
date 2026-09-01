@@ -1,0 +1,558 @@
+{
+    "classes": [
+        {
+            "className": "Database",
+            "methods": [
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "kullaniciAdi",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "sifre",
+                            "type": "QString"
+                        }
+                    ],
+                    "name": "girisYap",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "arama",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "tarihFiltresi",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "baslangicTarihi",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "bitisTarihi",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "sayfaNo",
+                            "type": "int"
+                        },
+                        {
+                            "name": "sayfaBoyutu",
+                            "type": "int"
+                        },
+                        {
+                            "name": "durumFiltresi",
+                            "type": "QString"
+                        }
+                    ],
+                    "name": "gecmisTekliflerGetir",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "arama",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "tarihFiltresi",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "baslangicTarihi",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "bitisTarihi",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "sayfaNo",
+                            "type": "int"
+                        },
+                        {
+                            "name": "sayfaBoyutu",
+                            "type": "int"
+                        }
+                    ],
+                    "isCloned": true,
+                    "name": "gecmisTekliflerGetir",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "arama",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "tarihFiltresi",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "baslangicTarihi",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "bitisTarihi",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "sayfaNo",
+                            "type": "int"
+                        }
+                    ],
+                    "isCloned": true,
+                    "name": "gecmisTekliflerGetir",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "teklifId",
+                            "type": "int"
+                        }
+                    ],
+                    "name": "teklifSil",
+                    "returnType": "bool"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "arama",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "limit",
+                            "type": "int"
+                        }
+                    ],
+                    "name": "musteriAraBaslat",
+                    "returnType": "void"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "arama",
+                            "type": "QString"
+                        }
+                    ],
+                    "isCloned": true,
+                    "name": "musteriAraBaslat",
+                    "returnType": "void"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "arama",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "limit",
+                            "type": "int"
+                        },
+                        {
+                            "name": "dil",
+                            "type": "QString"
+                        }
+                    ],
+                    "name": "urunAraBaslat",
+                    "returnType": "void"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "arama",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "limit",
+                            "type": "int"
+                        }
+                    ],
+                    "isCloned": true,
+                    "name": "urunAraBaslat",
+                    "returnType": "void"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "arama",
+                            "type": "QString"
+                        }
+                    ],
+                    "isCloned": true,
+                    "name": "urunAraBaslat",
+                    "returnType": "void"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "teklif",
+                            "type": "QVariantMap"
+                        }
+                    ],
+                    "name": "teklifKaydet",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "teklifId",
+                            "type": "int"
+                        },
+                        {
+                            "name": "durum",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "redSebebi",
+                            "type": "QString"
+                        }
+                    ],
+                    "name": "teklifDurumGuncelle",
+                    "returnType": "bool"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "teklifId",
+                            "type": "int"
+                        },
+                        {
+                            "name": "durum",
+                            "type": "QString"
+                        }
+                    ],
+                    "isCloned": true,
+                    "name": "teklifDurumGuncelle",
+                    "returnType": "bool"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "arama",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "sayfaNo",
+                            "type": "int"
+                        },
+                        {
+                            "name": "sayfaBoyutu",
+                            "type": "int"
+                        }
+                    ],
+                    "name": "musteriListesiGetir",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "arama",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "sayfaNo",
+                            "type": "int"
+                        }
+                    ],
+                    "isCloned": true,
+                    "name": "musteriListesiGetir",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "musteri",
+                            "type": "QVariantMap"
+                        }
+                    ],
+                    "name": "musteriEkle",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "musteriId",
+                            "type": "int"
+                        },
+                        {
+                            "name": "musteri",
+                            "type": "QVariantMap"
+                        }
+                    ],
+                    "name": "musteriGuncelle",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "musteriId",
+                            "type": "int"
+                        }
+                    ],
+                    "name": "musteriSil",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "arama",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "sayfaNo",
+                            "type": "int"
+                        },
+                        {
+                            "name": "sayfaBoyutu",
+                            "type": "int"
+                        }
+                    ],
+                    "name": "urunListesiGetir",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "arama",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "sayfaNo",
+                            "type": "int"
+                        }
+                    ],
+                    "isCloned": true,
+                    "name": "urunListesiGetir",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "urun",
+                            "type": "QVariantMap"
+                        }
+                    ],
+                    "name": "urunEkle",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "urunId",
+                            "type": "int"
+                        },
+                        {
+                            "name": "urun",
+                            "type": "QVariantMap"
+                        }
+                    ],
+                    "name": "urunGuncelle",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "urunId",
+                            "type": "int"
+                        }
+                    ],
+                    "name": "urunSil",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "name": "rolListesiGetir",
+                    "returnType": "QVariantList"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "arama",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "sayfaNo",
+                            "type": "int"
+                        },
+                        {
+                            "name": "sayfaBoyutu",
+                            "type": "int"
+                        }
+                    ],
+                    "name": "personelListesiGetir",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "arama",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "sayfaNo",
+                            "type": "int"
+                        }
+                    ],
+                    "isCloned": true,
+                    "name": "personelListesiGetir",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "personel",
+                            "type": "QVariantMap"
+                        }
+                    ],
+                    "name": "personelEkle",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "kullaniciId",
+                            "type": "int"
+                        },
+                        {
+                            "name": "personel",
+                            "type": "QVariantMap"
+                        }
+                    ],
+                    "name": "personelGuncelle",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "kullaniciId",
+                            "type": "int"
+                        },
+                        {
+                            "name": "aktif",
+                            "type": "bool"
+                        }
+                    ],
+                    "name": "personelAktifDurumDegistir",
+                    "returnType": "bool"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "teklifId",
+                            "type": "int"
+                        }
+                    ],
+                    "name": "teklifPdfOlustur",
+                    "returnType": "QVariantMap"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "teklif",
+                            "type": "QVariantMap"
+                        }
+                    ],
+                    "name": "satisSozlesmesiOlustur",
+                    "returnType": "QVariantMap"
+                }
+            ],
+            "object": true,
+            "properties": [
+                {
+                    "constant": true,
+                    "designable": true,
+                    "final": false,
+                    "index": 0,
+                    "name": "baglantiHazir",
+                    "read": "baglantiHazirMi",
+                    "required": false,
+                    "scriptable": true,
+                    "stored": true,
+                    "type": "bool",
+                    "user": false
+                }
+            ],
+            "qualifiedClassName": "Database",
+            "signals": [
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "arama",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "sonuclar",
+                            "type": "QVariantList"
+                        }
+                    ],
+                    "name": "musteriSonuclariHazir",
+                    "returnType": "void"
+                },
+                {
+                    "access": "public",
+                    "arguments": [
+                        {
+                            "name": "arama",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "dil",
+                            "type": "QString"
+                        },
+                        {
+                            "name": "sonuclar",
+                            "type": "QVariantList"
+                        }
+                    ],
+                    "name": "urunSonuclariHazir",
+                    "returnType": "void"
+                }
+            ],
+            "superClasses": [
+                {
+                    "access": "public",
+                    "name": "QObject"
+                }
+            ]
+        }
+    ],
+    "inputFile": "Database.h",
+    "outputRevision": 68
+}

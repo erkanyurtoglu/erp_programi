@@ -1,0 +1,3 @@
+C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/erp_programi_autogen/include_Debug/UVLADIE3JM/moc_AramaWorker.cpp.json
+C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/erp_programi_autogen/include_Debug/UVLADIE3JM/moc_Database.cpp.json
+C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/erp_programi_autogen/include_Debug/UVLADIE3JM/moc_TeklifPdfOlusturucu.cpp.json

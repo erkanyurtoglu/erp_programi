@@ -1,0 +1,10 @@
+^C:\USERS\YURTO\DOCUMENTS\GITHUB\ERP_PROGRAMI\BUILD-MSVC\CMAKEFILES\3BF5E0187499F58AFFB9F1860C68A52D\GENERATE.STAMP.RULE
+setlocal
+C:\Qt\Tools\CMake_64\bin\cmake.exe -SC:/Users/yurto/Documents/GitHub/erp_programi -BC:/Users/yurto/Documents/GitHub/erp_programi/build-msvc --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/erp_programi.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

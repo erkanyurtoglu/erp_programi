@@ -9,19 +9,6 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QCryptographicHash>
-#include <QTextDocument>
-#include <QTextFrame>
-#include <QTextTable>
-#include <QPrinter>
-#include <QPageSize>
-#include <QPageLayout>
-#include <QStandardPaths>
-#include <QDir>
-#include <QRegularExpression>
-#include <QDesktopServices>
-#include <QUrl>
-#include <QLocale>
-#include <QVector>
 #include <cmath>
 #include <algorithm>
 
@@ -51,16 +38,6 @@ namespace
     {
         return QString::fromLatin1(
             QCryptographicHash::hash(sifre.toUtf8(), QCryptographicHash::Sha256).toHex());
-    }
-
-    // PDF'lerdeki TUM parasal degerler bu fonksiyondan gecer: "TR" sayi bicimi
-    // (binlik ayrac nokta, ondalik ayrac virgul, her zaman 2 basamak) + on ekte
-    // "TL" yerine dogrudan TL simgesi. Eski "300000.00 TL" bicimi hicbir yerde
-    // kullanilmamali (musteri talebi).
-    QString paraFormatiTL(double tutar)
-    {
-        static const QLocale trLocale(QLocale::Turkish, QLocale::Turkey);
-        return QStringLiteral("₺") + trLocale.toString(tutar, 'f', 2);
     }
 }
 
@@ -1406,32 +1383,25 @@ QVariantMap Database::teklifPdfOlustur(int teklifId)
     }
 
     const QString firmaAdi = basQuery.value("FirmaAdi").toString();
-    const QString firmaAdresi = basQuery.value("FirmaAdresi").toString();
-    const QString ilgiliKisi = basQuery.value("IlgiliKisi").toString();
-    const QString ilgiliKisiTel = basQuery.value("IlgiliKisiTelefonu").toString();
-    const QString ilgiliKisiEposta = basQuery.value("IlgiliKisiEposta").toString();
-    const QString teslimatSekli = basQuery.value("TeslimatSekli").toString();
-    const QString teslimatYeri = basQuery.value("TeslimatYeri").toString();
-    const QString personelAdSoyad = basQuery.value("PersonelAdSoyad").toString();
-    const QString personelTelefon = basQuery.value("PersonelTelefon").toString();
-    const QString paraBirimi = basQuery.value("ParaBirimi").toString();
-    const bool ingilizce = basQuery.value("Dil").toString().compare("EN", Qt::CaseInsensitive) == 0;
-    const QString olusturmaTarihi = tarihStr(basQuery.value("OlusturmaTarihi"));
-    const double genelIndirimOrani = basQuery.value("GenelIndirimOrani").toDouble();
-    const double kdvOrani = basQuery.value("KdvOrani").toDouble();
-    const double indirimliToplam = basQuery.value("IndirimliToplam").toDouble();
-    const double kdvTutari = basQuery.value("KdvTutari").toDouble();
-    const double genelToplam = basQuery.value("GenelToplam").toDouble();
-    const double paketlemeUcreti = basQuery.value("PaketlemeUcreti").toDouble();
-    const double tasimaUcreti = basQuery.value("TasimaUcreti").toDouble();
 
-    // Bos/sifir olan alanlar PDF'de hic gosterilmez (kullanici talebi):
-    // indirim/KDV/paketleme/tasima uygulanmadiysa ilgili satirlar/sutunlar
-    // tamamen kaldirilir, iletisim alanlari da yalnizca doluysa yazilir.
-    const bool indirimVar = genelIndirimOrani > 0.0001;
-    const bool kdvVar = kdvOrani > 0.0001;
-    const bool paketlemeVar = paketlemeUcreti > 0.0001;
-    const bool tasimaVar = tasimaUcreti > 0.0001;
+    QVariantMap veri;
+    veri["firmaAdresi"] = basQuery.value("FirmaAdresi").toString();
+    veri["ilgiliKisi"] = basQuery.value("IlgiliKisi").toString();
+    veri["ilgiliKisiTelefonu"] = basQuery.value("IlgiliKisiTelefonu").toString();
+    veri["ilgiliKisiEposta"] = basQuery.value("IlgiliKisiEposta").toString();
+    veri["teslimatSekli"] = basQuery.value("TeslimatSekli").toString();
+    veri["teslimatYeri"] = basQuery.value("TeslimatYeri").toString();
+    veri["personelAdSoyad"] = basQuery.value("PersonelAdSoyad").toString();
+    veri["personelTelefon"] = basQuery.value("PersonelTelefon").toString();
+    veri["dil"] = basQuery.value("Dil").toString();
+    veri["olusturmaTarihi"] = tarihStr(basQuery.value("OlusturmaTarihi"));
+    veri["genelIndirimOrani"] = basQuery.value("GenelIndirimOrani").toDouble();
+    veri["kdvOrani"] = basQuery.value("KdvOrani").toDouble();
+    veri["indirimliToplam"] = basQuery.value("IndirimliToplam").toDouble();
+    veri["kdvTutari"] = basQuery.value("KdvTutari").toDouble();
+    veri["genelToplam"] = basQuery.value("GenelToplam").toDouble();
+    veri["paketlemeUcreti"] = basQuery.value("PaketlemeUcreti").toDouble();
+    veri["tasimaUcreti"] = basQuery.value("TasimaUcreti").toDouble();
 
     QSqlQuery kalemQuery(m_db);
     kalemQuery.prepare(
@@ -1449,243 +1419,23 @@ QVariantMap Database::teklifPdfOlustur(int teklifId)
     // cevrilmesine gerek yok. Parasal alanlarda hep "TL" yazmak yerine teklifin
     // gercek ParaBirimi'ni kullaniyoruz (teklifKaydet artik tum kalem/toplam
     // tutarlarini kaydedilecegi para birimine cevirip kaydediyor).
-    const QString etkBaslik = ingilizce ? "PROFORMA INVOICE" : "PROFORMA FATURA";
-    const QString etkFirmaAdi = ingilizce ? "Customer Name" : "Firma Adı";
-    const QString etkTeklifTarihi = ingilizce ? "Quotation Date" : "Teklif Tarihi";
-    const QString etkTeklifNo = ingilizce ? "Quotation No" : "Teklif No";
-    const QString etkIlgiliKisi = ingilizce ? "Contact Person" : "İlgili Kişi";
-    const QString etkTelefon = ingilizce ? "Phone" : "Telefon";
-    const QString etkEposta = ingilizce ? "E-mail" : "E-posta";
-    const QString etkTeklifiYapan = ingilizce ? "Prepared By" : "Teklifi Yapan";
-    const QString etkPersonelTelefon = ingilizce ? "Staff Phone" : "Personel Telefon";
-    const QString etkTeslimatSekli = ingilizce ? "Delivery Method" : "Teslimat Şekli";
-    const QString etkTeslimatYeri = ingilizce ? "Delivery Location" : "Teslimat Yeri";
-    const QString etkUrunlerBaslik = ingilizce ? "Quoted Products" : "Teklif Edilen Ürünler";
-    const QString etkNo = ingilizce ? "No" : "No";
-    const QString etkUrunKodu = ingilizce ? "Product Code" : "Ürün Kodu";
-    const QString etkAciklama = ingilizce ? "Description" : "Açıklama";
-    const QString etkAdet = ingilizce ? "Qty" : "Adet";
-    const QString etkBirimFiyat = ingilizce ? "Unit Sales Price" : "Birim Satış Fiyatı";
-    const QString etkIndirimliBirimFiyat = ingilizce ? "Discounted Unit Price" : "İndirimli Birim Satış Fiyatı";
-    const QString etkToplamFiyat = ingilizce ? "Total Price" : "Toplam Fiyat";
-    const QString etkIndirimliToplamEtk = ingilizce ? "Discounted Total" : "İndirimli Toplam";
-    const QString etkKdv = ingilizce ? "VAT" : "KDV";
-    const QString etkPaketleme = ingilizce ? "Packaging Fee" : "Paketleme Ücreti";
-    const QString etkTasima = ingilizce ? "Shipping Fee" : "Taşıma Ücreti";
-    const QString etkGenelToplam = ingilizce ? "Grand Total" : "Genel Toplam";
-
-    // --- Urun kalemleri tablosu (indirim yoksa "Indirimli Birim Fiyat" sutunu hic yok) ---
-    // Tasarim kurali: SADECE yatay ince gri cizgiler var (satirlari ayiran), dikey
-    // izgara/kenarlik yok -- bu yuzden hicbir hucrede sol/sag/dikey border kullanmiyoruz,
-    // sadece basligin altinda belirgin, satirlarin altinda ince bir alt cizgi var.
-    const QString baslikHucreStili = "padding:6px 8px;font-weight:bold;border-bottom:1.5px solid #333;text-align:%1;";
-    const QString solHizaliBaslik = baslikHucreStili.arg("left");
-    const QString sagHizaliBaslik = baslikHucreStili.arg("right");
-    QString kalemBaslikHtml =
-        QString("<th style='%1'>%2</th>").arg(solHizaliBaslik, etkNo) +
-        QString("<th style='%1'>%2</th>").arg(solHizaliBaslik, etkUrunKodu) +
-        QString("<th style='%1'>%2</th>").arg(solHizaliBaslik, etkAciklama) +
-        QString("<th style='%1'>%2</th>").arg(sagHizaliBaslik, etkAdet) +
-        QString("<th style='%1'>%2</th>").arg(sagHizaliBaslik, etkBirimFiyat);
-    if (indirimVar)
-        kalemBaslikHtml += QString("<th style='%1'>%2(%%3)</th>")
-            .arg(sagHizaliBaslik, etkIndirimliBirimFiyat, QString::number(genelIndirimOrani, 'f', 0));
-    kalemBaslikHtml += QString("<th style='%1'>%2</th>").arg(sagHizaliBaslik, etkToplamFiyat);
-
-    QString kalemSatirlariHtml;
-    double rawToplam = 0.0;
-    int satirNo = 0;
+    QVariantList kalemler;
     while (kalemQuery.next())
     {
-        ++satirNo;
-        const int adet = kalemQuery.value("Adet").toInt();
-        const double birimFiyat = kalemQuery.value("BirimFiyat").toDouble();
-        const double indirimliBirimFiyat = kalemQuery.value("IndirimliBirimFiyat").toDouble();
-        const double toplamTutar = kalemQuery.value("ToplamTutar").toDouble();
-        rawToplam += birimFiyat * adet;
-
-        // "page-break-inside:avoid": bir urun satirinin sayfa sonunda ikiye
-        // bolunmemesi icin (QTextDocument bu CSS'i destekliyor). Zebra deseni
-        // GENEL satirNo'ya (sorgudaki sira) gore hesaplaniyor -- tek tablo
-        // birden fazla sayfaya yayilsa bile (bkz. asagidaki setHeaderRowCount)
-        // ayni tablo/satir dizisi oldugu icin desen sayfa gecislerinde
-        // sifirlanmiyor, urun sirasina gore kesintisiz devam ediyor.
-        const QString satirArkaplan = (satirNo % 2 == 0) ? "background-color:#f5f5f5;" : "";
-        kalemSatirlariHtml += QString(
-            "<tr style='page-break-inside:avoid;%6'>"
-            "<td style='padding:6px 8px;border-bottom:1px solid #ddd;'>%1</td>"
-            "<td style='padding:6px 8px;border-bottom:1px solid #ddd;'>%2</td>"
-            "<td style='padding:6px 8px;border-bottom:1px solid #ddd;'>%3</td>"
-            "<td style='padding:6px 8px;border-bottom:1px solid #ddd;text-align:right;'>%4</td>"
-            "<td style='padding:6px 8px;border-bottom:1px solid #ddd;text-align:right;'>%5</td>")
-            .arg(satirNo)
-            .arg(kalemQuery.value("UrunKodu").toString().toHtmlEscaped())
-            .arg(kalemQuery.value("UrunAciklamasi").toString().toHtmlEscaped())
-            .arg(adet)
-            .arg(paraFormatiTL(birimFiyat))
-            .arg(satirArkaplan);
-        if (indirimVar)
-            kalemSatirlariHtml += QString("<td style='padding:6px 8px;border-bottom:1px solid #ddd;text-align:right;'>%1</td>")
-                .arg(paraFormatiTL(indirimliBirimFiyat));
-        kalemSatirlariHtml += QString("<td style='padding:6px 8px;border-bottom:1px solid #ddd;text-align:right;'>%1</td></tr>")
-            .arg(paraFormatiTL(toplamTutar));
+        QVariantMap kalem;
+        kalem["adet"] = kalemQuery.value("Adet").toInt();
+        kalem["birimFiyat"] = kalemQuery.value("BirimFiyat").toDouble();
+        kalem["indirimliBirimFiyat"] = kalemQuery.value("IndirimliBirimFiyat").toDouble();
+        kalem["toplamTutar"] = kalemQuery.value("ToplamTutar").toDouble();
+        kalem["urunKodu"] = kalemQuery.value("UrunKodu").toString();
+        kalem["urunAciklamasi"] = kalemQuery.value("UrunAciklamasi").toString();
+        kalemler.append(kalem);
     }
+    veri["kalemler"] = kalemler;
 
-    // --- Firma / teklif bilgi bloklari (bos alanlar tamamen gizlenir) ---
-    QString solBlokHtml = QString("<div style='margin-bottom:4px;'><b>%1:</b> %2</div>").arg(etkFirmaAdi, firmaAdi.toHtmlEscaped());
-    if (!firmaAdresi.trimmed().isEmpty())
-        solBlokHtml += QString("<div style='margin-bottom:4px;'>%1</div>").arg(firmaAdresi.toHtmlEscaped());
-    if (!ilgiliKisi.trimmed().isEmpty())
-        solBlokHtml += QString("<div style='margin-bottom:4px;'><b>%1:</b> %2</div>").arg(etkIlgiliKisi, ilgiliKisi.toHtmlEscaped());
-    if (!ilgiliKisiTel.trimmed().isEmpty())
-        solBlokHtml += QString("<div style='margin-bottom:4px;'><b>%1:</b> %2</div>").arg(etkTelefon, ilgiliKisiTel.toHtmlEscaped());
-    if (!ilgiliKisiEposta.trimmed().isEmpty())
-        solBlokHtml += QString("<div style='margin-bottom:4px;'><b>%1:</b> %2</div>").arg(etkEposta, ilgiliKisiEposta.toHtmlEscaped());
-    if (!teslimatSekli.trimmed().isEmpty())
-        solBlokHtml += QString("<div style='margin-bottom:4px;'><b>%1:</b> %2</div>").arg(etkTeslimatSekli, teslimatSekli.toHtmlEscaped());
-    if (!teslimatYeri.trimmed().isEmpty())
-        solBlokHtml += QString("<div style='margin-bottom:4px;'><b>%1:</b> %2</div>").arg(etkTeslimatYeri, teslimatYeri.toHtmlEscaped());
-
-    QString sagBlokHtml = QString("<div style='margin-bottom:4px;'><b>%1:</b> %2</div>").arg(etkTeklifTarihi, olusturmaTarihi);
-    sagBlokHtml += QString("<div style='margin-bottom:4px;'><b>%1:</b> %2</div>").arg(etkTeklifNo).arg(teklifId);
-    if (!personelAdSoyad.trimmed().isEmpty())
-        sagBlokHtml += QString("<div style='margin-bottom:4px;'><b>%1:</b> %2</div>").arg(etkTeklifiYapan, personelAdSoyad.toHtmlEscaped());
-    if (!personelTelefon.trimmed().isEmpty())
-        sagBlokHtml += QString("<div style='margin-bottom:4px;'><b>%1:</b> %2</div>").arg(etkPersonelTelefon, personelTelefon.toHtmlEscaped());
-
-    // --- Toplam blogu (sifir/kullanilmayan kalemler tamamen atlanir) ---
-    // Sira, musteri talebiyle SABIT: Toplam Fiyat (her zaman) -> Indirimli Toplam
-    // (indirim varsa) -> Paketleme/Tasima (varsa, KDV'den once) -> KDV (varsa) ->
-    // Genel Toplam (her zaman, en altta, kalin). "Toplam Fiyat" etiketi hep sabit,
-    // "Genel Toplam" hep tek ve en sonda.
-    //
-    // ONEMLI: Toplamlar artik AYRI bir <table> DEGIL, urun tablosunun (yukaridaki
-    // kalemSatirlariHtml) TRAILING satirlari olarak ekleniyor. Sebep: Qt'nin
-    // QTextDocument/QTextTable sayfalama motorunda, headerRowCount ayarli bir
-    // tablonun son (gercek) satiri tam sayfa sinirinda bitince, hemen ardindan
-    // AYRI bir tablo (bizim eski toplamBlokHtml'imiz) geldiginde Qt bazen "sadece
-    // baslik" iceren hayalet bir sayfa uretip o ayri tabloyu bu hayalet basligin
-    // UZERINE cakisik basiyor (gozlemlenmis/dogrulanmis bir Qt sayfalama hatasi --
-    // 18 kalemli test verisiyle net sekilde reprodüklendi). Toplamlari AYNI
-    // QTextTable nesnesine tasimak "tablo bitti, yeni bir akis elemani basliyor"
-    // gecisini tamamen ortadan kaldirdigi icin bu hatayi kokten cozuyor: artik
-    // toplamlar da urun satirlari gibi normal sekilde akiyor (StunSayisi-3 genislikte
-    // bos bir "spacer" hucreyle sag tarafa itiliyor, boylece eski 300px genislikli
-    // sag-yasli mini tablonun gorunumu byyuk olcude korunuyor).
-    const int toplamSutunSayisi = indirimVar ? 7 : 6;
-    const int bosSutunSayisi = toplamSutunSayisi - 3;
-    auto toplamSatiriEkle = [&](const QString &etiket, const QString &deger, bool kalinMi)
-    {
-        const QString vurguStili = kalinMi ? "font-weight:bold;border-top:1px solid #333;" : "";
-        kalemSatirlariHtml += QString(
-            "<tr style='page-break-inside:avoid;'>"
-            "<td colspan='%1' style='border:none;padding:3px 0;'></td>"
-            "<td colspan='2' style='border:none;%4padding:3px 8px 3px 0;text-align:right;'>%2:</td>"
-            "<td style='border:none;%4padding:3px 0;text-align:right;'>%3</td>"
-            "</tr>")
-            .arg(bosSutunSayisi)
-            .arg(etiket, deger, vurguStili);
-    };
-
-    toplamSatiriEkle(etkToplamFiyat, paraFormatiTL(rawToplam), false);
-    if (indirimVar)
-        toplamSatiriEkle(etkIndirimliToplamEtk + "(%" + QString::number(genelIndirimOrani, 'f', 0) + ")",
-                          paraFormatiTL(indirimliToplam), false);
-    if (paketlemeVar)
-        toplamSatiriEkle(etkPaketleme, paraFormatiTL(paketlemeUcreti), false);
-    if (tasimaVar)
-        toplamSatiriEkle(etkTasima, paraFormatiTL(tasimaUcreti), false);
-    if (kdvVar)
-        toplamSatiriEkle(etkKdv + "(%" + QString::number(kdvOrani, 'f', 0) + ")",
-                          paraFormatiTL(kdvTutari), false);
-    toplamSatiriEkle(etkGenelToplam, paraFormatiTL(genelToplam), true);
-
-    const QString html = QString(
-        "<html><body style='font-family:Segoe UI, Arial; font-size:11px; color:#111;'>"
-        "<div style='text-align:center;border-bottom:2px solid #333;padding-bottom:6px;margin-bottom:14px;'>"
-        "<span style='font-size:18px;font-weight:bold;letter-spacing:1px;'>%1</span>"
-        "</div>"
-        "<table style='width:100%;table-layout:fixed;margin-bottom:14px;'>"
-        "<tr><td style='width:50%;padding-right:12px;vertical-align:top;'>%2</td>"
-        "<td style='width:50%;vertical-align:top;'>%3</td></tr>"
-        "</table>"
-        // NOT: standalone <hr> QTextDocument'in HTML altkumesinde guvenilir
-        // basmiyordu (Qt bu etikete ozel stil border-top/border desteklemiyor,
-        // gorunmez kaliyordu) -- bu yuzden ustteki/alttaki cizgileri dogrudan
-        // baslik div'inin border-top/border-bottom'una tasidik; bu turden
-        // border'lar (bkz. tablo hucreleri) guvenilir sekilde basiyor.
-        "<div style='text-align:center;font-weight:bold;font-size:14px;padding:8px 0;"
-        "border-top:1px solid #333;border-bottom:1px solid #333;margin:0 0 10px 0;'>%4</div>"
-        "<table style='width:100%;border-collapse:collapse;'>"
-        "<tr>%5</tr>%6"
-        "</table>"
-        "</body></html>")
-        .arg(etkBaslik)
-        .arg(solBlokHtml)
-        .arg(sagBlokHtml)
-        .arg(etkUrunlerBaslik)
-        .arg(kalemBaslikHtml)
-        .arg(kalemSatirlariHtml);
-
-    const QString klasor = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/Liya ERP Teklifler";
-    QDir().mkpath(klasor);
-
-    QString firmaAdiTemiz = firmaAdi;
-    firmaAdiTemiz.replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
-    const QString dosyaYolu = QString("%1/Teklif_%2_%3.pdf").arg(klasor).arg(teklifId).arg(firmaAdiTemiz);
-
-    QPrinter yazici(QPrinter::ScreenResolution);
-    yazici.setOutputFormat(QPrinter::PdfFormat);
-    yazici.setPageSize(QPageSize(QPageSize::A4));
-    yazici.setPageMargins(QMarginsF(15, 15, 15, 15), QPageLayout::Millimeter);
-    yazici.setOutputFileName(dosyaYolu);
-
-    QTextDocument belge;
-    belge.setPageSize(yazici.pageRect(QPrinter::DevicePixel).size());
-    belge.setHtml(html);
-
-    // QTextDocument, HTML'den olusturulan tablolarda basligin sayfa kirilmalarinda
-    // otomatik tekrarlanmasini <thead> etiketinden anlamiyor; bunu QTextTableFormat
-    // uzerinden elle kuruyoruz. Ayni gecişte kolon genisliklerini de sabitliyoruz
-    // (icerige gore otomatik boyutlandirma, "Ürün Kodu" gibi kisa ama uzun kod
-    // iceren kolonlarda tabloyu genisletebiliyordu -- artik Açıklama kolonu genisi
-    // sabit, uzun kodlar/aciklamalar hucre icinde satir kaydiriyor).
-    {
-        const int urunTabloSutunSayisi = indirimVar ? 7 : 6;
-        QVector<QTextLength> kolonGenislikleri;
-        if (indirimVar)
-            kolonGenislikleri = { QTextLength(QTextLength::PercentageLength, 6),
-                                   QTextLength(QTextLength::PercentageLength, 12),
-                                   QTextLength(QTextLength::PercentageLength, 25),
-                                   QTextLength(QTextLength::PercentageLength, 8),
-                                   QTextLength(QTextLength::PercentageLength, 13),
-                                   QTextLength(QTextLength::PercentageLength, 19),
-                                   QTextLength(QTextLength::PercentageLength, 17) };
-        else
-            kolonGenislikleri = { QTextLength(QTextLength::PercentageLength, 7),
-                                   QTextLength(QTextLength::PercentageLength, 15),
-                                   QTextLength(QTextLength::PercentageLength, 38),
-                                   QTextLength(QTextLength::PercentageLength, 8),
-                                   QTextLength(QTextLength::PercentageLength, 16),
-                                   QTextLength(QTextLength::PercentageLength, 16) };
-
-        for (QTextFrame *cerceve : belge.rootFrame()->childFrames())
-        {
-            QTextTable *tablo = dynamic_cast<QTextTable *>(cerceve);
-            if (!tablo || tablo->columns() != urunTabloSutunSayisi)
-                continue;
-
-            QTextTableFormat bicim = tablo->format();
-            bicim.setHeaderRowCount(1);
-            bicim.setColumnWidthConstraints(kolonGenislikleri);
-            bicim.setBorder(0);
-            bicim.setCellSpacing(0);
-            tablo->setFormat(bicim);
-            break;
-        }
-    }
-
-    belge.print(&yazici);
+    sonuc = m_pdfOlusturucu.teklifPdfUret(teklifId, firmaAdi, veri);
+    if (!sonuc.value("basarili").toBool())
+        return sonuc;
 
     // Uretim tarihini kaydet (Gecmis Teklifler ekraninda "Üretim Pdf Tarihi" sütunu bunu gösteriyor).
     QSqlQuery guncelle(m_db);
@@ -1693,8 +1443,6 @@ QVariantMap Database::teklifPdfOlustur(int teklifId)
     guncelle.bindValue(":id", teklifId);
     guncelle.exec();
 
-    sonuc["basarili"] = true;
-    sonuc["dosyaYolu"] = dosyaYolu;
     return sonuc;
 }
 
@@ -1730,132 +1478,15 @@ QVariantMap Database::satisSozlesmesiOlustur(const QVariantMap &teklif)
         return sonuc;
     }
 
-    const QVariantList kalemler = teklif.value("kalemler").toList();
-    if (kalemler.isEmpty())
+    if (teklif.value("kalemler").toList().isEmpty())
     {
         sonuc["hata"] = "Sözleşme için sepette en az bir ürün olmalı.";
         return sonuc;
     }
 
-    QString kalemSatirlariHtml;
-    for (const QVariant &kalemVar : kalemler)
-    {
-        const QVariantMap k = kalemVar.toMap();
-        kalemSatirlariHtml += QString(
-            "<tr>"
-            "<td style='padding:6px 8px;border-bottom:1px solid #ddd;'>%1</td>"
-            "<td style='padding:6px 8px;border-bottom:1px solid #ddd;text-align:center;'>%2</td>"
-            "<td style='padding:6px 8px;border-bottom:1px solid #ddd;text-align:right;'>%3</td>"
-            "<td style='padding:6px 8px;border-bottom:1px solid #ddd;text-align:right;'>%4</td>"
-            "</tr>")
-            .arg(k.value("aciklama").toString().toHtmlEscaped())
-            .arg(k.value("adet").toInt())
-            .arg(paraFormatiTL(k.value("indirimliBirimFiyat").toDouble()))
-            .arg(paraFormatiTL(k.value("toplamTutar").toDouble()));
-    }
+    QVariantMap veri = teklif;
+    veri["firmaAdi"] = firmaAdi;
+    veri["firmaAdresi"] = firmaAdresi;
 
-    const QString bugununTarihi = QDateTime::currentDateTime().toString("dd.MM.yyyy");
-    const QString paraBirimi = teklif.value("paraBirimi").toString();
-    const QString ilgiliKisi = teklif.value("ilgiliKisi").toString();
-    const QString teslimatSekli = teklif.value("teslimatSekli").toString();
-    const QString teslimatYeri = teklif.value("teslimatYeri").toString();
-    const double genelToplam = teklif.value("genelToplam").toDouble();
-    const bool ingilizce = teklif.value("dil").toString().compare("EN", Qt::CaseInsensitive) == 0;
-
-    const QString baslikHtml = ingilizce ? "SALES AGREEMENT" : "SATIŞ SÖZLEŞMESİ";
-    const QString etkTarih = ingilizce ? "Date" : "Tarih";
-    const QString etkSatici = ingilizce ? "Seller" : "Satıcı";
-    const QString etkAlici = ingilizce ? "Buyer" : "Alıcı";
-    const QString etkIlgiliKisi = ingilizce ? "Contact Person" : "İlgili Kişi";
-    const QString etkAcikMetin = ingilizce
-        ? "The products/services listed below are subject to sale under terms mutually agreed by the parties:"
-        : "Aşağıda belirtilen ürün/hizmetler, taraflar arasında mutabık kalınan şartlarla satışa konu edilmiştir:";
-    const QString etkAciklama = ingilizce ? "Description" : "Açıklama";
-    const QString etkAdet = ingilizce ? "Qty" : "Adet";
-    const QString etkBirimFiyat = ingilizce ? "Unit Price" : "Birim Fiyat";
-    const QString etkToplam = ingilizce ? "Total" : "Toplam";
-    const QString etkTeslimatSekli = ingilizce ? "Delivery Method" : "Teslimat Şekli";
-    const QString etkTeslimatYeri = ingilizce ? "Delivery Location" : "Teslimat Yeri";
-    const QString etkParaBirimi = ingilizce ? "Currency" : "Para Birimi";
-    const QString etkGenelToplam = ingilizce ? "GRAND TOTAL" : "GENEL TOPLAM";
-    const QString etkKapanis = ingilizce
-        ? "The parties accept and undertake the terms of this agreement."
-        : "Taraflar işbu sözleşme şartlarını kabul ve taahhüt eder.";
-
-    const QString html = QString(
-        "<html><body style='font-family:Segoe UI, Arial; font-size:12px; color:#111;'>"
-        "<h2 style='margin-bottom:0;'>%10</h2>"
-        "<div style='color:#555;margin-bottom:16px;'>%11: <b>%1</b></div>"
-        "<p><b>%12:</b> Liya Laboratuvar Cihazları<br/>"
-        "<b>%13:</b> %2<br/>%3"
-        "<b>%14:</b> %4</p>"
-        "<p>%15</p>"
-        "<table style='width:100%;border-collapse:collapse;margin-bottom:16px;'>"
-        "<tr style='background:#f0f0f0;'>"
-        "<th style='padding:6px 8px;text-align:left;'>%16</th>"
-        "<th style='padding:6px 8px;'>%17</th>"
-        "<th style='padding:6px 8px;text-align:right;'>%18</th>"
-        "<th style='padding:6px 8px;text-align:right;'>%19</th>"
-        "</tr>%5</table>"
-        "<p><b>%20:</b> %6<br/>"
-        "<b>%21:</b> %7<br/>"
-        "<b>%22:</b> %8</p>"
-        "<table align='right' style='width:260px;'>"
-        "<tr style='font-weight:bold;font-size:14px;'><td>%23</td><td style='text-align:right;'>%9</td></tr>"
-        "</table>"
-        "<p style='margin-top:32px;'>%24</p>"
-        "<table style='width:100%;margin-top:24px;'>"
-        "<tr><td style='width:50%;'>%12<br/><br/>__________________</td>"
-        "<td style='width:50%;'>%13<br/><br/>__________________</td></tr>"
-        "</table>"
-        "</body></html>")
-        .arg(bugununTarihi)
-        .arg(firmaAdi.toHtmlEscaped())
-        .arg(firmaAdresi.isEmpty() ? QString() : (firmaAdresi.toHtmlEscaped() + "<br/>"))
-        .arg(ilgiliKisi.toHtmlEscaped())
-        .arg(kalemSatirlariHtml)
-        .arg(teslimatSekli.toHtmlEscaped())
-        .arg(teslimatYeri.toHtmlEscaped())
-        .arg(paraBirimi)
-        .arg(paraFormatiTL(genelToplam))
-        .arg(baslikHtml)
-        .arg(etkTarih)
-        .arg(etkSatici)
-        .arg(etkAlici)
-        .arg(etkIlgiliKisi)
-        .arg(etkAcikMetin)
-        .arg(etkAciklama)
-        .arg(etkAdet)
-        .arg(etkBirimFiyat)
-        .arg(etkToplam)
-        .arg(etkTeslimatSekli)
-        .arg(etkTeslimatYeri)
-        .arg(etkParaBirimi)
-        .arg(etkGenelToplam)
-        .arg(etkKapanis);
-
-    const QString klasor = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/Liya ERP Teklifler";
-    QDir().mkpath(klasor);
-
-    QString firmaAdiTemiz = firmaAdi;
-    firmaAdiTemiz.replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
-    const QString dosyaYolu = QString("%1/Satis_Sozlesmesi_%2_%3.pdf")
-        .arg(klasor)
-        .arg(firmaAdiTemiz)
-        .arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
-
-    QPrinter yazici(QPrinter::ScreenResolution);
-    yazici.setOutputFormat(QPrinter::PdfFormat);
-    yazici.setPageSize(QPageSize(QPageSize::A4));
-    yazici.setPageMargins(QMarginsF(15, 15, 15, 15), QPageLayout::Millimeter);
-    yazici.setOutputFileName(dosyaYolu);
-
-    QTextDocument belge;
-    belge.setPageSize(yazici.pageRect(QPrinter::DevicePixel).size());
-    belge.setHtml(html);
-    belge.print(&yazici);
-
-    sonuc["basarili"] = true;
-    sonuc["dosyaYolu"] = dosyaYolu;
-    return sonuc;
+    return m_pdfOlusturucu.satisSozlesmesiUret(veri);
 }

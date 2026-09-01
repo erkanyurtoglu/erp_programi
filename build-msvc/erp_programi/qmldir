@@ -1,0 +1,16 @@
+module erp_programi
+typeinfo erp_programi.qmltypes
+prefer :/qt/qml/erp_programi/
+Main 1.0 qml/Main.qml
+singleton Theme 1.0 qml/Theme.qml
+GecmisTekliflerPage 1.0 qml/pages/GecmisTekliflerPage.qml
+GirisPage 1.0 qml/pages/GirisPage.qml
+AnaMenuPage 1.0 qml/pages/AnaMenuPage.qml
+TeklifVerPage 1.0 qml/pages/TeklifVerPage.qml
+SatisModuluPage 1.0 qml/pages/SatisModuluPage.qml
+MusterilerimPage 1.0 qml/pages/MusterilerimPage.qml
+UrunlerimPage 1.0 qml/pages/UrunlerimPage.qml
+PersonellerimPage 1.0 qml/pages/PersonellerimPage.qml
+ModulIkonu 1.0 qml/components/ModulIkonu.qml
+TarihTakvimi 1.0 qml/components/TarihTakvimi.qml
+

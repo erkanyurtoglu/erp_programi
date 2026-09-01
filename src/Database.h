@@ -7,6 +7,8 @@
 #include <QThread>
 #include <QPointer>
 
+#include "TeklifPdfOlusturucu.h"
+
 class AramaWorker;
 
 // Database: SQL Server'daki yeni "LiyaErpVeriTabani" veritabanina QODBC ile
@@ -135,9 +137,10 @@ public:
     Q_INVOKABLE QVariantMap personelGuncelle(int kullaniciId, const QVariantMap &personel);
     Q_INVOKABLE bool personelAktifDurumDegistir(int kullaniciId, bool aktif);
 
-    // Teklif Ver + Giden Tekliflerim ekranlarindan PDF uretimi. HTML'i QTextDocument
-    // ile olusturup QPrinter (PDF) uzerine basar; dosya Belgelerim/Liya ERP Teklifler
-    // altina kaydedilir. Donen: {basarili, dosyaYolu, hata}.
+    // Teklif Ver + Giden Tekliflerim ekranlarindan PDF uretimi. SQL sorgularini burada
+    // calistirir, sonucu TeklifPdfOlusturucu'ya devreder (HTML/PDF uretiminin tamami
+    // orada); dosya Belgelerim/Liya ERP Teklifler altina kaydedilir.
+    // Donen: {basarili, dosyaYolu, hata}.
     Q_INVOKABLE QVariantMap teklifPdfOlustur(int teklifId);
 
     // Teklif Ver ekranindaki "Satış Sözleşmesi" butonu icin: HENUZ KAYDEDILMEMIS
@@ -182,4 +185,6 @@ private:
     // QSqlDatabase baglantisiyla bu ayri thread uzerinde yasar (bkz. AramaWorker.h).
     QThread m_aramaThread;
     QPointer<AramaWorker> m_aramaWorker;
+
+    TeklifPdfOlusturucu m_pdfOlusturucu;
 };

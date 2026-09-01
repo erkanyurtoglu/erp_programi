@@ -1,0 +1,17 @@
+<RCC>
+  <qresource prefix="/qt/qml/erp_programi/">
+    <file alias="qml/Main.qml">C:/Users/yurto/Documents/GitHub/erp_programi/qml/Main.qml</file>
+    <file alias="qml/Theme.qml">C:/Users/yurto/Documents/GitHub/erp_programi/qml/Theme.qml</file>
+    <file alias="qml/pages/GecmisTekliflerPage.qml">C:/Users/yurto/Documents/GitHub/erp_programi/qml/pages/GecmisTekliflerPage.qml</file>
+    <file alias="qml/pages/GirisPage.qml">C:/Users/yurto/Documents/GitHub/erp_programi/qml/pages/GirisPage.qml</file>
+    <file alias="qml/pages/AnaMenuPage.qml">C:/Users/yurto/Documents/GitHub/erp_programi/qml/pages/AnaMenuPage.qml</file>
+    <file alias="qml/pages/TeklifVerPage.qml">C:/Users/yurto/Documents/GitHub/erp_programi/qml/pages/TeklifVerPage.qml</file>
+    <file alias="qml/pages/SatisModuluPage.qml">C:/Users/yurto/Documents/GitHub/erp_programi/qml/pages/SatisModuluPage.qml</file>
+    <file alias="qml/pages/MusterilerimPage.qml">C:/Users/yurto/Documents/GitHub/erp_programi/qml/pages/MusterilerimPage.qml</file>
+    <file alias="qml/pages/UrunlerimPage.qml">C:/Users/yurto/Documents/GitHub/erp_programi/qml/pages/UrunlerimPage.qml</file>
+    <file alias="qml/pages/PersonellerimPage.qml">C:/Users/yurto/Documents/GitHub/erp_programi/qml/pages/PersonellerimPage.qml</file>
+    <file alias="qml/components/ModulIkonu.qml">C:/Users/yurto/Documents/GitHub/erp_programi/qml/components/ModulIkonu.qml</file>
+    <file alias="qml/components/TarihTakvimi.qml">C:/Users/yurto/Documents/GitHub/erp_programi/qml/components/TarihTakvimi.qml</file>
+  </qresource>
+</RCC>
+

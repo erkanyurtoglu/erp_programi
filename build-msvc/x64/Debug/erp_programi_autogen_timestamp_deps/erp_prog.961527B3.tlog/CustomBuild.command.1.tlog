@@ -1,0 +1,22 @@
+^C:\USERS\YURTO\DOCUMENTS\GITHUB\ERP_PROGRAMI\BUILD-MSVC\CMAKEFILES\3BF5E0187499F58AFFB9F1860C68A52D\ERP_PROGRAMI_AUTOGEN_TIMESTAMP_DEPS.RULE
+setlocal
+cd C:\Users\yurto\Documents\GitHub\erp_programi\build-msvc
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\YURTO\DOCUMENTS\GITHUB\ERP_PROGRAMI\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/yurto/Documents/GitHub/erp_programi -BC:/Users/yurto/Documents/GitHub/erp_programi/build-msvc --check-stamp-file C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

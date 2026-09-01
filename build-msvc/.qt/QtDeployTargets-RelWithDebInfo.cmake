@@ -1,0 +1,3 @@
+set(__QT_DEPLOY_TARGET_erp_programi_FILE C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/RelWithDebInfo/erp_programi.exe)
+set(__QT_DEPLOY_TARGET_erp_programi_TYPE EXECUTABLE)
+set(__QT_DEPLOY_TARGET_erp_programi_RUNTIME_DLLS C:/Qt/6.7.3/msvc2019_64/bin/Qt6Sql.dll;C:/Qt/6.7.3/msvc2019_64/bin/Qt6WebEngineCore.dll;C:/Qt/6.7.3/msvc2019_64/bin/Qt6Quick.dll;C:/Qt/6.7.3/msvc2019_64/bin/Qt6QmlModels.dll;C:/Qt/6.7.3/msvc2019_64/bin/Qt6OpenGL.dll;C:/Qt/6.7.3/msvc2019_64/bin/Qt6Gui.dll;C:/Qt/6.7.3/msvc2019_64/bin/Qt6WebChannel.dll;C:/Qt/6.7.3/msvc2019_64/bin/Qt6Qml.dll;C:/Qt/6.7.3/msvc2019_64/bin/Qt6Network.dll;C:/Qt/6.7.3/msvc2019_64/bin/Qt6Positioning.dll;C:/Qt/6.7.3/msvc2019_64/bin/Qt6Core.dll)
