@@ -1,6 +1,0 @@
-<RCC>
-  <qresource prefix="/qt/qml/erp_programi">
-    <file alias="qmldir">C:/Users/yurto/Documents/GitHub/erp_programi/build-msvc/erp_programi/qmldir</file>
-  </qresource>
-</RCC>
-

@@ -33,3 +33,7 @@
 
 # CMake build klasoru
 build/
+
+# CMake build klasoru (gercek ad: build-msvc)
+build-msvc/
+out/
