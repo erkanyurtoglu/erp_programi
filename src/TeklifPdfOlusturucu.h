@@ -4,6 +4,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <QString>
+#include <QMarginsF>
 
 // TeklifPdfOlusturucu: Teklif/Proforma ve Satis Sozlesmesi PDF'lerinin HTML
 // sablonunu doldurup basma isinin TAMAMINI ustlenir. Veritabaniyla hicbir
@@ -60,9 +61,14 @@ private:
                                  double kdvTutari, double paketlemeUcreti, double tasimaUcreti,
                                  double genelToplam, bool ingilizce) const;
 
-    // "html" icerigini QWebEnginePage ile PDF'e basar (A4, 15mm kenar bosluklari).
-    // printToPdf asenkron oldugu icin icerde bir QEventLoop ile senkron hale getirilir.
-    bool htmlyiPdfeBas(const QString &html, const QString &dosyaYolu, QString &hataOut) const;
+    // "html" icerigini QWebEnginePage ile PDF'e basar (A4). Kenar bosluklari
+    // varsayilan olarak 15mm'dir; teklif.html gibi antetli kagit uzerine basilan
+    // sablonlarda kenar bosluklari 0 gecilir, gercek bosluk sablonun kendi CSS
+    // padding'i ile verilir (boylece antet/altbilgi bantlari sayfa kenarina
+    // tam dayanabilir). printToPdf asenkron oldugu icin icerde bir QEventLoop
+    // ile senkron hale getirilir.
+    bool htmlyiPdfeBas(const QString &html, const QString &dosyaYolu, QString &hataOut,
+                        QMarginsF kenarBosluklariMm = QMarginsF(15, 15, 15, 15)) const;
 
     // TR locale + ₺ sembolu ile parasal deger bicimlendirir.
     static QString paraFormati(double tutar);

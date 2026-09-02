@@ -144,7 +144,8 @@ QString TeklifPdfOlusturucu::toplamSatirlariUret(bool indirimVar, bool kdvVar, b
     return html;
 }
 
-bool TeklifPdfOlusturucu::htmlyiPdfeBas(const QString &html, const QString &dosyaYolu, QString &hataOut) const
+bool TeklifPdfOlusturucu::htmlyiPdfeBas(const QString &html, const QString &dosyaYolu, QString &hataOut,
+                                         QMarginsF kenarBosluklariMm) const
 {
     QWebEnginePage sayfa;
     bool basariliMi = false;
@@ -160,7 +161,7 @@ bool TeklifPdfOlusturucu::htmlyiPdfeBas(const QString &html, const QString &dosy
             return;
         }
         QPageLayout duzen(QPageSize(QPageSize::A4), QPageLayout::Portrait,
-                           QMarginsF(15, 15, 15, 15), QPageLayout::Millimeter);
+                           kenarBosluklariMm, QPageLayout::Millimeter);
         QObject::connect(&sayfa, &QWebEnginePage::pdfPrintingFinished, &sayfa,
                           [&](const QString &, bool basari) {
             basariliMi = basari;
@@ -319,8 +320,11 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
     QDir().mkpath(klasor);
     const QString dosyaYolu = QStringLiteral("%1/Teklif_%2_%3.pdf").arg(klasor, QString::number(teklifId), dosyaAdiTemizle(firmaAdi));
 
+    // Kenar bosluklari 0: sablonun kendi CSS padding'i (25mm ust/alt, 15mm sol/sag)
+    // gercek bosluk gorevi goruyor, boylece antetli kagit (teklifSayfa.pdf) bantlari
+    // sayfa kenarina tam dayanabiliyor.
     QString basHata;
-    if (!htmlyiPdfeBas(html, dosyaYolu, basHata))
+    if (!htmlyiPdfeBas(html, dosyaYolu, basHata, QMarginsF(0, 0, 0, 0)))
     {
         sonuc["hata"] = basHata;
         return sonuc;
