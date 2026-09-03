@@ -13,6 +13,8 @@
 #include <QPageLayout>
 #include <QPageSize>
 #include <QMarginsF>
+#include <QTemporaryFile>
+#include <QUrl>
 
 TeklifPdfOlusturucu::TeklifPdfOlusturucu(QObject *parent) : QObject(parent)
 {
@@ -147,6 +149,21 @@ QString TeklifPdfOlusturucu::toplamSatirlariUret(bool indirimVar, bool kdvVar, b
 bool TeklifPdfOlusturucu::htmlyiPdfeBas(const QString &html, const QString &dosyaYolu, QString &hataOut,
                                          QMarginsF kenarBosluklariMm) const
 {
+    // setHtml() Chromium tarafinda dahili olarak data: URL'ine cevrilir ve bu
+    // URL'ler ~2 MB ile sinirlidir; kapak sayfasi gibi buyuk base64 resim
+    // iceren sablonlarda sessizce (loadFinished(false)) basarisiz olur. Bu
+    // sinirdan tamamen kacinmak icin HTML'i gecici bir dosyaya yazip
+    // dosyadan (file://) yukluyoruz -- boyut siniri yok.
+    QTemporaryFile geciciDosya(QDir::tempPath() + "/teklif_pdf_XXXXXX.html");
+    if (!geciciDosya.open())
+    {
+        hataOut = "Gecici HTML dosyasi olusturulamadi.";
+        return false;
+    }
+    geciciDosya.write(html.toUtf8());
+    geciciDosya.close();
+    const QUrl geciciUrl = QUrl::fromLocalFile(geciciDosya.fileName());
+
     QWebEnginePage sayfa;
     bool basariliMi = false;
     bool tamamlandiMi = false;
@@ -173,7 +190,7 @@ bool TeklifPdfOlusturucu::htmlyiPdfeBas(const QString &html, const QString &dosy
         sayfa.printToPdf(dosyaYolu, duzen);
     });
 
-    sayfa.setHtml(html);
+    sayfa.load(geciciUrl);
     if (!tamamlandiMi)
         dongu.exec();
     return basariliMi;
