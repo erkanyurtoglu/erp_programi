@@ -796,18 +796,60 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
     return sonuc;
 }
 
-bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QString &redSebebi)
+QStringList Database::gecerliDurumlar() const
+{
+    // Sira, QML'deki durum menusunde gorunecek siradir: is akisinin dogal sirasi.
+    return { "Beklemede", "Kabul Edildi", "Reddedildi", "Tamamlandı" };
+}
+
+bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QString &redSebebi, int kullaniciId)
 {
     if (!m_baglantiHazir)
         return false;
 
+    if (!gecerliDurumlar().contains(durum))
+    {
+        qWarning() << "teklifDurumGuncelle: gecersiz durum:" << durum;
+        return false;
+    }
+
+    // Gecmis logu icin degisimden ONCEKI durumu okuyoruz. Ayrica durum zaten
+    // istenen degerdeyse gereksiz bir UPDATE + anlamsiz bir log satiri uretmeyelim.
+    QString eskiDurum;
+    {
+        QSqlQuery mevcutQuery(m_db);
+        mevcutQuery.prepare("SELECT Durum FROM dbo.teklifler WHERE TeklifId = :teklifId");
+        mevcutQuery.bindValue(":teklifId", teklifId);
+        if (!mevcutQuery.exec() || !mevcutQuery.next())
+        {
+            qWarning() << "teklifDurumGuncelle: teklif bulunamadi:" << teklifId
+                       << mevcutQuery.lastError().text();
+            return false;
+        }
+        eskiDurum = mevcutQuery.value(0).toString();
+    }
+
+    if (eskiDurum == durum)
+        return true;
+
+    // Durum ileri geri degisebildigi icin, HER gecis tum durum alanlarini yeniden
+    // yazar: yeni duruma ait tarih doldurulur, artik gecerli olmayanlar NULL'lanir.
+    // Boylece "Reddedildi -> Beklemede" sonrasi ortada eski bir RedTarihi/RedSebebi,
+    // "Tamamlandı -> Kabul Edildi" sonrasi eski bir TeslimTarihi kalmaz.
+    //
+    // KabulTarihi'nin "Tamamlandı"da korunmasinin sebebi: tamamlanmis bir teklif
+    // tanim geregi once kabul edilmistir; o tarih raporlamada anlamlidir. Zaten
+    // dolu degilse (dogrudan Beklemede -> Tamamlandı gibi bir gecis) simdiki zamanla doldurulur.
     QString sql = "UPDATE dbo.teklifler SET Durum = :durum";
-    if (durum == "Kabul Edildi")
-        sql += ", KabulTarihi = SYSDATETIME()";
+    if (durum == "Beklemede")
+        sql += ", KabulTarihi = NULL, RedTarihi = NULL, RedSebebi = NULL, TeslimTarihi = NULL";
+    else if (durum == "Kabul Edildi")
+        sql += ", KabulTarihi = SYSDATETIME(), RedTarihi = NULL, RedSebebi = NULL, TeslimTarihi = NULL";
     else if (durum == "Reddedildi")
-        sql += ", RedTarihi = SYSDATETIME(), RedSebebi = :redSebebi";
+        sql += ", KabulTarihi = NULL, RedTarihi = SYSDATETIME(), RedSebebi = :redSebebi, TeslimTarihi = NULL";
     else if (durum == "Tamamlandı")
-        sql += ", TeslimTarihi = SYSDATETIME()";
+        sql += ", KabulTarihi = ISNULL(KabulTarihi, SYSDATETIME()), RedTarihi = NULL, RedSebebi = NULL,"
+               " TeslimTarihi = SYSDATETIME()";
     sql += " WHERE TeklifId = :teklifId";
 
     QSqlQuery query(m_db);
@@ -815,14 +857,75 @@ bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QSt
     query.bindValue(":durum", durum);
     query.bindValue(":teklifId", teklifId);
     if (durum == "Reddedildi")
-        query.bindValue(":redSebebi", redSebebi.isEmpty() ? QVariant(QMetaType(QMetaType::QString)) : redSebebi);
+        query.bindValue(":redSebebi", redSebebi.trimmed().isEmpty() ? QVariant(QMetaType(QMetaType::QString))
+                                                                    : redSebebi.trimmed());
 
     if (!query.exec())
     {
         qWarning() << "teklifDurumGuncelle basarisiz:" << query.lastError().text();
         return false;
     }
+
+    durumDegisiminiLogla(teklifId, eskiDurum, durum, redSebebi, kullaniciId);
     return true;
+}
+
+void Database::durumDegisiminiLogla(int teklifId, const QString &eskiDurum, const QString &yeniDurum,
+                                    const QString &aciklama, int kullaniciId)
+{
+    // "Best effort": 05_teklif_durum_gecmisi.sql henuz calistirilmadiysa tablo yoktur.
+    // Bu durumda durum degisiminin kendisini basarisiz saymak yanlis olur -- sadece
+    // uyari basip geciyoruz (log tutulmaz, uygulama calismaya devam eder).
+    QSqlQuery logQuery(m_db);
+    logQuery.prepare(
+        "INSERT INTO dbo.teklif_durum_gecmisi (TeklifId, EskiDurum, YeniDurum, Aciklama, KullaniciId) "
+        "VALUES (:teklifId, :eskiDurum, :yeniDurum, :aciklama, :kullaniciId)");
+    logQuery.bindValue(":teklifId", teklifId);
+    logQuery.bindValue(":eskiDurum", eskiDurum.isEmpty() ? QVariant(QMetaType(QMetaType::QString)) : eskiDurum);
+    logQuery.bindValue(":yeniDurum", yeniDurum);
+    logQuery.bindValue(":aciklama", aciklama.trimmed().isEmpty() ? QVariant(QMetaType(QMetaType::QString))
+                                                                 : aciklama.trimmed());
+    logQuery.bindValue(":kullaniciId", kullaniciId > 0 ? QVariant(kullaniciId) : QVariant(QMetaType(QMetaType::Int)));
+
+    if (!logQuery.exec())
+        qWarning() << "Durum gecmisi yazilamadi (db/05_teklif_durum_gecmisi.sql calistirildi mi?):"
+                   << logQuery.lastError().text();
+}
+
+QVariantList Database::teklifDurumGecmisiGetir(int teklifId)
+{
+    QVariantList gecmis;
+    if (!m_baglantiHazir)
+        return gecmis;
+
+    QSqlQuery query(m_db);
+    query.prepare(
+        "SELECT g.EskiDurum, g.YeniDurum, g.Aciklama, g.DegisiklikTarihi, k.KullaniciAdi "
+        "FROM dbo.teklif_durum_gecmisi g "
+        "LEFT JOIN dbo.kullanicilar k ON k.KullaniciId = g.KullaniciId "
+        "WHERE g.TeklifId = :teklifId "
+        "ORDER BY g.DegisiklikTarihi DESC, g.DurumGecmisiId DESC");
+    query.bindValue(":teklifId", teklifId);
+
+    if (!query.exec())
+    {
+        // Tablo yoksa burasi da hata verir; kullaniciya bos gecmis gostermek
+        // uygulamayi kirmaktan iyidir (bkz. durumDegisiminiLogla notu).
+        qWarning() << "teklifDurumGecmisiGetir basarisiz:" << query.lastError().text();
+        return gecmis;
+    }
+
+    while (query.next())
+    {
+        QVariantMap satir;
+        satir["eskiDurum"] = query.value("EskiDurum").toString();
+        satir["yeniDurum"] = query.value("YeniDurum").toString();
+        satir["aciklama"] = query.value("Aciklama").toString();
+        satir["tarih"] = tarihSaatStr(query.value("DegisiklikTarihi"));
+        satir["personel"] = query.value("KullaniciAdi").toString();
+        gecmis << satir;
+    }
+    return gecmis;
 }
 
 QVariantMap Database::musteriListesiGetir(const QString &arama, int sayfaNo, int sayfaBoyutu)

@@ -16,6 +16,13 @@ import erp_programi
 // Filtreleme ve sayfalama mantigi burada degil, Database::gecmisTekliflerGetir()
 // icinde (SQL Server tarafinda) calisir; bu sayfa sadece sonucu gosterir ve
 // kullanici etkilesimini C++ tarafina iletir.
+//
+// DURUM DEGISIKLIGI: Her satirin durum rozeti tiklanabilir bir menudur ve teklifi
+// mevcut durumundan BASKA HERHANGI BIR duruma alabilir -- uc sekmede de. Yani
+// "Kabul Edildi" yapilmis bir teklif, musteri sonradan vazgecerse Alınan
+// Tekliflerim'den "Reddedildi"ye, kararsiz kalirsa "Beklemede"ye cekilebilir;
+// tamamlanmis bir teklif de geri alinabilir. Degisimlerin izi, menudeki
+// "Durum Geçmişi" penceresinden goruntulenir.
 Item {
     id: root
 
@@ -36,14 +43,79 @@ Item {
     readonly property int sutunTeklifNo: 100
     readonly property int sutunTarih: 100
     readonly property int sutunPersonel: 130
-    readonly property int sutunDurum: 110
-    // Detay(58) + aksiyon slotu(152) + PDF(50) + Sil(50) + 3 x 6px bosluk = 328
-    readonly property int sutunAksiyonSlotu: 152
-    readonly property int sutunIslemler: 328
+    // Durum rozeti artik tiklanabilir bir menu acicisi oldugu icin icinde bir de
+    // "▾" isareti tasiyor; sutun ona gore bir miktar genisletildi.
+    readonly property int sutunDurum: 128
+    // Detay(58) + PDF(50) + Sil(50) + 2 x 6px bosluk = 176
+    readonly property int sutunIslemler: 176
 
     // Hangi sekme oldugumuzu belirler (bkz. yukaridaki not) ve baslikta gosterilir.
     property string durumFiltresi: ""
     property string baslikMetni: "Giden Tekliflerim"
+
+    // Durum degisikligini yapan personel; durum gecmisi logunda "kim degistirdi"
+    // olarak saklanir. SatisModuluPage oturumdaki kullaniciyi buraya aktarir.
+    property int kullaniciId: 0
+
+    // --- Durum degistirme -----------------------------------------------------
+    // Teklif durumu TEK YONLU DEGILDIR: musteri kabul ettikten sonra vazgecebilir,
+    // kararsiz kalip "bekleyin" diyebilir, tamamlanmis bir teklif yanlislikla
+    // tamamlanmis olabilir. Bu yuzden HER satirin durum rozeti tiklanabilir bir
+    // menudur ve mevcut durum ne olursa olsun diger tum durumlara gecis yapilabilir
+    // -- ustelik uc sekmenin (Giden/Alınan/Biten) hepsinde. Gecerli durum listesi
+    // C++ tarafindan (Database::gecerliDurumlar) gelir; tek kaynak orasidir.
+    readonly property var durumSecenekleri: database.gecerliDurumlar()
+
+    function digerDurumlar(mevcutDurum) {
+        return root.durumSecenekleri.filter(d => d !== mevcutDurum)
+    }
+
+    // Menuden bir durum secildiginde cagrilir. "Reddedildi" secildiginde once red
+    // sebebi sorulur, diger gecislerde kisa bir onay penceresi acilir -- zira bu
+    // islem satiri bulundugu sekmeden tamamen dusurebilir (ornegin Alınan
+    // Tekliflerim'deki bir teklif "Reddedildi" yapilinca artik o listede gorunmez).
+    function durumDegistirmeyiBaslat(teklifId, eskiDurum, yeniDurum) {
+        if (yeniDurum === "Reddedildi") {
+            redSebebiGirisi.text = ""
+            reddetDialogu.hedefTeklifId = teklifId
+            reddetDialogu.eskiDurum = eskiDurum
+            reddetDialogu.open()
+            return
+        }
+        durumOnayDialogu.hedefTeklifId = teklifId
+        durumOnayDialogu.eskiDurum = eskiDurum
+        durumOnayDialogu.yeniDurum = yeniDurum
+        durumOnayDialogu.open()
+    }
+
+    // Asil guncelleme tek bir yerden gecer; boylece basari/hata mesaji ve listenin
+    // yenilenmesi her cagri noktasinda tekrar yazilmak zorunda kalmaz.
+    function durumUygula(teklifId, yeniDurum, redSebebi) {
+        const basarili = database.teklifDurumGuncelle(teklifId, yeniDurum, redSebebi || "", root.kullaniciId)
+        if (!basarili) {
+            root.pdfMesaji = "Teklif #" + teklifId + " durumu güncellenemedi."
+            root.pdfMesajiHata = true
+            return
+        }
+
+        // Filtreli bir sekmedeysek (Alınan/Biten) ve yeni durum o filtreye uymuyorsa
+        // satir bu listeden kaybolur; kullanici "kayboldu" sanmasin diye nerede
+        // bulacagini soyluyoruz.
+        var mesaj = "Teklif #" + teklifId + " durumu → " + yeniDurum
+        if (root.durumFiltresi !== "" && root.durumFiltresi !== yeniDurum)
+            mesaj += "  (bu teklif artık " + (yeniDurum === "Kabul Edildi" ? "Alınan Tekliflerim"
+                                            : yeniDurum === "Tamamlandı" ? "Biten Tekliflerim"
+                                            : "Giden Tekliflerim") + "'de)"
+        root.pdfMesaji = mesaj
+        root.pdfMesajiHata = false
+        root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
+    }
+
+    function durumGecmisiniAc(teklifId) {
+        gecmisDialogu.hedefTeklifId = teklifId
+        gecmisDialogu.kayitlar = database.teklifDurumGecmisiGetir(teklifId)
+        gecmisDialogu.open()
+    }
 
     // SatisModuluPage, tum sekmeleri (bu da dahil) StackLayout icinde ANINDA
     // olusturur -- sekme henuz gorunur olmasa da. otomatikYukle false ise
@@ -65,6 +137,23 @@ Item {
     property string bitisTarihi: ""
     property string pdfMesaji: ""
     property bool pdfMesajiHata: false
+
+    // Ust koşedeki bildirim gecici bir geri bildirimdir; mesaj her degistiginde
+    // 5 saniyelik sayac bastan baslar ve sure dolunca yazi kendiliginden kaybolur.
+    // Mesaji kimin yazdigi onemli degil (durum degisikligi, PDF, hata, revizyon
+    // bildirimi) -- hepsi pdfMesaji uzerinden gectigi icin tek yerden yonetilir.
+    onPdfMesajiChanged: {
+        if (root.pdfMesaji.length > 0)
+            mesajZamanlayici.restart()
+        else
+            mesajZamanlayici.stop()
+    }
+
+    Timer {
+        id: mesajZamanlayici
+        interval: 5000
+        onTriggered: root.pdfMesaji = ""
+    }
 
     // Sayfanin ust kosesindeki durum mesaji alanini disaridan (SatisModuluPage --
     // ornegin revizyon kaydedilip listeye donuldugunde) beslemek icin.
@@ -139,6 +228,8 @@ Item {
 
             Item { Layout.fillWidth: true }
 
+            // Gecici bildirim (durum degisti / PDF olusturuldu / hata): 5 saniye
+            // sonra kendiliginden kaybolur, bkz. root.mesajZamanlayici.
             Label {
                 visible: root.pdfMesaji.length > 0
                 text: root.pdfMesaji
@@ -458,6 +549,13 @@ Item {
                     // DURUM rozeti, sutunun tamamini kaplayip metnini ortalamak yerine
                     // sabit genislikli bir slotun SOL kenarina yaslanir; boylece rozetin
                     // sol kenari "DURUM" basliginin sol kenariyla ayni hizada olur.
+                    //
+                    // Rozet ayni zamanda bir MENU ACICISIDIR: uzerine tiklaninca mevcut
+                    // durum disindaki tum durumlar listelenir. Boylece "kabul edildi"
+                    // dedigimiz bir teklif, musteri sonradan vazgecerse "Reddedildi"ye,
+                    // kararsiz kalirsa "Beklemede"ye geri alinabilir -- Alınan/Biten
+                    // sekmelerinde de. Menunun en altindaki "Durum Geçmişi" ise tum bu
+                    // ileri-geri gecislerin kaydini gosterir.
                     Item {
                         Layout.preferredWidth: root.sutunDurum
                         Layout.maximumWidth: root.sutunDurum
@@ -467,7 +565,7 @@ Item {
                             id: durumRozeti
                             anchors.left: parent.left
                             anchors.verticalCenter: parent.verticalCenter
-                            width: Math.min(root.sutunDurum, durumMetni.implicitWidth + 20)
+                            width: Math.min(root.sutunDurum, durumMetni.implicitWidth + 32)
                             height: 24
                             radius: 5
                             color: {
@@ -486,28 +584,111 @@ Item {
                                 return Theme.kenarlik
                             }
 
-                            Text {
-                                id: durumMetni
+                            readonly property color durumRengi: {
+                                const d = satir.modelData.durum
+                                if (d === "Tamamlandı" || d === "Kabul Edildi") return Theme.basariAcik
+                                if (d === "Beklemede") return Theme.vurguAcik
+                                if (d === "Reddedildi") return Theme.tehlikeAcik
+                                return Theme.metinIkincil
+                            }
+
+                            Row {
                                 anchors.centerIn: parent
-                                text: satir.modelData.durum
-                                font.family: Theme.fontAilesi
-                                font.pixelSize: Theme.fontBoyutKucuk
-                                color: {
-                                    const d = satir.modelData.durum
-                                    if (d === "Tamamlandı" || d === "Kabul Edildi") return Theme.basariAcik
-                                    if (d === "Beklemede") return Theme.vurguAcik
-                                    if (d === "Reddedildi") return Theme.tehlikeAcik
-                                    return Theme.metinIkincil
+                                spacing: 4
+
+                                Text {
+                                    id: durumMetni
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: satir.modelData.durum
+                                    font.family: Theme.fontAilesi
+                                    font.pixelSize: Theme.fontBoyutKucuk
+                                    color: durumRozeti.durumRengi
+                                }
+
+                                // Rozetin tiklanabilir bir menu oldugunu belli eden isaret.
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "▾"
+                                    font.family: Theme.fontAilesi
+                                    font.pixelSize: 9
+                                    color: durumRozeti.durumRengi
+                                    opacity: 0.7
                                 }
                             }
 
-                            ToolTip.visible: redSebebiAlani.containsMouse && satir.modelData.durum === "Reddedildi" && satir.modelData.redSebebi.length > 0
-                            ToolTip.text: satir.modelData.redSebebi
+                            ToolTip.visible: durumAlani.containsMouse
+                            ToolTip.text: satir.modelData.durum === "Reddedildi" && satir.modelData.redSebebi.length > 0
+                                          ? "Red sebebi: " + satir.modelData.redSebebi + "\nDurumu değiştirmek için tıklayın"
+                                          : "Durumu değiştirmek için tıklayın"
                             MouseArea {
-                                id: redSebebiAlani
+                                id: durumAlani
                                 anchors.fill: parent
                                 hoverEnabled: true
-                                acceptedButtons: Qt.NoButton
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: durumMenusu.popup()
+                            }
+
+                            // Mevcut durum DISINDAKI tum durumlar + gecmis kaydi.
+                            // Instantiator, Menu'nun icerigini bir model'den uretmenin
+                            // desteklenen yoludur (Repeater dogrudan MenuItem uretmez).
+                            Menu {
+                                id: durumMenusu
+
+                                background: Rectangle {
+                                    implicitWidth: 180
+                                    color: Theme.panel
+                                    radius: Theme.radiusKucuk
+                                    border.width: 1
+                                    border.color: Theme.kenarlik
+                                }
+
+                                Instantiator {
+                                    model: root.digerDurumlar(satir.modelData.durum)
+                                    onObjectAdded: (index, object) => durumMenusu.insertItem(index, object)
+                                    onObjectRemoved: (index, object) => durumMenusu.removeItem(object)
+
+                                    delegate: MenuItem {
+                                        id: durumSecenegi
+                                        required property string modelData
+                                        text: durumSecenegi.modelData + " yap"
+                                        height: 32
+                                        onTriggered: root.durumDegistirmeyiBaslat(
+                                            satir.modelData.teklifId, satir.modelData.durum, durumSecenegi.modelData)
+                                        background: Rectangle {
+                                            color: durumSecenegi.highlighted ? Theme.panelHover : "transparent"
+                                        }
+                                        contentItem: Text {
+                                            text: durumSecenegi.text
+                                            color: Theme.metinBirincil
+                                            font.family: Theme.fontAilesi
+                                            font.pixelSize: Theme.fontBoyutNormal
+                                            verticalAlignment: Text.AlignVCenter
+                                            leftPadding: 8
+                                        }
+                                    }
+                                }
+
+                                MenuSeparator {
+                                    contentItem: Rectangle { implicitHeight: 1; color: Theme.kenarlik }
+                                }
+
+                                MenuItem {
+                                    id: gecmisMenuOgesi
+                                    text: "Durum Geçmişi..."
+                                    height: 32
+                                    onTriggered: root.durumGecmisiniAc(satir.modelData.teklifId)
+                                    background: Rectangle {
+                                        color: gecmisMenuOgesi.highlighted ? Theme.panelHover : "transparent"
+                                    }
+                                    contentItem: Text {
+                                        text: gecmisMenuOgesi.text
+                                        color: Theme.metinIkincil
+                                        font.family: Theme.fontAilesi
+                                        font.pixelSize: Theme.fontBoyutNormal
+                                        verticalAlignment: Text.AlignVCenter
+                                        leftPadding: 8
+                                    }
+                                }
                             }
                         }
                     }
@@ -553,66 +734,11 @@ Item {
                             }
                         }
 
-                        // Duruma gore degisen aksiyonlar (Kabul Et/Reddet ya da
-                        // Tamamlandı) SABIT genislikte bir slot icinde durur. Butonlar
-                        // gizlendiginde layout'tan tamamen cikacagi icin, slot olmadan
-                        // PDF/Sil butonlari satirdan satira farkli yerlere kayardi.
-                        Item {
-                            Layout.preferredWidth: root.sutunAksiyonSlotu
-                            Layout.maximumWidth: root.sutunAksiyonSlotu
-                            Layout.preferredHeight: 28
-
-                            RowLayout {
-                                anchors.left: parent.left
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: 6
-
-                                // "Giden Tekliflerim" (durumFiltresi bos) sekmesinde, henuz cevap
-                                // bekleyen teklifler icin Kabul Et / Reddet aksiyonlari.
-                                Button {
-                                    visible: root.durumFiltresi === "" && satir.modelData.durum === "Beklemede"
-                                    text: "Kabul Et"
-                                    Layout.preferredWidth: 78
-                                    Layout.preferredHeight: 28
-                                    onClicked: {
-                                        database.teklifDurumGuncelle(satir.modelData.teklifId, "Kabul Edildi", "")
-                                        root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
-                                    }
-                                    background: Rectangle { radius: 5; color: "#123d22"; border.width: 1; border.color: Theme.basari }
-                                    contentItem: Text { text: "Kabul Et"; color: Theme.basariAcik; font.family: Theme.fontAilesi; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                                }
-
-                                Button {
-                                    visible: root.durumFiltresi === "" && satir.modelData.durum === "Beklemede"
-                                    text: "Reddet"
-                                    Layout.preferredWidth: 68
-                                    Layout.preferredHeight: 28
-                                    onClicked: {
-                                        redSebebiGirisi.text = ""
-                                        reddetDialogu.hedefTeklifId = satir.modelData.teklifId
-                                        reddetDialogu.open()
-                                    }
-                                    background: Rectangle { radius: 5; color: "transparent"; border.width: 1; border.color: Theme.tehlike }
-                                    contentItem: Text { text: "Reddet"; color: Theme.tehlikeAcik; font.family: Theme.fontAilesi; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                                }
-
-                                // "Alınan Tekliflerim" sekmesinde, siparis hazirlanip gonderildiginde
-                                // "Biten Tekliflerim"e tasimak icin.
-                                Button {
-                                    visible: root.durumFiltresi === "Kabul Edildi"
-                                    text: "Tamamlandı"
-                                    Layout.preferredWidth: 90
-                                    Layout.preferredHeight: 28
-                                    onClicked: {
-                                        database.teklifDurumGuncelle(satir.modelData.teklifId, "Tamamlandı", "")
-                                        root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
-                                    }
-                                    background: Rectangle { radius: 5; color: Theme.vurgu }
-                                    contentItem: Text { text: "Tamamlandı"; color: "#ffffff"; font.family: Theme.fontAilesi; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                                }
-                            }
-                        }
-
+                        // NOT: Burada eskiden duruma gore degisen "Kabul Et / Reddet /
+                        // Tamamlandı" butonlari vardi. Artik her gecis (ileri VE geri)
+                        // DURUM sutunundaki rozet menusunden yapildigi icin bu butonlar
+                        // ayni isi ikinci kez yapiyordu; kaldirildilar. Satirda kalan
+                        // islemler yalnizca Detay / PDF / Sil.
                         Item { Layout.fillWidth: true }
 
                         Button {
@@ -758,10 +884,131 @@ Item {
         onRejected: acilacakTeklifId = -1
     }
 
-    // Reddetme sebebi (opsiyonel) girisi.
+    // Durum degisikligi onayi. "Reddedildi" disindaki her gecis buradan gecer --
+    // islem geri alinabilir olsa da satiri bulundugu sekmeden dusurebildigi icin
+    // yanlislikla tiklanmaya karsi kisa bir onay istiyoruz.
+    Dialog {
+        id: durumOnayDialogu
+        property int hedefTeklifId: -1
+        property string eskiDurum: ""
+        property string yeniDurum: ""
+        title: "Durumu Değiştir"
+        modal: true
+        width: 380
+        anchors.centerIn: parent
+        standardButtons: Dialog.Ok | Dialog.Cancel
+
+        background: Rectangle {
+            color: Theme.panel
+            radius: Theme.radiusNormal
+            border.color: Theme.kenarlik
+            border.width: 1
+        }
+
+        contentItem: Label {
+            text: "Teklif #" + durumOnayDialogu.hedefTeklifId + " durumu\n\""
+                  + durumOnayDialogu.eskiDurum + "\" → \"" + durumOnayDialogu.yeniDurum
+                  + "\"\n\nolarak değiştirilecek. Onaylıyor musunuz?"
+            color: Theme.metinBirincil
+            font.family: Theme.fontAilesi
+            font.pixelSize: Theme.fontBoyutNormal
+            wrapMode: Text.WordWrap
+            width: durumOnayDialogu.availableWidth
+        }
+
+        onAccepted: {
+            root.durumUygula(durumOnayDialogu.hedefTeklifId, durumOnayDialogu.yeniDurum, "")
+            durumOnayDialogu.hedefTeklifId = -1
+        }
+        onRejected: durumOnayDialogu.hedefTeklifId = -1
+    }
+
+    // Bir teklifin tum durum degisimleri (kim, ne zaman, hangi durumdan hangisine).
+    // Durum ileri geri degisebildigi icin teklifler tablosundaki tarih alanlari her
+    // seferinde ustune yazilir; degisimin izi burada kalir.
+    Dialog {
+        id: gecmisDialogu
+        property int hedefTeklifId: -1
+        property var kayitlar: []
+        title: "Teklif #" + gecmisDialogu.hedefTeklifId + " - Durum Geçmişi"
+        modal: true
+        width: 480
+        anchors.centerIn: parent
+        standardButtons: Dialog.Close
+
+        background: Rectangle {
+            color: Theme.panel
+            radius: Theme.radiusNormal
+            border.color: Theme.kenarlik
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 8
+
+            Label {
+                visible: gecmisDialogu.kayitlar.length === 0
+                Layout.fillWidth: true
+                text: "Bu teklif için kayıtlı durum değişikliği yok."
+                color: Theme.metinSoluk
+                font.family: Theme.fontAilesi
+                font.pixelSize: Theme.fontBoyutKucuk
+                wrapMode: Text.WordWrap
+            }
+
+            ListView {
+                visible: gecmisDialogu.kayitlar.length > 0
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(300, gecmisDialogu.kayitlar.length * 56)
+                clip: true
+                spacing: 4
+                model: gecmisDialogu.kayitlar
+
+                delegate: Rectangle {
+                    id: gecmisSatiri
+                    required property var modelData
+                    width: ListView.view.width
+                    height: 52
+                    radius: Theme.radiusKucuk
+                    color: Theme.arkaplan
+                    border.width: 1
+                    border.color: Theme.kenarlik
+
+                    Column {
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 2
+
+                        Text {
+                            text: (gecmisSatiri.modelData.eskiDurum.length > 0 ? gecmisSatiri.modelData.eskiDurum : "—")
+                                  + "  →  " + gecmisSatiri.modelData.yeniDurum
+                            color: Theme.metinBirincil
+                            font.family: Theme.fontAilesi
+                            font.pixelSize: Theme.fontBoyutNormal
+                        }
+                        Text {
+                            text: gecmisSatiri.modelData.tarih
+                                  + (gecmisSatiri.modelData.personel.length > 0 ? "  •  " + gecmisSatiri.modelData.personel : "")
+                                  + (gecmisSatiri.modelData.aciklama.length > 0 ? "  •  " + gecmisSatiri.modelData.aciklama : "")
+                            color: Theme.metinSoluk
+                            font.family: Theme.fontAilesi
+                            font.pixelSize: Theme.fontBoyutKucuk
+                            elide: Text.ElideRight
+                            width: parent.width
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Reddetme sebebi (opsiyonel) girisi. Sadece "Beklemede" satirlarindan degil,
+    // durum menusunden "Reddedildi" secildiginde de acilir -- yani kabul edilmis
+    // ya da tamamlanmis bir teklif de sebebiyle birlikte reddedilebilir.
     Dialog {
         id: reddetDialogu
         property int hedefTeklifId: -1
+        property string eskiDurum: ""
         title: "Teklifi Reddet"
         modal: true
         width: 360
@@ -776,14 +1023,24 @@ Item {
         }
 
         onAccepted: {
-            database.teklifDurumGuncelle(hedefTeklifId, "Reddedildi", redSebebiGirisi.text)
-            hedefTeklifId = -1
-            root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
+            root.durumUygula(reddetDialogu.hedefTeklifId, "Reddedildi", redSebebiGirisi.text)
+            reddetDialogu.hedefTeklifId = -1
         }
-        onRejected: hedefTeklifId = -1
+        onRejected: reddetDialogu.hedefTeklifId = -1
 
         contentItem: ColumnLayout {
             spacing: 8
+            Label {
+                // Kabul edilmis/tamamlanmis bir teklif geri cekiliyorsa kullanici
+                // hangi durumdan donduguunu gorsun.
+                visible: reddetDialogu.eskiDurum.length > 0 && reddetDialogu.eskiDurum !== "Beklemede"
+                text: "Bu teklif şu an \"" + reddetDialogu.eskiDurum + "\" durumunda; reddedilmiş olarak işaretlenecek."
+                color: Theme.metinSoluk
+                font.family: Theme.fontAilesi
+                font.pixelSize: Theme.fontBoyutKucuk
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
             Label {
                 text: "Müşteri neden reddetti? (opsiyonel)"
                 color: Theme.metinBirincil

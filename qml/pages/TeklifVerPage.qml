@@ -170,7 +170,6 @@ Item {
     // ekranin normal "yeni teklif" davranisi HICBIR SEKILDE degismez.
     property int duzenlenenAnaTeklifId: 0
     property int duzenlenenKaynakTeklifId: 0
-    property string duzenlemeBaslikMetni: ""
 
     // Giden Tekliflerim'deki "Detay" butonundan cagrilir (bkz. SatisModuluPage.qml).
     // Ilgili teklifin kayitli TUM verisini ceker ve formu/sepeti onunla doldurur.
@@ -222,17 +221,18 @@ Item {
 
         root.duzenlenenAnaTeklifId = veri.anaTeklifId
         root.duzenlenenKaynakTeklifId = veri.teklifId
-        root.duzenlemeBaslikMetni = "Teklif #" + veri.teklifId + " üzerinden revizyon hazırlanıyor"
 
+        // Hangi teklifte oldugumuz zaten basliktan ("#2264 Teklif Bilgileri") ve
+        // geri butonundan belli; ayrica bir "yuklendi" bildirimi gosterilmiyor.
+        // Bilgi kutusu, onceki bir hatadan kalan metni tasimasin diye temizlenir.
         bilgiMesaji.color = Theme.basariAcik
-        bilgiMesaji.text = "Teklif #" + veri.teklifId + " düzenleme için yüklendi."
+        bilgiMesaji.text = ""
     }
 
     // Revizyon modundan cikip formu bos "yeni teklif" durumuna dondurur.
     function duzenlemeyiIptalEt() {
         root.duzenlenenAnaTeklifId = 0
         root.duzenlenenKaynakTeklifId = 0
-        root.duzenlemeBaslikMetni = ""
 
         root.sepet = []
         root.secilenMusteriId = 0
@@ -506,16 +506,20 @@ Item {
             ColumnLayout {
                 spacing: 2
                 Label {
-                    text: root.duzenlenenAnaTeklifId > 0 ? "Teklifi Revize Et" : "Teklif Oluştur"
+                    // Mevcut bir teklif acikken baslik teklifin kendisini soyler
+                    // ("#2264 Teklif Bilgileri"); hangi teklifte oldugumuz tek bakista
+                    // bellidir, bu yuzden ayrica bir rozet/aciklama satiri tasinmiyor.
+                    text: root.duzenlenenAnaTeklifId > 0
+                        ? "#" + root.duzenlenenKaynakTeklifId + " Teklif Bilgileri"
+                        : "Teklif Oluştur"
                     font.family: Theme.fontAilesi
                     font.pixelSize: Theme.fontBoyutBaslik
                     font.bold: true
                     color: Theme.metinBirincil
                 }
                 Label {
-                    text: root.duzenlenenAnaTeklifId > 0
-                        ? "Teklif #" + root.duzenlenenKaynakTeklifId + " üzerinde değişiklik yapın; kaydedince yeni bir revizyon oluşur"
-                        : "Müşteri, ürün ve şartları belirleyip yeni bir satış teklifi hazırlayın"
+                    visible: root.duzenlenenAnaTeklifId === 0
+                    text: "Müşteri, ürün ve şartları belirleyip yeni bir satış teklifi hazırlayın"
                     font.family: Theme.fontAilesi
                     font.pixelSize: Theme.fontBoyutKucuk
                     color: Theme.metinSoluk
@@ -524,28 +528,11 @@ Item {
 
             Item { Layout.fillWidth: true }
 
-            // Revize edilen teklifin kimligi: basliktaki geri butonu + alt aciklama
-            // ile birlikte, hangi teklif uzerinde calisildigini net tutar.
-            Rectangle {
-                visible: root.duzenlenenAnaTeklifId > 0
-                radius: Theme.radiusNormal
-                color: Qt.rgba(0.35, 0.55, 0.95, 0.12)
-                border.width: 1
-                border.color: Theme.kenarlikVurgu
-                implicitWidth: duzenlemeEtiketi.implicitWidth + 24
-                implicitHeight: duzenlemeEtiketi.implicitHeight + 14
-
-                Label {
-                    id: duzenlemeEtiketi
-                    anchors.centerIn: parent
-                    text: root.duzenlemeBaslikMetni
-                    color: Theme.metinBirincil
-                    font.family: Theme.fontAilesi
-                    font.pixelSize: Theme.fontBoyutKucuk
-                    font.bold: true
-                }
-            }
-
+            // Sag ustteki bildirim kutusu. Gecici bir geri bildirim oldugu icin
+            // ekranda kalici degil: metin her degistiginde 5 saniyelik sayac
+            // bastan baslar ve sure dolunca kutu kendiliginden kaybolur. Art arda
+            // gelen mesajlarda (ornegin "PDF hazırlanıyor..." -> "PDF: ...") sayac
+            // sifirlanir, yani her mesaj kendi 5 saniyesini yasar.
             Rectangle {
                 id: bilgiMesajiKutusu
                 visible: bilgiMesaji.text.length > 0
@@ -555,6 +542,13 @@ Item {
                 border.color: bilgiMesaji.color === Theme.tehlikeAcik ? Theme.tehlikeAcik : Theme.basariAcik
                 implicitWidth: bilgiMesaji.implicitWidth + 24
                 implicitHeight: bilgiMesaji.implicitHeight + 14
+
+                Timer {
+                    id: bilgiMesajiZamanlayici
+                    interval: 5000
+                    onTriggered: bilgiMesaji.text = ""
+                }
+
                 Label {
                     id: bilgiMesaji
                     anchors.centerIn: parent
@@ -562,6 +556,15 @@ Item {
                     font.family: Theme.fontAilesi
                     font.pixelSize: Theme.fontBoyutKucuk
                     font.bold: true
+
+                    // Mesaji kimin yazdigi onemli degil (PDF, kayit, hata...):
+                    // hepsi bu tek yerden otomatik kapanir.
+                    onTextChanged: {
+                        if (bilgiMesaji.text.length > 0)
+                            bilgiMesajiZamanlayici.restart()
+                        else
+                            bilgiMesajiZamanlayici.stop()
+                    }
                 }
             }
         }

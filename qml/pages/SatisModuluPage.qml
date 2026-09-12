@@ -14,6 +14,13 @@ import erp_programi
 //   Alınan Tekliflerim -> sadece "Kabul Edildi" durumundakiler; siparis
 //                         hazirlanip gonderilince "Tamamlandı" olarak isaretlenir.
 //   Biten Tekliflerim -> sadece "Tamamlandı" durumundakiler (arsiv).
+//
+// Bu sekmeler arasindaki gecis TEK YONLU DEGILDIR: musteri kabul ettikten sonra
+// vazgecebilir, kararsiz kalip bekletebilir, tamamlanmis bir teklif yanlislikla
+// tamamlanmis olabilir. Her uc listede de satirin DURUM rozetine tiklanarak teklif
+// herhangi bir duruma alinabilir (bkz. GecmisTekliflerPage.qml) -- yani bir teklif
+// Alınan Tekliflerim'den Giden Tekliflerim'e geri donebilir. Her degisim, kimin ne
+// zaman yaptigiyla birlikte "Durum Geçmişi"ne loglanir.
 Item {
     id: root
 
@@ -234,6 +241,7 @@ Item {
                 durumFiltresi: ""
                 baslikMetni: "Giden Tekliflerim"
                 otomatikYukle: false
+                kullaniciId: root.kullaniciId
                 onDetayIstendi: (teklifId) => root.revizyonuAc(1, teklifId)
             }
 
@@ -242,6 +250,7 @@ Item {
                 durumFiltresi: "Kabul Edildi"
                 baslikMetni: "Alınan Tekliflerim"
                 otomatikYukle: false
+                kullaniciId: root.kullaniciId
                 onDetayIstendi: (teklifId) => root.revizyonuAc(2, teklifId)
             }
 
@@ -250,6 +259,7 @@ Item {
                 durumFiltresi: "Tamamlandı"
                 baslikMetni: "Biten Tekliflerim"
                 otomatikYukle: false
+                kullaniciId: root.kullaniciId
                 onDetayIstendi: (teklifId) => root.revizyonuAc(3, teklifId)
             }
 

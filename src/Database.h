@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QSqlDatabase>
@@ -107,9 +108,35 @@ public:
     //             aciklama, adet (int), birimFiyatTl, maliyet (double)}>).
     Q_INVOKABLE QVariantMap teklifDuzenlemeVerisiGetir(int teklifId);
 
-    // Teklifin durumunu degistirir: "Kabul Edildi" (KabulTarihi=simdi),
-    // "Reddedildi" (RedTarihi=simdi, redSebebi opsiyonel), "Tamamlandi" (TeslimTarihi=simdi).
-    Q_INVOKABLE bool teklifDurumGuncelle(int teklifId, const QString &durum, const QString &redSebebi = QString());
+    // Teklifin durumunu degistirir. Gecerli durumlar: "Beklemede", "Kabul Edildi",
+    // "Reddedildi", "Tamamlandı" (bkz. gecerliDurumlar()).
+    //
+    // ONEMLI: Gecisler TEK YONLU DEGILDIR -- musteri once kabul edip sonra
+    // vazgecebilir ("Kabul Edildi" -> "Reddedildi"), kararsiz kalip bekletebilir
+    // ("Kabul Edildi" -> "Beklemede"), yanlislikla tamamlanmis bir teklif geri
+    // alinabilir ("Tamamlandı" -> "Kabul Edildi"). Bu yuzden her gecis, YENI
+    // duruma ait tarihi yazarken ARTIK GECERSIZ olan durum alanlarini da temizler
+    // (ornegin "Reddedildi"den "Beklemede"ye donuste RedTarihi/RedSebebi NULL'lanir);
+    // aksi halde listelerde ve PDF'lerde birbiriyle celisen tarihler kalirdi.
+    //
+    // Alanlar ustune yazildigi icin gecmis kaybolmasin diye her degisim ayrica
+    // dbo.teklif_durum_gecmisi tablosuna loglanir (bkz. db/05_teklif_durum_gecmisi.sql).
+    // Loglama "best effort"tur: tablo yoksa/yazilamazsa durum guncellemesi yine basarili sayilir.
+    //
+    // redSebebi yalnizca "Reddedildi" gecisinde kullanilir; kullaniciId 0 ise log
+    // satirina NULL yazilir.
+    Q_INVOKABLE bool teklifDurumGuncelle(int teklifId, const QString &durum,
+                                         const QString &redSebebi = QString(),
+                                         int kullaniciId = 0);
+
+    // Bir teklifin durum degisim gecmisi (en yeni ustte). Her eleman:
+    // {"eskiDurum", "yeniDurum", "aciklama", "personel", "tarih"} (hepsi string).
+    // Tablo henuz olusturulmadiysa bos liste doner (hata degil).
+    Q_INVOKABLE QVariantList teklifDurumGecmisiGetir(int teklifId);
+
+    // QML'deki durum menusunun beslendigi tek kaynak; boylece gecerli durum
+    // listesi C++ ile QML arasinda ikiye bolunmez.
+    Q_INVOKABLE QStringList gecerliDurumlar() const;
 
     // ------------------------------------------------------------------
     // Musterilerim / Urunlerim (WPF'teki Firmalarim + Urunlerim ekranlarinin
@@ -200,6 +227,11 @@ private:
 
     // Kullanicinin gorebildigi modul listesini (roller birlesik) getirir.
     QVariantList kullaniciModulleriniGetir(int kullaniciId);
+
+    // teklifDurumGuncelle'nin gecmis kaydi; hata durumunda sadece uyari basar
+    // (bkz. .cpp icindeki "best effort" notu).
+    void durumDegisiminiLogla(int teklifId, const QString &eskiDurum, const QString &yeniDurum,
+                              const QString &aciklama, int kullaniciId);
 
     QSqlDatabase m_db;
     bool m_baglantiHazir = false;
