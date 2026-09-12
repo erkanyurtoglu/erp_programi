@@ -43,7 +43,9 @@ public:
     // durumdan bagimsiz TUM kayitlari gosterir (durumFiltresi bos birakilir); "Alinan
     // Tekliflerim" / "Biten Tekliflerim" sekmeleri ayni metodu durumFiltresi ile cagirir
     // ("Kabul Edildi" / "Tamamlandi").
-    // Donen QVariantMap anahtarlari: "kayitlar" (QVariantList<QVariantMap>),
+    // Donen QVariantMap anahtarlari: "kayitlar" (QVariantList<QVariantMap>,
+    // her kayitta ayrica "anaTeklifId" (int, 0 ise orijinal teklif) ve
+    // "revizyonNo" (int, 0 ise orijinal) da bulunur -- bkz. teklifKaydet),
     // "toplamKayit" (int), "toplamSayfa" (int), "mevcutSayfa" (int).
     Q_INVOKABLE QVariantMap gecmisTekliflerGetir(const QString &arama,
                                                   const QString &tarihFiltresi,
@@ -79,9 +81,31 @@ public:
     //   indirimliToplam, kdvTutari, genelToplam (double, QML tarafinda hesaplanmis),
     //   kalemler (QVariantList<QVariantMap{urunId (0 ise manuel kalem), urunKodu,
     //             aciklama, adet, birimFiyat, indirimliBirimFiyat, toplamTutar,
-    //             maliyetFiyati, paraBirimi, kur}>)
+    //             maliyetFiyati, paraBirimi, kur}>),
+    //   anaTeklifId (int, OPSIYONEL): >0 verilirse bu YENI teklif, o teklifin
+    //             (veya zaten bir revizyonsa onun kok teklifinin) bir REVIZYONU
+    //             olarak kaydedilir -- orijinal teklif SATIRI hic degismez/silinmez,
+    //             sadece yeni bir TeklifId ile AnaTeklifId/RevizyonNo doldurulmus
+    //             ayri bir kayit eklenir. Bos/0 birakilirsa (normal "Teklif Ver"
+    //             akisi) eskisi gibi tamamen bagimsiz, AnaTeklifId'si NULL bir
+    //             teklif olusur -- davranis degismez.
     // Donen QVariantMap: "basarili" (bool), "teklifId" (int), "hata" (string).
     Q_INVOKABLE QVariantMap teklifKaydet(const QVariantMap &teklif);
+
+    // Giden/Alınan/Biten Tekliflerim'deki "Detay" butonu icin: bir teklifin
+    // KAYITLI TUM verisini, Teklif Ver ekranini (TeklifVerPage.duzenlemeyeBasla)
+    // AYNEN DOLDURACAK sekilde geri doner -- boylece "Detay" o teklifi Teklif Ver
+    // ekraninda acar, kullanici degisiklik yapip kaydedince teklifKaydet()'e
+    // anaTeklifId ile bir REVIZYON olarak gonderilir.
+    // Donen QVariantMap anahtarlari: "basarili" (bool), "hata" (string),
+    //   "teklifId", "anaTeklifId" (int, kok teklif; revizyon degilse teklifId'nin
+    //   kendisi), "revizyonNo" (int), "musteriId" (int), "musteriAdi",
+    //   "genelIndirimOrani", "kdvOrani", "paraBirimi", "dil", "ilgiliKisi",
+    //   "ilgiliKisiTelefonu", "ilgiliKisiEposta", "teslimatSekli", "teslimatYeri",
+    //   "paketlemeUcretiTl", "tasimaUcretiTl", "kur" (double, TL'ye cevirmek icin),
+    //   "kalemler" (QVariantList<QVariantMap{urunId (0 ise manuel), urunKodu,
+    //             aciklama, adet (int), birimFiyatTl, maliyet (double)}>).
+    Q_INVOKABLE QVariantMap teklifDuzenlemeVerisiGetir(int teklifId);
 
     // Teklifin durumunu degistirir: "Kabul Edildi" (KabulTarihi=simdi),
     // "Reddedildi" (RedTarihi=simdi, redSebebi opsiyonel), "Tamamlandi" (TeslimTarihi=simdi).

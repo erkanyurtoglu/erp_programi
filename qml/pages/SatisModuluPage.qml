@@ -24,6 +24,31 @@ Item {
 
     readonly property int kullaniciId: root.oturum ? (root.oturum.kullaniciId || 0) : 0
 
+    // ---- "Detay" (revizyon) alt sayfasi ----
+    // Revizyon ekrani sol menude KENDI maddesi olmayan, sadece listedeki "Detay"
+    // butonuyla acilan bir ALT SAYFA'dir (StackLayout'un son indeksi). Acikken sol
+    // menude gelinen liste sekmesi secili KALIR ve ust soldaki geri butonu tam
+    // kalinan yere dondurur -- boylece "Teklif Ver sekmesini gasp etme" hissi olmaz
+    // ve Teklif Ver'de hazirlanan yarim taslak hic etkilenmez (ayri bir ornek).
+    readonly property int revizyonSekmesi: 7
+    property int revizyonKaynakSekme: 1
+
+    function revizyonKaynakSayfasi() {
+        if (root.revizyonKaynakSekme === 2) return alinanTekliflerPage
+        if (root.revizyonKaynakSekme === 3) return bitenTekliflerPage
+        return gidenTekliflerPage
+    }
+
+    function revizyonuAc(kaynakSekme, teklifId) {
+        root.revizyonKaynakSekme = kaynakSekme
+        icerikYiginlar.currentIndex = root.revizyonSekmesi
+        revizyonPage.duzenlemeyeBasla(teklifId)
+    }
+
+    function revizyondanDon() {
+        icerikYiginlar.currentIndex = root.revizyonKaynakSekme
+    }
+
     Rectangle {
         anchors.fill: parent
         color: Theme.arkaplan
@@ -118,9 +143,13 @@ Item {
                     secili: icerikYiginlar.currentIndex === 0
                     onTiklandi: icerikYiginlar.currentIndex = 0
                 }
+                // NOT: "Detay" ile acilan revizyon alt sayfasindayken de, gelinen
+                // liste sekmesi secili gorunmeye devam eder -- kullanici hangi
+                // baglamda oldugunu kaybetmesin diye.
                 YanMenuButonu {
                     metin: "Giden Tekliflerim"
                     secili: icerikYiginlar.currentIndex === 1
+                            || (icerikYiginlar.currentIndex === root.revizyonSekmesi && root.revizyonKaynakSekme === 1)
                     onTiklandi: {
                         icerikYiginlar.currentIndex = 1
                         gidenTekliflerPage.sayfayiYukle(1)
@@ -129,6 +158,7 @@ Item {
                 YanMenuButonu {
                     metin: "Alınan Tekliflerim"
                     secili: icerikYiginlar.currentIndex === 2
+                            || (icerikYiginlar.currentIndex === root.revizyonSekmesi && root.revizyonKaynakSekme === 2)
                     onTiklandi: {
                         icerikYiginlar.currentIndex = 2
                         alinanTekliflerPage.sayfayiYukle(1)
@@ -137,6 +167,7 @@ Item {
                 YanMenuButonu {
                     metin: "Biten Tekliflerim"
                     secili: icerikYiginlar.currentIndex === 3
+                            || (icerikYiginlar.currentIndex === root.revizyonSekmesi && root.revizyonKaynakSekme === 3)
                     onTiklandi: {
                         icerikYiginlar.currentIndex = 3
                         bitenTekliflerPage.sayfayiYukle(1)
@@ -191,11 +222,17 @@ Item {
             // acilir acilmaz 6 sorgu ust uste UI thread'ini bloke ederdi.
             // Bunun yerine yukleme, kullanici sekmeye GERCEKTEN tikladiginda
             // (asagidaki sayfayiYukle cagrilariyla) yapilir.
+            //
+            // detayIstendi: her uc sekmedeki "Detay" butonu ayni akisi kullanir --
+            // revizyon ALT SAYFASINI acar (bkz. root.revizyonuAc). Teklif Ver
+            // sekmesine dokunulmaz; kaydedilince orijinal teklife dokunulmadan
+            // yeni bir revizyon eklenir ve otomatik olarak bu listeye donulur.
             GecmisTekliflerPage {
                 id: gidenTekliflerPage
                 durumFiltresi: ""
                 baslikMetni: "Giden Tekliflerim"
                 otomatikYukle: false
+                onDetayIstendi: (teklifId) => root.revizyonuAc(1, teklifId)
             }
 
             GecmisTekliflerPage {
@@ -203,6 +240,7 @@ Item {
                 durumFiltresi: "Kabul Edildi"
                 baslikMetni: "Alınan Tekliflerim"
                 otomatikYukle: false
+                onDetayIstendi: (teklifId) => root.revizyonuAc(2, teklifId)
             }
 
             GecmisTekliflerPage {
@@ -210,6 +248,7 @@ Item {
                 durumFiltresi: "Tamamlandı"
                 baslikMetni: "Biten Tekliflerim"
                 otomatikYukle: false
+                onDetayIstendi: (teklifId) => root.revizyonuAc(3, teklifId)
             }
 
             MusterilerimPage {
@@ -225,6 +264,36 @@ Item {
             PersonellerimPage {
                 id: personellerimPage
                 otomatikYukle: false
+            }
+
+            // ---- Index 7: "Detay" (revizyon) alt sayfasi ----
+            // Teklif Ver ile AYNI bilesen (yani birebir ayni ekran), ama AYRI bir
+            // ornek: Teklif Ver sekmesinde yarim kalmis bir teklif varsa bu akistan
+            // hic etkilenmez. Sol menude kendi maddesi yok; sadece listelerdeki
+            // "Detay" butonuyla acilir, geri butonuyla gelinen listeye donulur.
+            TeklifVerPage {
+                id: revizyonPage
+                kullaniciId: root.kullaniciId
+                geriDonusEtiketi: root.revizyonKaynakSekme === 2 ? "Alınan Tekliflerim"
+                                : root.revizyonKaynakSekme === 3 ? "Biten Tekliflerim"
+                                : "Giden Tekliflerim"
+
+                onGeriDonuldu: root.revizyondanDon()
+
+                onRevizyonKaydedildi: (yeniTeklifId, kaynakTeklifId) => {
+                    root.revizyondanDon()
+                    // Yeni revizyon en yeni kayit oldugu icin listenin ILK sayfasinda
+                    // gorunur; kullanici sonucu ("R1" rozetli yeni satir) hemen gorsun
+                    // diye kaldigi sayfa yerine 1. sayfaya donuyoruz.
+                    const sayfa = root.revizyonKaynakSayfasi()
+                    sayfa.sayfayiYukle(1)
+                    // Yeni revizyon her zaman "Beklemede" durumunda olusur; bu yuzden
+                    // Alınan/Biten listelerinde gorunmez -- kullaniciyi sasirtmamak
+                    // icin nerede bulacagini soyluyoruz.
+                    sayfa.durumMesajiGoster(
+                        "Teklif #" + kaynakTeklifId + " revize edildi → yeni teklif #" + yeniTeklifId
+                        + (root.revizyonKaynakSekme === 1 ? "" : " (Giden Tekliflerim'de)"))
+                }
             }
         }
     }

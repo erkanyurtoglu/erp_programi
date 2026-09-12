@@ -19,6 +19,11 @@ import erp_programi
 Item {
     id: root
 
+    // Bir satirda "Detay" butonuna basildiginda yayinlanir; SatisModuluPage bunu
+    // dinleyip "Teklif Ver" sekmesine gecip TeklifVerPage.duzenlemeyeBasla()'yi
+    // cagirir -- Detay, o teklifin verileriyle DOLU Teklif Ver ekranini acar.
+    signal detayIstendi(int teklifId)
+
     readonly property int sayfaBoyutu: 50
 
     // Hangi sekme oldugumuzu belirler (bkz. yukaridaki not) ve baslikta gosterilir.
@@ -45,6 +50,13 @@ Item {
     property string bitisTarihi: ""
     property string pdfMesaji: ""
     property bool pdfMesajiHata: false
+
+    // Sayfanin ust kosesindeki durum mesaji alanini disaridan (SatisModuluPage --
+    // ornegin revizyon kaydedilip listeye donuldugunde) beslemek icin.
+    function durumMesajiGoster(metin) {
+        root.pdfMesaji = metin
+        root.pdfMesajiHata = false
+    }
 
     function pdfOlusturVeAc(teklifId) {
         const sonuc = database.teklifPdfOlustur(teklifId)
@@ -274,7 +286,7 @@ Item {
                 Label { text: "TEKLİF TARİHİ"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 100 }
                 Label { text: "TEKLİFİ YAPAN"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 130 }
                 Label { text: "DURUM"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 110 }
-                Label { text: "İŞLEMLER"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 270 }
+                Label { text: "İŞLEMLER"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 336 }
             }
         }
 
@@ -327,14 +339,50 @@ Item {
                     anchors.leftMargin: 12
                     anchors.rightMargin: 12
 
-                    Text {
-                        text: satir.modelData.teklifId
-                        color: Theme.metinBirincil
-                        font.family: Theme.fontAilesi
-                        font.pixelSize: Theme.fontBoyutNormal
+                    RowLayout {
                         Layout.preferredWidth: 80
-                        verticalAlignment: Text.AlignVCenter
                         Layout.fillHeight: true
+                        spacing: 4
+
+                        Text {
+                            text: satir.modelData.teklifId
+                            color: Theme.metinBirincil
+                            font.family: Theme.fontAilesi
+                            font.pixelSize: Theme.fontBoyutNormal
+                            verticalAlignment: Text.AlignVCenter
+                            Layout.fillHeight: true
+                        }
+
+                        // Bu satir bir revizyonsa (RevizyonNo > 0) kucuk bir "R{n}"
+                        // rozeti gosterir; orijinal teklifler icin gizli.
+                        Rectangle {
+                            visible: satir.modelData.revizyonNo > 0
+                            Layout.preferredWidth: revRozetMetni.implicitWidth + 8
+                            Layout.preferredHeight: 16
+                            radius: 4
+                            color: Theme.panelVurgu
+                            border.width: 1
+                            border.color: Theme.kenarlikVurgu
+
+                            Text {
+                                id: revRozetMetni
+                                anchors.centerIn: parent
+                                text: "R" + satir.modelData.revizyonNo
+                                color: Theme.vurguAcik
+                                font.family: Theme.fontAilesi
+                                font.pixelSize: 9
+                                font.bold: true
+                            }
+
+                            ToolTip.visible: revRozetAlani.containsMouse
+                            ToolTip.text: "Ana teklif: #" + satir.modelData.anaTeklifId
+                            MouseArea {
+                                id: revRozetAlani
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.NoButton
+                            }
+                        }
                     }
                     Text {
                         text: satir.modelData.firmaAdi
@@ -371,6 +419,8 @@ Item {
                         Layout.preferredWidth: 130
                         verticalAlignment: Text.AlignVCenter
                         Layout.fillHeight: true
+                        elide: Text.ElideRight
+                        clip: true
                     }
 
                     Rectangle {
@@ -418,8 +468,34 @@ Item {
                     }
 
                     RowLayout {
-                        Layout.preferredWidth: 270
+                        Layout.preferredWidth: 336
                         spacing: 6
+
+                        // Teklifin kaydedildigi andaki TUM verisiyle Teklif Ver ekranini
+                        // (birebir ayni ekran) doldurup acar -- kullanici degisiklik yapip
+                        // kaydederse bu YENI bir revizyon olarak eklenir, orijinal teklif
+                        // degismez. Bkz. SatisModuluPage.qml (detayIstendi baglantisi).
+                        Button {
+                            id: detayButonu
+                            text: "Detay"
+                            Layout.preferredWidth: 58
+                            Layout.preferredHeight: 28
+                            onClicked: root.detayIstendi(satir.modelData.teklifId)
+                            background: Rectangle {
+                                radius: 5
+                                color: detayButonu.hovered ? Theme.panelHover : "transparent"
+                                border.color: Theme.kenarlikVurgu
+                                border.width: 1
+                            }
+                            contentItem: Text {
+                                text: "Detay"
+                                color: Theme.vurguAcik
+                                font.family: Theme.fontAilesi
+                                font.pixelSize: Theme.fontBoyutKucuk
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
 
                         // "Giden Tekliflerim" (durumFiltresi bos) sekmesinde, henuz cevap
                         // bekleyen teklifler icin Kabul Et / Reddet aksiyonlari.

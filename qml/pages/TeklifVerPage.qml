@@ -15,7 +15,17 @@ Item {
 
     property int kullaniciId: 0
 
+    // Revizyon modunda (bkz. duzenlemeyeBasla) ust soldaki geri butonunda
+    // gosterilen kaynak liste adi: "Giden Tekliflerim" vb.
+    property string geriDonusEtiketi: "Giden Tekliflerim"
+
+    // Revizyon modunda geri butonuna basilinca; SatisModuluPage bunu dinleyip
+    // gelinen listeye geri doner.
     signal geriDonuldu()
+
+    // Revizyon basariyla kaydedilince yayinlanir; SatisModuluPage listeye donup
+    // tazeler ve kullaniciya sonucu gosterir.
+    signal revizyonKaydedildi(int yeniTeklifId, int kaynakTeklifId)
 
     // Kucuk yardimci bilesenler: dosya icinde birden fazla yerde kullanildigi
     // icin inline "component" olarak (dosyanin en ustunde, root'un dogrudan
@@ -144,6 +154,97 @@ Item {
 
     // --- Sepet ---
     property var sepet: []
+
+    // --- Detay -> Revize Et akisi (Giden/Alınan/Biten Tekliflerim'deki "Detay"
+    // butonu) ---
+    // duzenlenenAnaTeklifId > 0 iken "Teklifi Kaydet", teklifKaydet()'e bu
+    // degeri anaTeklifId olarak gonderir -- boylece yeni kayit bir REVIZYON
+    // olur, orijinal teklif degismez/silinmez. Varsayilan (0) durumda bu
+    // ekranin normal "yeni teklif" davranisi HICBIR SEKILDE degismez.
+    property int duzenlenenAnaTeklifId: 0
+    property int duzenlenenKaynakTeklifId: 0
+    property string duzenlemeBaslikMetni: ""
+
+    // Giden Tekliflerim'deki "Detay" butonundan cagrilir (bkz. SatisModuluPage.qml).
+    // Ilgili teklifin kayitli TUM verisini ceker ve formu/sepeti onunla doldurur.
+    function duzenlemeyeBasla(teklifId) {
+        const veri = database.teklifDuzenlemeVerisiGetir(teklifId)
+        if (!veri.basarili) {
+            bilgiMesaji.color = Theme.tehlikeAcik
+            bilgiMesaji.text = veri.hata.length > 0 ? veri.hata : "Teklif verisi alınamadı."
+            return
+        }
+
+        root.secilenMusteriId = veri.musteriId
+        root.secilenFirmaAdi = veri.musteriAdi
+        firmaAramaKutusu.text = ""
+
+        ilgiliKisiAlani.text = veri.ilgiliKisi
+        ilgiliKisiTelAlani.text = veri.ilgiliKisiTelefonu
+        ilgiliKisiEpostaAlani.text = veri.ilgiliKisiEposta
+        teslimatSekliAlani.text = veri.teslimatSekli
+        teslimatYeriAlani.text = veri.teslimatYeri
+
+        // ONEMLI: Bu dort deger, GORUNEN UcretAlani ("...Wrap") kutularina yazilir --
+        // gizli hesap TextField'larina (indirimAlani vb.) DEGIL. Cunku gizli alanlarin
+        // text'i "text: indirimAlaniWrap.metin" seklinde bir BINDING ile gorunen
+        // kutuya bagli; oraya elle deger atamak bu binding'i kalici olarak koparir ve
+        // kullanici indirim/KDV kutusuna yazdiginda hesaplar bir daha guncellenmez
+        // (hem revizyonda hem de sonraki yeni tekliflerde).
+        indirimAlaniWrap.metin = String(veri.genelIndirimOrani)
+        kdvAlaniWrap.metin = String(veri.kdvOrani)
+        paketlemeAlaniWrap.metin = veri.paketlemeUcretiTl.toFixed(2)
+        tasimaAlaniWrap.metin = veri.tasimaUcretiTl.toFixed(2)
+
+        dilCombo.currentIndex = Math.max(0, dilCombo.model.indexOf(veri.dil))
+
+        // Kur alanlarini ONCE, para birimi combo'sunu SONRA degistiriyoruz --
+        // aksi halde combo degisince tetiklenen onCurrentTextChanged, usdKur/eurKur
+        // henuz 0 gordugu icin otomatik olarak GUNCEL kuru internetten cekmeye
+        // calisir ve teklifin kaydedildigi andaki ORIJINAL kuru ezer.
+        if (veri.paraBirimi === "USD") {
+            root.usdKur = veri.kur
+            usdKurAlani.text = veri.kur.toFixed(4)
+        } else if (veri.paraBirimi === "EUR") {
+            root.eurKur = veri.kur
+            eurKurAlani.text = veri.kur.toFixed(4)
+        }
+        paraBirimiCombo.currentIndex = Math.max(0, paraBirimiCombo.model.indexOf(veri.paraBirimi))
+
+        root.sepet = veri.kalemler
+
+        root.duzenlenenAnaTeklifId = veri.anaTeklifId
+        root.duzenlenenKaynakTeklifId = veri.teklifId
+        root.duzenlemeBaslikMetni = "Teklif #" + veri.teklifId + " üzerinden revizyon hazırlanıyor"
+
+        bilgiMesaji.color = Theme.basariAcik
+        bilgiMesaji.text = "Teklif #" + veri.teklifId + " düzenleme için yüklendi."
+    }
+
+    // Revizyon modundan cikip formu bos "yeni teklif" durumuna dondurur.
+    function duzenlemeyiIptalEt() {
+        root.duzenlenenAnaTeklifId = 0
+        root.duzenlenenKaynakTeklifId = 0
+        root.duzenlemeBaslikMetni = ""
+
+        root.sepet = []
+        root.secilenMusteriId = 0
+        root.secilenFirmaAdi = ""
+        firmaAramaKutusu.text = ""
+        ilgiliKisiAlani.text = ""
+        ilgiliKisiTelAlani.text = ""
+        ilgiliKisiEpostaAlani.text = ""
+        teslimatSekliAlani.text = ""
+        teslimatYeriAlani.text = ""
+
+        // Ticari sartlar da ekranin acilistaki varsayilanlarina doner.
+        indirimAlaniWrap.metin = "0"
+        kdvAlaniWrap.metin = "20"
+        paketlemeAlaniWrap.metin = "0"
+        tasimaAlaniWrap.metin = "0"
+
+        bilgiMesaji.text = ""
+    }
 
     // --- Doviz kurlari (elle girilir veya "Kuru Güncelle" ile internetten cekilir) ---
     property real usdKur: 0
@@ -282,7 +383,11 @@ Item {
             indirimliToplam: root.tlDenCevir(root.indirimliToplamTl),
             kdvTutari: root.tlDenCevir(root.kdvTutariTl),
             genelToplam: root.tlDenCevir(root.genelToplamTl),
-            kalemler: kalemler
+            kalemler: kalemler,
+            // 0 ise (normal "yeni teklif" akisi) teklifKaydet() bunu tamamen
+            // yok sayar -- davranis degismez. >0 ise (Detay -> Revize Et akisi)
+            // yeni kayit bu teklifin (kok) revizyonu olarak eklenir.
+            anaTeklifId: root.duzenlenenAnaTeklifId
         }
     }
 
@@ -363,17 +468,47 @@ Item {
             Layout.fillWidth: true
             spacing: 12
 
+            // Revizyon modunda, gelinen listeye (Giden/Alınan/Biten Tekliflerim)
+            // geri donus. Normal "Teklif Ver" akisinda tamamen gizlidir.
+            Button {
+                id: geriButonu
+                visible: root.duzenlenenAnaTeklifId > 0
+                Layout.preferredHeight: 38
+                leftPadding: 14
+                rightPadding: 14
+                onClicked: {
+                    root.duzenlemeyiIptalEt()
+                    root.geriDonuldu()
+                }
+                background: Rectangle {
+                    radius: Theme.radiusKucuk
+                    color: geriButonu.hovered ? Theme.panelHover : Theme.panel
+                    border.width: 1
+                    border.color: geriButonu.hovered ? Theme.kenarlikVurgu : Theme.kenarlik
+                }
+                contentItem: Text {
+                    text: "◀  " + root.geriDonusEtiketi
+                    color: Theme.metinBirincil
+                    font.family: Theme.fontAilesi
+                    font.pixelSize: Theme.fontBoyutNormal
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
             ColumnLayout {
                 spacing: 2
                 Label {
-                    text: "Teklif Oluştur"
+                    text: root.duzenlenenAnaTeklifId > 0 ? "Teklifi Revize Et" : "Teklif Oluştur"
                     font.family: Theme.fontAilesi
                     font.pixelSize: Theme.fontBoyutBaslik
                     font.bold: true
                     color: Theme.metinBirincil
                 }
                 Label {
-                    text: "Müşteri, ürün ve şartları belirleyip yeni bir satış teklifi hazırlayın"
+                    text: root.duzenlenenAnaTeklifId > 0
+                        ? "Teklif #" + root.duzenlenenKaynakTeklifId + " üzerinde değişiklik yapın; kaydedince yeni bir revizyon oluşur"
+                        : "Müşteri, ürün ve şartları belirleyip yeni bir satış teklifi hazırlayın"
                     font.family: Theme.fontAilesi
                     font.pixelSize: Theme.fontBoyutKucuk
                     color: Theme.metinSoluk
@@ -381,6 +516,28 @@ Item {
             }
 
             Item { Layout.fillWidth: true }
+
+            // Revize edilen teklifin kimligi: basliktaki geri butonu + alt aciklama
+            // ile birlikte, hangi teklif uzerinde calisildigini net tutar.
+            Rectangle {
+                visible: root.duzenlenenAnaTeklifId > 0
+                radius: Theme.radiusNormal
+                color: Qt.rgba(0.35, 0.55, 0.95, 0.12)
+                border.width: 1
+                border.color: Theme.kenarlikVurgu
+                implicitWidth: duzenlemeEtiketi.implicitWidth + 24
+                implicitHeight: duzenlemeEtiketi.implicitHeight + 14
+
+                Label {
+                    id: duzenlemeEtiketi
+                    anchors.centerIn: parent
+                    text: root.duzenlemeBaslikMetni
+                    color: Theme.metinBirincil
+                    font.family: Theme.fontAilesi
+                    font.pixelSize: Theme.fontBoyutKucuk
+                    font.bold: true
+                }
+            }
 
             Rectangle {
                 id: bilgiMesajiKutusu
@@ -1629,25 +1786,37 @@ Item {
                                 return
                             }
 
+                            const revizyonMuydu = root.duzenlenenAnaTeklifId > 0
                             const sonuc = database.teklifKaydet(root.teklifVerisiOlustur())
                             if (sonuc.basarili) {
                                 bilgiMesaji.color = Theme.basariAcik
-                                bilgiMesaji.text = "Teklif #" + sonuc.teklifId + " kaydedildi. PDF hazırlanıyor..."
+                                const onEk = revizyonMuydu
+                                    ? "Teklif #" + sonuc.teklifId + " (Teklif #" + root.duzenlenenKaynakTeklifId + " revizyonu) kaydedildi. "
+                                    : "Teklif #" + sonuc.teklifId + " kaydedildi. "
+                                bilgiMesaji.text = onEk + "PDF hazırlanıyor..."
 
                                 const pdfSonuc = database.teklifPdfOlustur(sonuc.teklifId)
                                 if (pdfSonuc.basarili) {
-                                    bilgiMesaji.text = "Teklif #" + sonuc.teklifId + " kaydedildi. PDF: " + pdfSonuc.dosyaYolu
+                                    bilgiMesaji.text = onEk + "PDF: " + pdfSonuc.dosyaYolu
                                     Qt.openUrlExternally("file:///" + pdfSonuc.dosyaYolu)
                                 } else {
-                                    bilgiMesaji.text = "Teklif #" + sonuc.teklifId + " kaydedildi, ancak PDF oluşturulamadı: " + pdfSonuc.hata
+                                    bilgiMesaji.text = onEk + "ancak PDF oluşturulamadı: " + pdfSonuc.hata
                                 }
 
-                                root.sepet = []
-                                root.secilenMusteriId = 0
-                                root.secilenFirmaAdi = ""
-                                ilgiliKisiAlani.text = ""
-                                ilgiliKisiTelAlani.text = ""
-                                ilgiliKisiEpostaAlani.text = ""
+                                if (revizyonMuydu) {
+                                    // Revizyon akisi: formu tamamen bosaltip gelinen
+                                    // listeye geri don (SatisModuluPage dinliyor).
+                                    const kaynakTeklifId = root.duzenlenenKaynakTeklifId
+                                    root.duzenlemeyiIptalEt()
+                                    root.revizyonKaydedildi(sonuc.teklifId, kaynakTeklifId)
+                                } else {
+                                    root.sepet = []
+                                    root.secilenMusteriId = 0
+                                    root.secilenFirmaAdi = ""
+                                    ilgiliKisiAlani.text = ""
+                                    ilgiliKisiTelAlani.text = ""
+                                    ilgiliKisiEpostaAlani.text = ""
+                                }
                             } else {
                                 bilgiMesaji.color = Theme.tehlikeAcik
                                 bilgiMesaji.text = sonuc.hata

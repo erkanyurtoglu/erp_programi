@@ -374,7 +374,8 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
     const QString veriSorgusu = QString(
         "SELECT t.TeklifId, m.FirmaAdi, t.OlusturmaTarihi, t.KabulTarihi, "
         "       t.TeslimatTarihi, t.TeslimTarihi, t.UretimPdfTarihi, "
-        "       p.KullaniciAdi AS PersonelKullaniciAdi, t.Durum, t.RedSebebi, sb.Aciklamalar "
+        "       p.KullaniciAdi AS PersonelKullaniciAdi, t.Durum, t.RedSebebi, sb.Aciklamalar, "
+        "       t.AnaTeklifId, t.RevizyonNo "
         "FROM dbo.teklifler t "
         "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
         "LEFT JOIN dbo.kullanicilar p ON p.KullaniciId = t.KullaniciId "
@@ -416,6 +417,12 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
         kayit["durum"] = veriQuery.value("Durum").toString();
         kayit["redSebebi"] = veriQuery.value("RedSebebi").toString();
         kayit["aciklamalar"] = veriQuery.value("Aciklamalar").toString();
+        // Revizyon izleme: AnaTeklifId doluysa bu satir bir revizyondur --
+        // Giden Tekliflerim listesinde "Rev N" rozetiyle gosterilir (bkz.
+        // GecmisTekliflerPage.qml). anaTeklifId hep KOK teklifin TeklifId'sini
+        // tasir (bu satirin kendisi orijinalse anaTeklifId 0'dir).
+        kayit["anaTeklifId"] = veriQuery.value("AnaTeklifId").isNull() ? 0 : veriQuery.value("AnaTeklifId").toInt();
+        kayit["revizyonNo"] = veriQuery.value("RevizyonNo").toInt();
         kayitlar << kayit;
     }
 
@@ -497,15 +504,50 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
         return sonuc;
     }
 
+    // Revizyon baglantisi (bkz. Database.h dokumantasyonu): "anaTeklifId" QML
+    // tarafindan sadece Detay -> Teklif Ver -> Kaydet (revizyon) akisinda,
+    // >0 olarak gonderilir. Normal "yeni teklif" akisinda bu anahtar 0/bos
+    // gelir ve asagidaki blok hic calismaz -- eski davranis AYNEN korunur.
+    int anaTeklifId = 0;
+    int revizyonNo = 0;
+    const int talepEdilenAnaTeklifId = teklif.value("anaTeklifId", 0).toInt();
+    if (talepEdilenAnaTeklifId > 0)
+    {
+        // Secilen teklif zaten bir revizyonsa, KOK teklife baglaniyoruz --
+        // boylece revizyon zinciri hep tek bir ana teklif altinda kalir
+        // (revizyonun revizyonu diye ayri bir dal olusmaz).
+        QSqlQuery kokQuery(m_db);
+        kokQuery.prepare("SELECT AnaTeklifId FROM dbo.teklifler WHERE TeklifId = :id");
+        kokQuery.bindValue(":id", talepEdilenAnaTeklifId);
+        if (kokQuery.exec() && kokQuery.next() && !kokQuery.value(0).isNull())
+            anaTeklifId = kokQuery.value(0).toInt();
+        else
+            anaTeklifId = talepEdilenAnaTeklifId;
+
+        QSqlQuery revQuery(m_db);
+        revQuery.prepare(
+            "SELECT ISNULL(MAX(RevizyonNo), 0) FROM dbo.teklifler "
+            "WHERE TeklifId = :ana OR AnaTeklifId = :ana");
+        revQuery.bindValue(":ana", anaTeklifId);
+        revizyonNo = (revQuery.exec() && revQuery.next()) ? revQuery.value(0).toInt() + 1 : 1;
+    }
+
     QSqlQuery teklifEkle(m_db);
     teklifEkle.prepare(
         "INSERT INTO dbo.teklifler "
         "(MusteriId, KullaniciId, GenelIndirimOrani, KdvOrani, Durum, MusteriNotu, ParaBirimi, Dil, "
-        " IlgiliKisi, IlgiliKisiTelefonu, IlgiliKisiEposta, TeslimatSekli, TeslimatYeri) "
+        " IlgiliKisi, IlgiliKisiTelefonu, IlgiliKisiEposta, TeslimatSekli, TeslimatYeri, "
+        " AnaTeklifId, RevizyonNo) "
         "OUTPUT INSERTED.TeklifId "
         "VALUES (:musteriId, :kullaniciId, :indirim, :kdv, N'Beklemede', :not, :paraBirimi, :dil, "
-        "        :ilgiliKisi, :ilgiliKisiTel, :ilgiliKisiEposta, :teslimatSekli, :teslimatYeri)");
+        "        :ilgiliKisi, :ilgiliKisiTel, :ilgiliKisiEposta, :teslimatSekli, :teslimatYeri, "
+        "        :anaTeklifId, :revizyonNo)");
     teklifEkle.bindValue(":musteriId", musteriId);
+    if (anaTeklifId > 0)
+        teklifEkle.bindValue(":anaTeklifId", anaTeklifId);
+    else
+        teklifEkle.bindValue(":anaTeklifId", QVariant(QMetaType(QMetaType::Int)));
+    teklifEkle.bindValue(":revizyonNo", revizyonNo);
     const int kullaniciId = teklif.value("kullaniciId").toInt();
     if (kullaniciId > 0)
         teklifEkle.bindValue(":kullaniciId", kullaniciId);
@@ -625,6 +667,132 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
 
     sonuc["basarili"] = true;
     sonuc["teklifId"] = teklifId;
+    return sonuc;
+}
+
+QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
+{
+    QVariantMap sonuc;
+    sonuc["basarili"] = false;
+    sonuc["hata"] = QString();
+
+    if (!m_baglantiHazir)
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+
+    QSqlQuery basQuery(m_db);
+    basQuery.prepare(
+        "SELECT t.TeklifId, t.MusteriId, m.FirmaAdi, t.GenelIndirimOrani, t.KdvOrani, "
+        "       t.ParaBirimi, t.Dil, t.IlgiliKisi, t.IlgiliKisiTelefonu, t.IlgiliKisiEposta, "
+        "       t.TeslimatSekli, t.TeslimatYeri, t.AnaTeklifId, t.RevizyonNo, "
+        "       tt.PaketlemeUcreti, tt.TasimaUcreti "
+        "FROM dbo.teklifler t "
+        "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
+        "LEFT JOIN dbo.teklif_toplamlari tt ON tt.TeklifId = t.TeklifId "
+        "WHERE t.TeklifId = :teklifId");
+    basQuery.bindValue(":teklifId", teklifId);
+
+    if (!basQuery.exec() || !basQuery.next())
+    {
+        qWarning() << "teklifDuzenlemeVerisiGetir (baslik) basarisiz:" << basQuery.lastError().text();
+        sonuc["hata"] = "Teklif bulunamadı.";
+        return sonuc;
+    }
+
+    // NOT: kalemQuery'yi baslatmadan ONCE basQuery'nin TUM alanlarini yerel
+    // degiskenlere okuyoruz -- ayni baglanti (m_db) uzerinde ikinci bir sorgu
+    // calistirmak bazi ODBC surucillerinde ilk sorgunun sonuc kumesini
+    // gecersiz kilabiliyor (bkz. teklifPdfOlustur'daki ayni desen).
+    const int okunanTeklifId = basQuery.value("TeklifId").toInt();
+    const int anaTeklifIdDeger = basQuery.value("AnaTeklifId").isNull()
+        ? okunanTeklifId
+        : basQuery.value("AnaTeklifId").toInt();
+    const int revizyonNoDeger = basQuery.value("RevizyonNo").toInt();
+    const int musteriIdDeger = basQuery.value("MusteriId").toInt();
+    const QString firmaAdiDeger = basQuery.value("FirmaAdi").toString();
+    const double genelIndirimOraniDeger = basQuery.value("GenelIndirimOrani").toDouble();
+    const double kdvOraniDeger = basQuery.value("KdvOrani").toDouble();
+    const QString paraBirimi = basQuery.value("ParaBirimi").toString();
+    const QString dilDeger = basQuery.value("Dil").toString();
+    const QString ilgiliKisiDeger = basQuery.value("IlgiliKisi").toString();
+    const QString ilgiliKisiTelefonuDeger = basQuery.value("IlgiliKisiTelefonu").toString();
+    const QString ilgiliKisiEpostaDeger = basQuery.value("IlgiliKisiEposta").toString();
+    const QString teslimatSekliDeger = basQuery.value("TeslimatSekli").toString();
+    const QString teslimatYeriDeger = basQuery.value("TeslimatYeri").toString();
+    const double paketlemeUcreti = basQuery.value("PaketlemeUcreti").toDouble();
+    const double tasimaUcreti = basQuery.value("TasimaUcreti").toDouble();
+
+    QSqlQuery kalemQuery(m_db);
+    kalemQuery.prepare(
+        "SELECT tk.UrunId, tk.Adet, tk.BirimFiyat, tk.MaliyetFiyati, tk.Kur, "
+        "       u.UrunKodu, tk.UrunAciklamasi "
+        "FROM dbo.teklif_kalemleri tk "
+        "LEFT JOIN dbo.urunler u ON u.UrunId = tk.UrunId "
+        "WHERE tk.TeklifId = :teklifId "
+        "ORDER BY tk.TeklifKalemId");
+    kalemQuery.bindValue(":teklifId", teklifId);
+    kalemQuery.exec();
+
+    // Tum kalemler ayni teklifin Kur'unu paylasir (teklifKaydet hepsini ayni
+    // anda, secili para birimi/kur ile kaydeder); ilk kalemden okuyup TL'ye geri
+    // cevirmek icin kullaniyoruz. Kalem yoksa (teorik olarak olmamali, sepet
+    // bos teklif kaydedilemiyor) 1 varsayilir.
+    double kur = 1.0;
+    bool kurBelirlendi = false;
+
+    QVariantList kalemler;
+    while (kalemQuery.next())
+    {
+        const double kalemKur = kalemQuery.value("Kur").toDouble();
+        if (!kurBelirlendi && kalemKur > 0)
+        {
+            kur = kalemKur;
+            kurBelirlendi = true;
+        }
+
+        // Manuel eklenen kalemler, teklifKaydet() tarafindan "MANUEL-<teklifId>"
+        // kodlu, o teklife ozel gecici bir urunler satirina baglanir (bkz.
+        // teklifKaydet). Duzenleme/revizyon icin bunlari tekrar manuel kalem
+        // olarak (urunId=0) geri veriyoruz ki kaydedilince YENI teklife ozel
+        // taze bir "MANUEL-<yeniTeklifId>" satiri olussun -- eski teklifin
+        // gecici urun kaydina baglanip kalmasin.
+        const QString urunKodu = kalemQuery.value("UrunKodu").toString();
+        const bool manuelMi = urunKodu.startsWith("MANUEL-");
+
+        const double birimFiyat = kalemQuery.value("BirimFiyat").toDouble();
+        const double maliyetFiyati = kalemQuery.value("MaliyetFiyati").toDouble();
+
+        QVariantMap kalem;
+        kalem["urunId"] = manuelMi ? 0 : kalemQuery.value("UrunId").toInt();
+        kalem["urunKodu"] = manuelMi ? QStringLiteral("MANUEL") : urunKodu;
+        kalem["aciklama"] = kalemQuery.value("UrunAciklamasi").toString();
+        kalem["adet"] = kalemQuery.value("Adet").toInt();
+        kalem["birimFiyatTl"] = birimFiyat * kur;
+        kalem["maliyet"] = maliyetFiyati * kur;
+        kalemler.append(kalem);
+    }
+
+    sonuc["basarili"] = true;
+    sonuc["teklifId"] = okunanTeklifId;
+    sonuc["anaTeklifId"] = anaTeklifIdDeger;
+    sonuc["revizyonNo"] = revizyonNoDeger;
+    sonuc["musteriId"] = musteriIdDeger;
+    sonuc["musteriAdi"] = firmaAdiDeger;
+    sonuc["genelIndirimOrani"] = genelIndirimOraniDeger;
+    sonuc["kdvOrani"] = kdvOraniDeger;
+    sonuc["paraBirimi"] = paraBirimi;
+    sonuc["dil"] = dilDeger;
+    sonuc["ilgiliKisi"] = ilgiliKisiDeger;
+    sonuc["ilgiliKisiTelefonu"] = ilgiliKisiTelefonuDeger;
+    sonuc["ilgiliKisiEposta"] = ilgiliKisiEpostaDeger;
+    sonuc["teslimatSekli"] = teslimatSekliDeger;
+    sonuc["teslimatYeri"] = teslimatYeriDeger;
+    sonuc["paketlemeUcretiTl"] = paketlemeUcreti * kur;
+    sonuc["tasimaUcretiTl"] = tasimaUcreti * kur;
+    sonuc["kur"] = kur;
+    sonuc["kalemler"] = kalemler;
     return sonuc;
 }
 
