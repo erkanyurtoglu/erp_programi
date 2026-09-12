@@ -53,7 +53,8 @@ QString TeklifPdfOlusturucu::yerKoyucuDoldur(QString sablon, const QVariantMap &
 }
 
 QString TeklifPdfOlusturucu::kalemSatirlariUret(const QVariantList &kalemler, bool indirimVar,
-                                                 double genelIndirimOrani, double &rawToplamOut) const
+                                                 double genelIndirimOrani, double &rawToplamOut,
+                                                 const QString &paraBirimi) const
 {
     Q_UNUSED(genelIndirimOrani);
 
@@ -77,16 +78,16 @@ QString TeklifPdfOlusturucu::kalemSatirlariUret(const QVariantList &kalemler, bo
         html += QStringLiteral("<td>%1</td>").arg(k.value("urunKodu").toString().toHtmlEscaped());
         html += QStringLiteral("<td>%1</td>").arg(k.value("urunAciklamasi").toString().toHtmlEscaped());
         html += QStringLiteral("<td class='sag'>%1</td>").arg(adet);
-        html += QStringLiteral("<td class='sag'>%1</td>").arg(paraFormati(birimFiyat));
+        html += QStringLiteral("<td class='sag'>%1</td>").arg(paraFormati(birimFiyat, paraBirimi));
         if (indirimVar)
-            html += QStringLiteral("<td class='sag'>%1</td>").arg(paraFormati(indirimliBirimFiyat));
-        html += QStringLiteral("<td class='sag'>%1</td>").arg(paraFormati(toplamTutar));
+            html += QStringLiteral("<td class='sag'>%1</td>").arg(paraFormati(indirimliBirimFiyat, paraBirimi));
+        html += QStringLiteral("<td class='sag'>%1</td>").arg(paraFormati(toplamTutar, paraBirimi));
         html += QStringLiteral("</tr>");
     }
     return html;
 }
 
-QString TeklifPdfOlusturucu::sozlesmeKalemSatirlariUret(const QVariantList &kalemler) const
+QString TeklifPdfOlusturucu::sozlesmeKalemSatirlariUret(const QVariantList &kalemler, const QString &paraBirimi) const
 {
     QString html;
     for (const QVariant &kalemVar : kalemler)
@@ -101,8 +102,8 @@ QString TeklifPdfOlusturucu::sozlesmeKalemSatirlariUret(const QVariantList &kale
             "</tr>")
             .arg(k.value("aciklama").toString().toHtmlEscaped())
             .arg(k.value("adet").toInt())
-            .arg(paraFormati(k.value("indirimliBirimFiyat").toDouble()))
-            .arg(paraFormati(k.value("toplamTutar").toDouble()));
+            .arg(paraFormati(k.value("indirimliBirimFiyat").toDouble(), paraBirimi))
+            .arg(paraFormati(k.value("toplamTutar").toDouble(), paraBirimi));
     }
     return html;
 }
@@ -111,7 +112,7 @@ QString TeklifPdfOlusturucu::toplamSatirlariUret(bool indirimVar, bool kdvVar, b
                                                   double genelIndirimOrani, double kdvOrani,
                                                   double rawToplam, double indirimliToplam,
                                                   double kdvTutari, double paketlemeUcreti, double tasimaUcreti,
-                                                  double genelToplam, bool ingilizce) const
+                                                  double genelToplam, bool ingilizce, const QString &paraBirimi) const
 {
     const QString etkToplamFiyat = ingilizce ? QStringLiteral("Total Price") : QStringLiteral("Toplam Fiyat");
     const QString etkIndirimliToplamEtk = ingilizce ? QStringLiteral("Discounted Total") : QStringLiteral("İndirimli Toplam");
@@ -130,18 +131,18 @@ QString TeklifPdfOlusturucu::toplamSatirlariUret(bool indirimVar, bool kdvVar, b
 
     // Sira SABIT: Toplam Fiyat -> (varsa) Indirimli Toplam -> (varsa) Paketleme ->
     // (varsa) Tasima -> (varsa) KDV -> Genel Toplam (her zaman, en altta, kalin).
-    satirEkle(etkToplamFiyat, paraFormati(rawToplam), false);
+    satirEkle(etkToplamFiyat, paraFormati(rawToplam, paraBirimi), false);
     if (indirimVar)
         satirEkle(etkIndirimliToplamEtk + QStringLiteral("(%") + QString::number(genelIndirimOrani, 'f', 0) + QStringLiteral(")"),
-                   paraFormati(indirimliToplam), false);
+                   paraFormati(indirimliToplam, paraBirimi), false);
     if (paketlemeVar)
-        satirEkle(etkPaketleme, paraFormati(paketlemeUcreti), false);
+        satirEkle(etkPaketleme, paraFormati(paketlemeUcreti, paraBirimi), false);
     if (tasimaVar)
-        satirEkle(etkTasima, paraFormati(tasimaUcreti), false);
+        satirEkle(etkTasima, paraFormati(tasimaUcreti, paraBirimi), false);
     if (kdvVar)
         satirEkle(etkKdv + QStringLiteral("(%") + QString::number(kdvOrani, 'f', 0) + QStringLiteral(")"),
-                   paraFormati(kdvTutari), false);
-    satirEkle(etkGenelToplam, paraFormati(genelToplam), true);
+                   paraFormati(kdvTutari, paraBirimi), false);
+    satirEkle(etkGenelToplam, paraFormati(genelToplam, paraBirimi), true);
 
     return html;
 }
@@ -196,10 +197,17 @@ bool TeklifPdfOlusturucu::htmlyiPdfeBas(const QString &html, const QString &dosy
     return basariliMi;
 }
 
-QString TeklifPdfOlusturucu::paraFormati(double tutar)
+QString TeklifPdfOlusturucu::paraFormati(double tutar, const QString &paraBirimi)
 {
     static const QLocale trLocale(QLocale::Turkish, QLocale::Turkey);
-    return QStringLiteral("₺") + trLocale.toString(tutar, 'f', 2);
+    QString sembol;
+    if (paraBirimi.compare(QStringLiteral("USD"), Qt::CaseInsensitive) == 0)
+        sembol = QStringLiteral("$");
+    else if (paraBirimi.compare(QStringLiteral("EUR"), Qt::CaseInsensitive) == 0)
+        sembol = QStringLiteral("€");
+    else
+        sembol = QStringLiteral("₺");
+    return trLocale.toString(tutar, 'f', 2) + QStringLiteral(" ") + sembol;
 }
 
 QString TeklifPdfOlusturucu::dosyaAdiTemizle(const QString &ad)
@@ -237,6 +245,7 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
     const QString teslimatYeri = veri.value("teslimatYeri").toString();
     const QString personelAdSoyad = veri.value("personelAdSoyad").toString();
     const QString personelTelefon = veri.value("personelTelefon").toString();
+    const QString paraBirimi = veri.value("paraBirimi").toString();
     const QString olusturmaTarihi = veri.value("olusturmaTarihi").toString();
     const double genelIndirimOrani = veri.value("genelIndirimOrani").toDouble();
     const double kdvOrani = veri.value("kdvOrani").toDouble();
@@ -289,7 +298,7 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
     kalemBaslikHtml += QStringLiteral("<th class='sag'>%1</th>").arg(etkToplamFiyat);
 
     double rawToplam = 0.0;
-    const QString kalemSatirlariHtml = kalemSatirlariUret(kalemler, indirimVar, genelIndirimOrani, rawToplam);
+    const QString kalemSatirlariHtml = kalemSatirlariUret(kalemler, indirimVar, genelIndirimOrani, rawToplam, paraBirimi);
 
     // --- Firma / teklif bilgi bloklari (bos alanlar tamamen gizlenir) ---
     QString solBlokHtml = QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkFirmaAdi, firmaAdi.toHtmlEscaped());
@@ -317,7 +326,7 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
     const QString toplamSatirlariHtml = toplamSatirlariUret(indirimVar, kdvVar, paketlemeVar, tasimaVar,
                                                               genelIndirimOrani, kdvOrani, rawToplam, indirimliToplam,
                                                               kdvTutari, paketlemeUcreti, tasimaUcreti, genelToplam,
-                                                              ingilizce);
+                                                              ingilizce, paraBirimi);
 
     const int sutunSayisi = indirimVar ? 7 : 6;
     QString kolonGrubu;
@@ -403,7 +412,7 @@ QVariantMap TeklifPdfOlusturucu::satisSozlesmesiUret(const QVariantMap &veri)
         ? QStringLiteral("The parties accept and undertake the terms of this agreement.")
         : QStringLiteral("Taraflar işbu sözleşme şartlarını kabul ve taahhüt eder.");
 
-    const QString kalemSatirlariHtml = sozlesmeKalemSatirlariUret(kalemler);
+    const QString kalemSatirlariHtml = sozlesmeKalemSatirlariUret(kalemler, paraBirimi);
 
     QVariantMap degerler;
     degerler["BASLIK"] = baslikHtml;
@@ -429,7 +438,7 @@ QVariantMap TeklifPdfOlusturucu::satisSozlesmesiUret(const QVariantMap &veri)
     degerler["ETK_PARA_BIRIMI"] = etkParaBirimi;
     degerler["PARA_BIRIMI"] = paraBirimi;
     degerler["ETK_GENEL_TOPLAM"] = etkGenelToplam;
-    degerler["GENEL_TOPLAM"] = paraFormati(genelToplam);
+    degerler["GENEL_TOPLAM"] = paraFormati(genelToplam, paraBirimi);
     degerler["ETK_KAPANIS"] = etkKapanis;
 
     const QString html = yerKoyucuDoldur(sablon, degerler);

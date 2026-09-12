@@ -1394,6 +1394,7 @@ QVariantMap Database::teklifPdfOlustur(int teklifId)
     veri["personelAdSoyad"] = basQuery.value("PersonelAdSoyad").toString();
     veri["personelTelefon"] = basQuery.value("PersonelTelefon").toString();
     veri["dil"] = basQuery.value("Dil").toString();
+    veri["paraBirimi"] = basQuery.value("ParaBirimi").toString();
     veri["olusturmaTarihi"] = tarihStr(basQuery.value("OlusturmaTarihi"));
     veri["genelIndirimOrani"] = basQuery.value("GenelIndirimOrani").toDouble();
     veri["kdvOrani"] = basQuery.value("KdvOrani").toDouble();

@@ -21,7 +21,7 @@ public:
     // "veri" anahtarlari (Database::teklifPdfOlustur tarafindan doldurulur):
     //   firmaAdresi, ilgiliKisi, ilgiliKisiTelefonu, ilgiliKisiEposta,
     //   teslimatSekli, teslimatYeri, personelAdSoyad, personelTelefon,
-    //   dil (TR/EN), olusturmaTarihi (string, dd.MM.yyyy),
+    //   dil (TR/EN), paraBirimi (string: TL/USD/EUR), olusturmaTarihi (string, dd.MM.yyyy),
     //   genelIndirimOrani, kdvOrani, indirimliToplam, kdvTutari, genelToplam,
     //   paketlemeUcreti, tasimaUcreti (double),
     //   kalemler (QVariantList<QVariantMap{adet, birimFiyat, indirimliBirimFiyat,
@@ -48,10 +48,11 @@ private:
 
     // Teklif urun kalemleri icin <tr> satirlarini uretir (zebra deseni dahil).
     QString kalemSatirlariUret(const QVariantList &kalemler, bool indirimVar,
-                                double genelIndirimOrani, double &rawToplamOut) const;
+                                double genelIndirimOrani, double &rawToplamOut,
+                                const QString &paraBirimi) const;
 
     // Satis sozlesmesi urun kalemleri icin <tr> satirlarini uretir.
-    QString sozlesmeKalemSatirlariUret(const QVariantList &kalemler) const;
+    QString sozlesmeKalemSatirlariUret(const QVariantList &kalemler, const QString &paraBirimi) const;
 
     // Toplam blogu satirlarini uretir (indirim/KDV/paketleme/tasima sadece
     // degeri > 0 ise gosterilir).
@@ -59,7 +60,7 @@ private:
                                  double genelIndirimOrani, double kdvOrani,
                                  double rawToplam, double indirimliToplam,
                                  double kdvTutari, double paketlemeUcreti, double tasimaUcreti,
-                                 double genelToplam, bool ingilizce) const;
+                                 double genelToplam, bool ingilizce, const QString &paraBirimi) const;
 
     // "html" icerigini QWebEnginePage ile PDF'e basar (A4). Kenar bosluklari
     // varsayilan olarak 15mm'dir; teklif.html gibi antetli kagit uzerine basilan
@@ -70,8 +71,10 @@ private:
     bool htmlyiPdfeBas(const QString &html, const QString &dosyaYolu, QString &hataOut,
                         QMarginsF kenarBosluklariMm = QMarginsF(15, 15, 15, 15)) const;
 
-    // TR locale + ₺ sembolu ile parasal deger bicimlendirir.
-    static QString paraFormati(double tutar);
+    // TR locale (nokta/virgul) ile sayiyi bicimlendirip, "paraBirimi"ne (TL/USD/EUR)
+    // gore dogru sembolu (₺/$/€) sonuna ekler -- ekrandaki (TeklifVerPage.qml
+    // paraFormat + paraBirimiSembol) ile ayni gosterim kurali.
+    static QString paraFormati(double tutar, const QString &paraBirimi);
 
     // Dosya adindaki yasak karakterleri "_" yapar.
     static QString dosyaAdiTemizle(const QString &ad);
