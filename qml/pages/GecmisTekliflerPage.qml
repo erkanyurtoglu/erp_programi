@@ -26,6 +26,21 @@ Item {
 
     readonly property int sayfaBoyutu: 50
 
+    // --- Tablo sutun genislikleri -------------------------------------------
+    // Baslik satiri ile veri satirlari AYNI degerleri kullanmak zorunda; bu yuzden
+    // genislikler tek bir yerde tanimlanip iki tarafta da buradan okunur. Bir sutunu
+    // genisletmek/daraltmak icin sadece asagidaki sayiyi degistirmek yeterli.
+    // FIRMA ADI sutunu kalan tum alani kaplar (her iki tarafta da Layout.fillWidth).
+    readonly property int sutunBosluk: 10
+    readonly property int sutunKenarBosluk: 12
+    readonly property int sutunTeklifNo: 100
+    readonly property int sutunTarih: 100
+    readonly property int sutunPersonel: 130
+    readonly property int sutunDurum: 110
+    // Detay(58) + aksiyon slotu(152) + PDF(50) + Sil(50) + 3 x 6px bosluk = 328
+    readonly property int sutunAksiyonSlotu: 152
+    readonly property int sutunIslemler: 328
+
     // Hangi sekme oldugumuzu belirler (bkz. yukaridaki not) ve baslikta gosterilir.
     property string durumFiltresi: ""
     property string baslikMetni: "Giden Tekliflerim"
@@ -278,15 +293,20 @@ Item {
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 12
-                anchors.rightMargin: 12
+                anchors.leftMargin: root.sutunKenarBosluk
+                anchors.rightMargin: root.sutunKenarBosluk
+                spacing: root.sutunBosluk
 
-                Label { text: "TEKLİF NO"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 80 }
-                Label { text: "FİRMA ADI"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.fillWidth: true }
-                Label { text: "TEKLİF TARİHİ"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 100 }
-                Label { text: "TEKLİFİ YAPAN"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 130 }
-                Label { text: "DURUM"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 110 }
-                Label { text: "İŞLEMLER"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 336 }
+                // NOT: Basliklarda da Layout.preferredWidth'in gercekten uygulanmasi
+                // icin maximumWidth ile sinirliyoruz; aksi halde "TEKLİFİ YAPAN" gibi
+                // uzun bir baslik metni kendi dogal genisligiyle sutunu sisirip veri
+                // satirlariyla arasinda kayma olusturabiliyor.
+                Label { text: "TEKLİF NO"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunTeklifNo; Layout.maximumWidth: root.sutunTeklifNo }
+                Label { text: "FİRMA ADI"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.fillWidth: true; Layout.preferredWidth: 0 }
+                Label { text: "TEKLİF TARİHİ"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunTarih; Layout.maximumWidth: root.sutunTarih }
+                Label { text: "TEKLİFİ YAPAN"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunPersonel; Layout.maximumWidth: root.sutunPersonel }
+                Label { text: "DURUM"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunDurum; Layout.maximumWidth: root.sutunDurum }
+                Label { text: "İŞLEMLER"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunIslemler; Layout.maximumWidth: root.sutunIslemler }
             }
         }
 
@@ -336,11 +356,17 @@ Item {
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 12
-                    anchors.rightMargin: 12
+                    anchors.leftMargin: root.sutunKenarBosluk
+                    anchors.rightMargin: root.sutunKenarBosluk
+                    spacing: root.sutunBosluk
 
                     RowLayout {
-                        Layout.preferredWidth: 80
+                        // fillWidth ACIKCA kapatilir: ic ice bir layout, icinde
+                        // genisleyebilen bir oge oldugunda dis layout tarafindan da
+                        // "genisleyebilir" kabul edilir ve preferredWidth'i asar.
+                        Layout.fillWidth: false
+                        Layout.preferredWidth: root.sutunTeklifNo
+                        Layout.maximumWidth: root.sutunTeklifNo
                         Layout.fillHeight: true
                         spacing: 4
 
@@ -383,6 +409,9 @@ Item {
                                 acceptedButtons: Qt.NoButton
                             }
                         }
+
+                        // Artan alani yutar; boylece teklif no + rozet sola yaslanir.
+                        Item { Layout.fillWidth: true }
                     }
                     Text {
                         text: satir.modelData.firmaAdi
@@ -407,74 +436,101 @@ Item {
                         color: Theme.metinIkincil
                         font.family: Theme.fontAilesi
                         font.pixelSize: Theme.fontBoyutNormal
-                        Layout.preferredWidth: 100
+                        Layout.preferredWidth: root.sutunTarih
+                        Layout.maximumWidth: root.sutunTarih
                         verticalAlignment: Text.AlignVCenter
                         Layout.fillHeight: true
+                        elide: Text.ElideRight
                     }
                     Text {
                         text: satir.modelData.personelKullaniciAdi
                         color: Theme.metinIkincil
                         font.family: Theme.fontAilesi
                         font.pixelSize: Theme.fontBoyutNormal
-                        Layout.preferredWidth: 130
+                        Layout.preferredWidth: root.sutunPersonel
+                        Layout.maximumWidth: root.sutunPersonel
                         verticalAlignment: Text.AlignVCenter
                         Layout.fillHeight: true
                         elide: Text.ElideRight
                         clip: true
                     }
 
-                    Rectangle {
-                        Layout.preferredWidth: 110
-                        Layout.preferredHeight: 24
-                        radius: 5
-                        color: {
-                            const d = satir.modelData.durum
-                            if (d === "Tamamlandı" || d === "Kabul Edildi") return "#0f2417"
-                            if (d === "Beklemede") return "#1e2a3f"
-                            if (d === "Reddedildi") return "#3f1620"
-                            return Theme.panel
-                        }
-                        border.width: 1
-                        border.color: {
-                            const d = satir.modelData.durum
-                            if (d === "Tamamlandı" || d === "Kabul Edildi") return Theme.basari
-                            if (d === "Beklemede") return Theme.vurgu
-                            if (d === "Reddedildi") return Theme.tehlike
-                            return Theme.kenarlik
-                        }
+                    // DURUM rozeti, sutunun tamamini kaplayip metnini ortalamak yerine
+                    // sabit genislikli bir slotun SOL kenarina yaslanir; boylece rozetin
+                    // sol kenari "DURUM" basliginin sol kenariyla ayni hizada olur.
+                    Item {
+                        Layout.preferredWidth: root.sutunDurum
+                        Layout.maximumWidth: root.sutunDurum
+                        Layout.fillHeight: true
 
-                        Text {
-                            anchors.centerIn: parent
-                            text: satir.modelData.durum
-                            font.family: Theme.fontAilesi
-                            font.pixelSize: Theme.fontBoyutKucuk
+                        Rectangle {
+                            id: durumRozeti
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: Math.min(root.sutunDurum, durumMetni.implicitWidth + 20)
+                            height: 24
+                            radius: 5
                             color: {
                                 const d = satir.modelData.durum
-                                if (d === "Tamamlandı" || d === "Kabul Edildi") return Theme.basariAcik
-                                if (d === "Beklemede") return Theme.vurguAcik
-                                if (d === "Reddedildi") return Theme.tehlikeAcik
-                                return Theme.metinIkincil
+                                if (d === "Tamamlandı" || d === "Kabul Edildi") return "#0f2417"
+                                if (d === "Beklemede") return "#1e2a3f"
+                                if (d === "Reddedildi") return "#3f1620"
+                                return Theme.panel
                             }
-                        }
+                            border.width: 1
+                            border.color: {
+                                const d = satir.modelData.durum
+                                if (d === "Tamamlandı" || d === "Kabul Edildi") return Theme.basari
+                                if (d === "Beklemede") return Theme.vurgu
+                                if (d === "Reddedildi") return Theme.tehlike
+                                return Theme.kenarlik
+                            }
 
-                        ToolTip.visible: redSebebiAlani.containsMouse && satir.modelData.durum === "Reddedildi" && satir.modelData.redSebebi.length > 0
-                        ToolTip.text: satir.modelData.redSebebi
-                        MouseArea {
-                            id: redSebebiAlani
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            acceptedButtons: Qt.NoButton
+                            Text {
+                                id: durumMetni
+                                anchors.centerIn: parent
+                                text: satir.modelData.durum
+                                font.family: Theme.fontAilesi
+                                font.pixelSize: Theme.fontBoyutKucuk
+                                color: {
+                                    const d = satir.modelData.durum
+                                    if (d === "Tamamlandı" || d === "Kabul Edildi") return Theme.basariAcik
+                                    if (d === "Beklemede") return Theme.vurguAcik
+                                    if (d === "Reddedildi") return Theme.tehlikeAcik
+                                    return Theme.metinIkincil
+                                }
+                            }
+
+                            ToolTip.visible: redSebebiAlani.containsMouse && satir.modelData.durum === "Reddedildi" && satir.modelData.redSebebi.length > 0
+                            ToolTip.text: satir.modelData.redSebebi
+                            MouseArea {
+                                id: redSebebiAlani
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.NoButton
+                            }
                         }
                     }
 
                     RowLayout {
-                        Layout.preferredWidth: 336
+                        // fillWidth ACIKCA kapatilir. Daha once bu satirda yoktu ve
+                        // asagidaki butonlarin bulundugu layout kendini "genisleyebilir"
+                        // ilan edip 336px'i asiyordu; bu da FİRMA ADI sutununu ezip
+                        // tum veri sutunlarinin baslik sutunlariyla kaymasina yol
+                        // aciyordu (baslik satirinda boyle bir esneme yok).
+                        Layout.fillWidth: false
+                        Layout.preferredWidth: root.sutunIslemler
+                        Layout.maximumWidth: root.sutunIslemler
+                        Layout.fillHeight: true
                         spacing: 6
 
                         // Teklifin kaydedildigi andaki TUM verisiyle Teklif Ver ekranini
-                        // (birebir ayni ekran) doldurup acar -- kullanici degisiklik yapip
-                        // kaydederse bu YENI bir revizyon olarak eklenir, orijinal teklif
-                        // degismez. Bkz. SatisModuluPage.qml (detayIstendi baglantisi).
+                        // (birebir ayni ekran) doldurup acar. "Giden Tekliflerim"de
+                        // kullanici degisiklik yapip kaydederse bu YENI bir revizyon
+                        // olarak eklenir, orijinal teklif degismez. Alınan/Biten
+                        // Tekliflerim'de revize yapilamadigi icin "Teklifi Kaydet"
+                        // butonu gizlidir; detay salt goruntulemedir.
+                        // Bkz. SatisModuluPage.qml (detayIstendi baglantisi).
                         Button {
                             id: detayButonu
                             text: "Detay"
@@ -497,48 +553,64 @@ Item {
                             }
                         }
 
-                        // "Giden Tekliflerim" (durumFiltresi bos) sekmesinde, henuz cevap
-                        // bekleyen teklifler icin Kabul Et / Reddet aksiyonlari.
-                        Button {
-                            visible: root.durumFiltresi === "" && satir.modelData.durum === "Beklemede"
-                            text: "Kabul Et"
-                            Layout.preferredWidth: 78
+                        // Duruma gore degisen aksiyonlar (Kabul Et/Reddet ya da
+                        // Tamamlandı) SABIT genislikte bir slot icinde durur. Butonlar
+                        // gizlendiginde layout'tan tamamen cikacagi icin, slot olmadan
+                        // PDF/Sil butonlari satirdan satira farkli yerlere kayardi.
+                        Item {
+                            Layout.preferredWidth: root.sutunAksiyonSlotu
+                            Layout.maximumWidth: root.sutunAksiyonSlotu
                             Layout.preferredHeight: 28
-                            onClicked: {
-                                database.teklifDurumGuncelle(satir.modelData.teklifId, "Kabul Edildi", "")
-                                root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
-                            }
-                            background: Rectangle { radius: 5; color: "#123d22"; border.width: 1; border.color: Theme.basari }
-                            contentItem: Text { text: "Kabul Et"; color: Theme.basariAcik; font.family: Theme.fontAilesi; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                        }
 
-                        Button {
-                            visible: root.durumFiltresi === "" && satir.modelData.durum === "Beklemede"
-                            text: "Reddet"
-                            Layout.preferredWidth: 68
-                            Layout.preferredHeight: 28
-                            onClicked: {
-                                redSebebiGirisi.text = ""
-                                reddetDialogu.hedefTeklifId = satir.modelData.teklifId
-                                reddetDialogu.open()
-                            }
-                            background: Rectangle { radius: 5; color: "transparent"; border.width: 1; border.color: Theme.tehlike }
-                            contentItem: Text { text: "Reddet"; color: Theme.tehlikeAcik; font.family: Theme.fontAilesi; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                        }
+                            RowLayout {
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 6
 
-                        // "Alınan Tekliflerim" sekmesinde, siparis hazirlanip gonderildiginde
-                        // "Biten Tekliflerim"e tasimak icin.
-                        Button {
-                            visible: root.durumFiltresi === "Kabul Edildi"
-                            text: "Tamamlandı"
-                            Layout.preferredWidth: 90
-                            Layout.preferredHeight: 28
-                            onClicked: {
-                                database.teklifDurumGuncelle(satir.modelData.teklifId, "Tamamlandı", "")
-                                root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
+                                // "Giden Tekliflerim" (durumFiltresi bos) sekmesinde, henuz cevap
+                                // bekleyen teklifler icin Kabul Et / Reddet aksiyonlari.
+                                Button {
+                                    visible: root.durumFiltresi === "" && satir.modelData.durum === "Beklemede"
+                                    text: "Kabul Et"
+                                    Layout.preferredWidth: 78
+                                    Layout.preferredHeight: 28
+                                    onClicked: {
+                                        database.teklifDurumGuncelle(satir.modelData.teklifId, "Kabul Edildi", "")
+                                        root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
+                                    }
+                                    background: Rectangle { radius: 5; color: "#123d22"; border.width: 1; border.color: Theme.basari }
+                                    contentItem: Text { text: "Kabul Et"; color: Theme.basariAcik; font.family: Theme.fontAilesi; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                                }
+
+                                Button {
+                                    visible: root.durumFiltresi === "" && satir.modelData.durum === "Beklemede"
+                                    text: "Reddet"
+                                    Layout.preferredWidth: 68
+                                    Layout.preferredHeight: 28
+                                    onClicked: {
+                                        redSebebiGirisi.text = ""
+                                        reddetDialogu.hedefTeklifId = satir.modelData.teklifId
+                                        reddetDialogu.open()
+                                    }
+                                    background: Rectangle { radius: 5; color: "transparent"; border.width: 1; border.color: Theme.tehlike }
+                                    contentItem: Text { text: "Reddet"; color: Theme.tehlikeAcik; font.family: Theme.fontAilesi; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                                }
+
+                                // "Alınan Tekliflerim" sekmesinde, siparis hazirlanip gonderildiginde
+                                // "Biten Tekliflerim"e tasimak icin.
+                                Button {
+                                    visible: root.durumFiltresi === "Kabul Edildi"
+                                    text: "Tamamlandı"
+                                    Layout.preferredWidth: 90
+                                    Layout.preferredHeight: 28
+                                    onClicked: {
+                                        database.teklifDurumGuncelle(satir.modelData.teklifId, "Tamamlandı", "")
+                                        root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
+                                    }
+                                    background: Rectangle { radius: 5; color: Theme.vurgu }
+                                    contentItem: Text { text: "Tamamlandı"; color: "#ffffff"; font.family: Theme.fontAilesi; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                                }
                             }
-                            background: Rectangle { radius: 5; color: Theme.vurgu }
-                            contentItem: Text { text: "Tamamlandı"; color: "#ffffff"; font.family: Theme.fontAilesi; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                         }
 
                         Item { Layout.fillWidth: true }

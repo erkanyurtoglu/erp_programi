@@ -225,8 +225,10 @@ Item {
             //
             // detayIstendi: her uc sekmedeki "Detay" butonu ayni akisi kullanir --
             // revizyon ALT SAYFASINI acar (bkz. root.revizyonuAc). Teklif Ver
-            // sekmesine dokunulmaz; kaydedilince orijinal teklife dokunulmadan
-            // yeni bir revizyon eklenir ve otomatik olarak bu listeye donulur.
+            // sekmesine dokunulmaz. Giden Tekliflerim'den acildiginda kaydedilince
+            // orijinal teklife dokunulmadan yeni bir revizyon eklenir ve otomatik
+            // olarak bu listeye donulur; Alınan/Biten Tekliflerim'den acildiginda
+            // revize yapilamaz -- detay salt goruntulemedir (kaydetmeIzinli: false).
             GecmisTekliflerPage {
                 id: gidenTekliflerPage
                 durumFiltresi: ""
@@ -277,6 +279,11 @@ Item {
                 geriDonusEtiketi: root.revizyonKaynakSekme === 2 ? "Alınan Tekliflerim"
                                 : root.revizyonKaynakSekme === 3 ? "Biten Tekliflerim"
                                 : "Giden Tekliflerim"
+
+                // Revize islemi yalnizca Giden Tekliflerim uzerinden yapilir;
+                // Alınan (2) / Biten (3) listelerinden acilan detay salt
+                // goruntuleme oldugu icin "Teklifi Kaydet" butonu gizlenir.
+                kaydetmeIzinli: root.revizyonKaynakSekme === 1
 
                 onGeriDonuldu: root.revizyondanDon()
 

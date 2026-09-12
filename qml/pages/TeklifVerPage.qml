@@ -19,6 +19,13 @@ Item {
     // gosterilen kaynak liste adi: "Giden Tekliflerim" vb.
     property string geriDonusEtiketi: "Giden Tekliflerim"
 
+    // "Teklifi Kaydet" butonunun gorunurlugu. Revize (yeni revizyon olusturma)
+    // islemi SADECE Giden Tekliflerim'den yapilabildigi icin, Alınan/Biten
+    // Tekliflerim'den acilan detay sayfasinda bu buton gizlenir (bkz.
+    // SatisModuluPage.qml -> revizyonPage). Normal "Teklif Ver" sekmesinde ve
+    // Giden Tekliflerim detayinda varsayilan true kalir.
+    property bool kaydetmeIzinli: true
+
     // Revizyon modunda geri butonuna basilinca; SatisModuluPage bunu dinleyip
     // gelinen listeye geri doner.
     signal geriDonuldu()
@@ -1772,6 +1779,8 @@ Item {
                     Button {
                         id: kaydetButonu
                         text: "Teklifi Kaydet"
+                        // Alınan/Biten Tekliflerim detayinda revize yapilamaz.
+                        visible: root.kaydetmeIzinli
                         Layout.preferredWidth: 138
                         Layout.preferredHeight: 40
                         onClicked: {
