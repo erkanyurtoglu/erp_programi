@@ -171,6 +171,13 @@ Item {
     property int duzenlenenAnaTeklifId: 0
     property int duzenlenenKaynakTeklifId: 0
 
+    // --- Satis sozlesmesi metni ("Satış Sözleşmesi" butonu/penceresi) ---
+    // Teklif PDF'inin son sayfasindaki maddeler. BOS ise "kullanici degistirmedi"
+    // demektir: kaydedilirken SatisSozlesmesiMetni NULL kalir ve PDF, dilin
+    // varsayilan metnini kullanir (bkz. TeklifPdfOlusturucu). Kullanici pencerede
+    // kaydederse buraya yazilir ve teklifle birlikte saklanir.
+    property string sozlesmeMetni: ""
+
     // Giden Tekliflerim'deki "Detay" butonundan cagrilir (bkz. SatisModuluPage.qml).
     // Ilgili teklifin kayitli TUM verisini ceker ve formu/sepeti onunla doldurur.
     function duzenlemeyeBasla(teklifId) {
@@ -219,6 +226,10 @@ Item {
 
         root.sepet = veri.kalemler
 
+        // Bu teklife ozel bir sozlesme metni kaydedilmisse onu tasi; yoksa bos
+        // kalir ve "Satış Sözleşmesi" penceresi varsayilan metinle acilir.
+        root.sozlesmeMetni = veri.sozlesmeMetni !== undefined ? veri.sozlesmeMetni : ""
+
         root.duzenlenenAnaTeklifId = veri.anaTeklifId
         root.duzenlenenKaynakTeklifId = veri.teklifId
 
@@ -233,6 +244,7 @@ Item {
     function duzenlemeyiIptalEt() {
         root.duzenlenenAnaTeklifId = 0
         root.duzenlenenKaynakTeklifId = 0
+        root.sozlesmeMetni = ""
 
         root.sepet = []
         root.secilenMusteriId = 0
@@ -391,11 +403,30 @@ Item {
             kdvTutari: root.tlDenCevir(root.kdvTutariTl),
             genelToplam: root.tlDenCevir(root.genelToplamTl),
             kalemler: kalemler,
+            // Bos ise teklifKaydet() SatisSozlesmesiMetni'ni NULL birakir ve
+            // PDF, dilin varsayilan sozlesme metnini kullanir.
+            sozlesmeMetni: root.sozlesmeMetni,
             // 0 ise (normal "yeni teklif" akisi) teklifKaydet() bunu tamamen
             // yok sayar -- davranis degismez. >0 ise (Detay -> Revize Et akisi)
             // yeni kayit bu teklifin (kok) revizyonu olarak eklenir.
             anaTeklifId: root.duzenlenenAnaTeklifId
         }
+    }
+
+    // "Satış Sözleşmesi" butonu: pencereyi, gosterilecek metin ve secili dilin
+    // varsayilan metniyle doldurup acar.
+    //
+    // Gosterilen metin sirasi: (1) bu oturumda pencerede duzenlenmis metin,
+    // (2) teklif kayitliysa veritabanindaki metni, (3) dilin varsayilan metni.
+    // (2) ve (3) tek cagriyla halledilir -- teklifSozlesmeMetniGetir, kayit
+    // yoksa varsayilani doner.
+    function sozlesmeDuzenleyiciyiAc() {
+        const dil = dilCombo.currentText
+        sozlesmeDialogu.varsayilanMetin = database.varsayilanSozlesmeMetni(dil)
+        sozlesmeDialogu.metin = root.sozlesmeMetni.length > 0
+            ? root.sozlesmeMetni
+            : database.teklifSozlesmeMetniGetir(root.duzenlenenKaynakTeklifId, dil)
+        sozlesmeDialogu.open()
     }
 
     function sepeteEkle(kalem) {
@@ -1740,30 +1771,11 @@ Item {
                         text: "Satış Sözleşmesi"
                         Layout.preferredWidth: 138
                         Layout.preferredHeight: 40
-                        onClicked: {
-                            if (root.secilenMusteriId <= 0) {
-                                bilgiMesaji.color = Theme.tehlikeAcik
-                                bilgiMesaji.text = "Sözleşme oluşturmak için önce bir müşteri seçin."
-                                return
-                            }
-                            if (root.sepet.length === 0) {
-                                bilgiMesaji.color = Theme.tehlikeAcik
-                                bilgiMesaji.text = "Sözleşme oluşturmak için sepette en az bir ürün olmalı."
-                                return
-                            }
-
-                            bilgiMesaji.color = Theme.basariAcik
-                            bilgiMesaji.text = "Satış sözleşmesi hazırlanıyor..."
-
-                            const sonuc = database.satisSozlesmesiOlustur(root.teklifVerisiOlustur())
-                            if (sonuc.basarili) {
-                                bilgiMesaji.text = "Satış sözleşmesi: " + sonuc.dosyaYolu
-                                Qt.openUrlExternally("file:///" + sonuc.dosyaYolu)
-                            } else {
-                                bilgiMesaji.color = Theme.tehlikeAcik
-                                bilgiMesaji.text = "Satış sözleşmesi oluşturulamadı: " + sonuc.hata
-                            }
-                        }
+                        // Teklif PDF'inin son sayfasindaki sozlesme maddelerini
+                        // goruntuleyip duzenleme penceresini acar. Musteri/sepet
+                        // sarti YOK -- sozlesme metni tekliften bagimsiz olarak
+                        // her an okunup degistirilebilir.
+                        onClicked: root.sozlesmeDuzenleyiciyiAc()
                         background: Rectangle {
                             radius: Theme.radiusKucuk
                             color: sozlesmeButonu.hovered ? Theme.panelHover : "transparent"
@@ -1851,6 +1863,42 @@ Item {
                 }
             }
         }
+
+    // ---- Satis sozlesmesi duzenleme penceresi ----
+    // "Satış Sözleşmesi" butonu bunu acar; PDF'in son sayfasindaki maddeler
+    // burada goruntulenip degistirilir (bkz. components/SozlesmeDuzenleDialog.qml).
+    SozlesmeDuzenleDialog {
+        id: sozlesmeDialogu
+
+        onKaydedildi: function(yeniMetin) {
+            // Varsayilanla ayni metni "ozel metin" olarak saklamanin anlami yok:
+            // bos birakirsak teklif, varsayilan metne bagli kalir (varsayilan
+            // ileride degisirse bu teklif de guncel metni alir).
+            const temiz = yeniMetin.trim()
+            root.sozlesmeMetni = (temiz === sozlesmeDialogu.varsayilanMetin.trim()) ? "" : temiz
+
+            // Kayitli bir teklif aciksa (Giden Tekliflerim -> Detay) metni hemen
+            // o teklife yaziyoruz; boylece listedeki "PDF" butonu da degisen
+            // sozlesmeyi basar. Kaydedilmemis yeni teklifte ise metin ekranda
+            // bekler ve "Teklifi Kaydet" ile teklifle birlikte kaydedilir.
+            if (root.duzenlenenKaynakTeklifId > 0) {
+                const yazildi = database.teklifSozlesmeMetniKaydet(root.duzenlenenKaynakTeklifId,
+                                                                    root.sozlesmeMetni)
+                if (yazildi) {
+                    bilgiMesaji.color = Theme.basariAcik
+                    bilgiMesaji.text = "Teklif #" + root.duzenlenenKaynakTeklifId
+                                       + " satış sözleşmesi güncellendi."
+                } else {
+                    bilgiMesaji.color = Theme.tehlikeAcik
+                    bilgiMesaji.text = "Satış sözleşmesi kaydedilemedi."
+                }
+                return
+            }
+
+            bilgiMesaji.color = Theme.basariAcik
+            bilgiMesaji.text = "Satış sözleşmesi bu teklif için güncellendi; teklifi kaydedince PDF'e yazılacak."
+        }
+    }
 
     // ---- Manuel urun ekleme dialogu ----
     // WPF'teki manuel urun ekleme penceresiyle ayni bilgi kumesini toplar

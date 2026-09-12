@@ -25,9 +25,27 @@ public:
     //   genelIndirimOrani, kdvOrani, indirimliToplam, kdvTutari, genelToplam,
     //   paketlemeUcreti, tasimaUcreti (double),
     //   kalemler (QVariantList<QVariantMap{adet, birimFiyat, indirimliBirimFiyat,
-    //             toplamTutar, urunKodu, urunAciklamasi}>)
+    //             toplamTutar, urunKodu, urunAciklamasi}>),
+    //   sozlesmeMetni (string, OPSIYONEL): teklifin son sayfasindaki satis
+    //             sozlesmesi maddeleri (duz metin, bkz. varsayilanSozlesmeMetni).
+    //             Bos birakilirsa dilin varsayilan metni kullanilir.
     // Donen: {basarili (bool), dosyaYolu (string), hata (string)}.
     QVariantMap teklifPdfUret(int teklifId, const QString &firmaAdi, const QVariantMap &veri);
+
+    // Teklif PDF'inin son sayfasindaki satis sozlesmesi maddelerinin FABRIKA
+    // VARSAYILANI (dil'e gore TR/EN). Bicim kasitli olarak DUZ METINDIR, cunku
+    // kullanici bunu "Satış Sözleşmesi" penceresinde serbestce duzenliyor:
+    //   - her satir bir numarali madde olur,
+    //   - "- " ile baslayan satirlar, ustundeki maddenin alt madde isareti olur,
+    //   - bos satirlar yok sayilir.
+    // HTML'e cevirme isi sozlesmeMetniniHtmleCevir'de yapilir.
+    static QString varsayilanSozlesmeMetni(bool ingilizce);
+
+    // varsayilanSozlesmeMetni'nde anlatilan duz metin bicimini, teklif.html'deki
+    // {{SOZLESME_MADDELERI}} yer tutucusuna girecek <ol>/<ul> yapisina cevirir.
+    // Metin HTML olarak kacislanir -- kullanicinin yazdigi "&" veya "<" gibi
+    // karakterler sablonu bozmaz.
+    static QString sozlesmeMetniniHtmleCevir(const QString &metin);
 
     // "veri" anahtarlari (Database::satisSozlesmesiOlustur tarafindan doldurulur):
     //   firmaAdi, firmaAdresi, ilgiliKisi, teslimatSekli, teslimatYeri,

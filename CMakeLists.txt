@@ -57,6 +57,7 @@ qt_add_qml_module(erp_programi
         qml/pages/PersonellerimPage.qml
         qml/components/ModulIkonu.qml
         qml/components/TarihTakvimi.qml
+        qml/components/SozlesmeDuzenleDialog.qml
 )
 
 target_link_libraries(erp_programi PRIVATE

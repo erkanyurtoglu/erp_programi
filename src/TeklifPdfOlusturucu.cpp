@@ -108,6 +108,102 @@ QString TeklifPdfOlusturucu::sozlesmeKalemSatirlariUret(const QVariantList &kale
     return html;
 }
 
+QString TeklifPdfOlusturucu::varsayilanSozlesmeMetni(bool ingilizce)
+{
+    // ONEMLI: Bu maddeler eskiden teklif.html/teklif_en.html icine GOMULU idi ve
+    // degistirilebilmesi icin sablonun elle duzenlenmesi gerekiyordu. Artik
+    // sablonda sadece {{SOZLESME_MADDELERI}} yer tutucusu var; varsayilan metin
+    // burada duruyor ve kullanici "Satış Sözleşmesi" penceresinden teklif basina
+    // degistirebiliyor (degisiklik dbo.teklifler.SatisSozlesmesiMetni'ne yazilir).
+    if (ingilizce)
+    {
+        return QStringLiteral(
+            "Our prices are quoted in USD and are VAT-inclusive. Payment of this invoice must be made in "
+            "Turkish Lira, converted at the CBRT (Central Bank of the Republic of Turkey) foreign exchange "
+            "effective selling rate on the payment date. Otherwise, an invoice for the resulting exchange "
+            "rate difference will be issued and collected.\n"
+            "Equipment payment: 30% in advance upon order placement, with the remaining balance due upon delivery.\n"
+            "The equipment carries a free service warranty of 1 year for mechanical parts and 2 years for "
+            "electronic parts. Paid technical service and training will be provided for a period of 10 years.\n"
+            "Equipment Delivery: Delivered within 1 week of the order.\n"
+            "Quotation Validity: 3 days from the date of the quotation.\n"
+            "Shipping: To be borne by the buyer.\n"
+            "The prices of equipment offered as alternatives are not included in the total quotation amount.\n"
+            "Our Bank Details: Liya Laboratuvar Test Cihazları İmalat ve Dış Ticaret A.Ş.\n"
+            "- İŞ BANKASI TR16 0006 4000 0014 1520 1653 38\n"
+            "- HALK BANKASI TR51 0001 2009 4140 0010 2645 69");
+    }
+
+    return QStringLiteral(
+        "Fiyatımız DOLAR cinsinden belirtilmiş olup, KDV dahildir. İş bu fatura ödemesinin, ödeme "
+        "tarihindeki TCMB DÖVİZ EFEKTİF SATIŞ KURU ile Türk Lirası’na çevrilerek yapılması "
+        "gerekmektedir. Aksi durumda kesilecek kur farkı faturasının tahsili yapılacaktır.\n"
+        "Cihaz ücreti: %30’u sipariş sırasında peşin, kalan tutar teslimatta ödenecektir.\n"
+        "Cihazlar; 1 yıl mekanik, 2 yıl elektronik parça olarak ücretsiz servis garantilidir. 10 yıl "
+        "süreyle ücreti karşılığı teknik servis ve eğitim hizmeti verilecektir.\n"
+        "Cihaz Teslimatı: Siparişe istinaden 1 hafta içinde teslim.\n"
+        "Teklif Opsiyonu: Teklif tarihinden itibaren 3 gündür.\n"
+        "Nakliye: Alıcı firmaya aittir.\n"
+        "Alternatif olarak sunulan cihaz bedelleri, toplam teklif tutarına dahil edilmemiştir.\n"
+        "Banka Bilgilerimiz: Liya Laboratuvar Test Cihazları İmalat ve Dış Ticaret A.Ş.\n"
+        "- İŞ BANKASI TR16 0006 4000 0014 1520 1653 38\n"
+        "- HALK BANKASI TR51 0001 2009 4140 0010 2645 69");
+}
+
+QString TeklifPdfOlusturucu::sozlesmeMetniniHtmleCevir(const QString &metin)
+{
+    const QStringList satirlar = metin.split(QRegularExpression("\r\n|\n|\r"));
+
+    QString html = QStringLiteral("<ol>");
+    bool maddeAcikMi = false;   // <li> kapatilmayi bekliyor mu
+    bool altListeAcikMi = false; // alt maddeler icin <ul> acik mi
+
+    for (const QString &hamSatir : satirlar)
+    {
+        const QString satir = hamSatir.trimmed();
+        if (satir.isEmpty())
+            continue;
+
+        // "- " / "• " ile baslayan satirlar, ustundeki maddenin alt maddesidir
+        // (varsayilan metindeki banka hesaplari boyle yaziliyor).
+        const bool altMadde = satir.startsWith(QStringLiteral("- ")) || satir.startsWith(QStringLiteral("• "));
+        if (altMadde && maddeAcikMi)
+        {
+            if (!altListeAcikMi)
+            {
+                html += QStringLiteral("<ul>");
+                altListeAcikMi = true;
+            }
+            html += QStringLiteral("<li>%1</li>").arg(satir.mid(2).trimmed().toHtmlEscaped());
+            continue;
+        }
+
+        // Yeni bir ana madde: once acik olan alt liste/madde kapatilir.
+        if (altListeAcikMi)
+        {
+            html += QStringLiteral("</ul>");
+            altListeAcikMi = false;
+        }
+        if (maddeAcikMi)
+            html += QStringLiteral("</li>");
+
+        // Ilk satir alt madde isaretiyle basliyorsa (ustunde ana madde yok)
+        // isareti atip normal madde gibi yaziyoruz -- yapisi bozuk metin de
+        // PDF'i bozmasin.
+        const QString icerik = altMadde ? satir.mid(2).trimmed() : satir;
+        html += QStringLiteral("<li>%1").arg(icerik.toHtmlEscaped());
+        maddeAcikMi = true;
+    }
+
+    if (altListeAcikMi)
+        html += QStringLiteral("</ul>");
+    if (maddeAcikMi)
+        html += QStringLiteral("</li>");
+    html += QStringLiteral("</ol>");
+
+    return html;
+}
+
 QString TeklifPdfOlusturucu::toplamSatirlariUret(bool indirimVar, bool kdvVar, bool paketlemeVar, bool tasimaVar,
                                                   double genelIndirimOrani, double kdvOrani,
                                                   double rawToplam, double indirimliToplam,
@@ -343,6 +439,12 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
     degerler["KALEM_BASLIK"] = kalemBaslikHtml;
     degerler["KALEM_SATIRLARI"] = kalemSatirlariHtml;
     degerler["TOPLAM_SATIRLARI"] = toplamSatirlariHtml;
+
+    // Son sayfadaki satis sozlesmesi maddeleri: teklife ozel bir metin
+    // kaydedilmisse o, kaydedilmemisse dilin fabrika varsayilani kullanilir.
+    const QString sozlesmeMetni = veri.value("sozlesmeMetni").toString().trimmed();
+    degerler["SOZLESME_MADDELERI"] = sozlesmeMetniniHtmleCevir(
+        sozlesmeMetni.isEmpty() ? varsayilanSozlesmeMetni(ingilizce) : sozlesmeMetni);
 
     const QString html = yerKoyucuDoldur(sablon, degerler);
 

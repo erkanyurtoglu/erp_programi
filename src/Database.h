@@ -79,6 +79,9 @@ public:
     //   paketlemeUcreti, tasimaUcreti (double), paraBirimi (string: TL/USD/EUR),
     //   dil (string: TR/EN), ilgiliKisi, ilgiliKisiTelefonu, ilgiliKisiEposta,
     //   teslimatSekli, teslimatYeri, musteriNotu (string),
+    //   sozlesmeMetni (string, OPSIYONEL): "Satış Sözleşmesi" penceresinde
+    //             duzenlenmis sozlesme maddeleri. Bos gelirse SatisSozlesmesiMetni
+    //             NULL kaydedilir ve PDF'te dilin varsayilan metni kullanilir.
     //   indirimliToplam, kdvTutari, genelToplam (double, QML tarafinda hesaplanmis),
     //   kalemler (QVariantList<QVariantMap{urunId (0 ise manuel kalem), urunKodu,
     //             aciklama, adet, birimFiyat, indirimliBirimFiyat, toplamTutar,
@@ -105,7 +108,8 @@ public:
     //   "ilgiliKisiTelefonu", "ilgiliKisiEposta", "teslimatSekli", "teslimatYeri",
     //   "paketlemeUcretiTl", "tasimaUcretiTl", "kur" (double, TL'ye cevirmek icin),
     //   "kalemler" (QVariantList<QVariantMap{urunId (0 ise manuel), urunKodu,
-    //             aciklama, adet (int), birimFiyatTl, maliyet (double)}>).
+    //             aciklama, adet (int), birimFiyatTl, maliyet (double)}>),
+    //   "sozlesmeMetni" (string; teklife ozel bir sozlesme metni kaydedilmemisse bos).
     Q_INVOKABLE QVariantMap teklifDuzenlemeVerisiGetir(int teklifId);
 
     // Teklifin durumunu degistirir. Gecerli durumlar: "Beklemede", "Kabul Edildi",
@@ -201,6 +205,30 @@ public:
     // kabul edilir, cunku musteri henuz kaydedilmemis/secilmemis olabilir).
     // Donen: {basarili, dosyaYolu, hata}.
     Q_INVOKABLE QVariantMap satisSozlesmesiOlustur(const QVariantMap &teklif);
+
+    // ------------------------------------------------------------------
+    // Satis sozlesmesi metni (teklif PDF'inin son sayfasindaki maddeler).
+    //
+    // Metin artik teklif.html icine GOMULU DEGIL: varsayilani C++ tarafinda
+    // (TeklifPdfOlusturucu::varsayilanSozlesmeMetni) duruyor, kullanicinin
+    // "Satış Sözleşmesi" penceresinde yaptigi degisiklik ise TEKLIF BASINA
+    // dbo.teklifler.SatisSozlesmesiMetni sutununda saklaniyor. Boylece eski
+    // tekliflerin sozlesmesi, varsayilan metin ileride degistirilse bile
+    // kaydedildigi haliyle kalir.
+    //
+    // "dil": "TR" veya "EN" -- varsayilan metnin dilini secer.
+    // ------------------------------------------------------------------
+    Q_INVOKABLE QString varsayilanSozlesmeMetni(const QString &dil) const;
+
+    // Teklife kayitli metni doner; yoksa (veya teklif henuz kaydedilmemisse,
+    // yani teklifId <= 0 ise) dilin varsayilan metnini doner -- pencere her
+    // durumda dolu acilir.
+    Q_INVOKABLE QString teklifSozlesmeMetniGetir(int teklifId, const QString &dil);
+
+    // Kayitli bir teklifin sozlesme metnini gunceller ("Satış Sözleşmesi"
+    // penceresi, Giden Tekliflerim -> Detay akisinda acildiginda). metin bos
+    // ise sutun NULL'lanir (varsayilana doner). Basariliysa true.
+    Q_INVOKABLE bool teklifSozlesmeMetniKaydet(int teklifId, const QString &metin);
 
     // musteriAraBaslat/urunAraBaslat icin sonuc sinyalleri. "arama" (ve urun icin
     // "dil") istegi yapan tarafa aynen geri gonderilir; QML tarafi bunu arama

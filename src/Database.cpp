@@ -537,11 +537,11 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
         "INSERT INTO dbo.teklifler "
         "(MusteriId, KullaniciId, GenelIndirimOrani, KdvOrani, Durum, MusteriNotu, ParaBirimi, Dil, "
         " IlgiliKisi, IlgiliKisiTelefonu, IlgiliKisiEposta, TeslimatSekli, TeslimatYeri, "
-        " AnaTeklifId, RevizyonNo) "
+        " SatisSozlesmesiMetni, AnaTeklifId, RevizyonNo) "
         "OUTPUT INSERTED.TeklifId "
         "VALUES (:musteriId, :kullaniciId, :indirim, :kdv, N'Beklemede', :not, :paraBirimi, :dil, "
         "        :ilgiliKisi, :ilgiliKisiTel, :ilgiliKisiEposta, :teslimatSekli, :teslimatYeri, "
-        "        :anaTeklifId, :revizyonNo)");
+        "        :sozlesmeMetni, :anaTeklifId, :revizyonNo)");
     teklifEkle.bindValue(":musteriId", musteriId);
     if (anaTeklifId > 0)
         teklifEkle.bindValue(":anaTeklifId", anaTeklifId);
@@ -563,6 +563,15 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
     teklifEkle.bindValue(":ilgiliKisiEposta", teklif.value("ilgiliKisiEposta").toString());
     teklifEkle.bindValue(":teslimatSekli", teklif.value("teslimatSekli").toString());
     teklifEkle.bindValue(":teslimatYeri", teklif.value("teslimatYeri").toString());
+
+    // Sozlesme metni: kullanici "Satış Sözleşmesi" penceresinde bir degisiklik
+    // yapmadiysa QML bu alani bos gonderir -> NULL kaydedilir ve PDF uretilirken
+    // dilin varsayilan metni kullanilir (bkz. TeklifPdfOlusturucu).
+    const QString sozlesmeMetni = teklif.value("sozlesmeMetni").toString().trimmed();
+    if (sozlesmeMetni.isEmpty())
+        teklifEkle.bindValue(":sozlesmeMetni", QVariant(QMetaType(QMetaType::QString)));
+    else
+        teklifEkle.bindValue(":sozlesmeMetni", sozlesmeMetni);
 
     if (!teklifEkle.exec() || !teklifEkle.next())
     {
@@ -686,7 +695,8 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
     basQuery.prepare(
         "SELECT t.TeklifId, t.MusteriId, m.FirmaAdi, t.GenelIndirimOrani, t.KdvOrani, "
         "       t.ParaBirimi, t.Dil, t.IlgiliKisi, t.IlgiliKisiTelefonu, t.IlgiliKisiEposta, "
-        "       t.TeslimatSekli, t.TeslimatYeri, t.AnaTeklifId, t.RevizyonNo, "
+        "       t.TeslimatSekli, t.TeslimatYeri, t.SatisSozlesmesiMetni, "
+        "       t.AnaTeklifId, t.RevizyonNo, "
         "       tt.PaketlemeUcreti, tt.TasimaUcreti "
         "FROM dbo.teklifler t "
         "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
@@ -721,6 +731,7 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
     const QString ilgiliKisiEpostaDeger = basQuery.value("IlgiliKisiEposta").toString();
     const QString teslimatSekliDeger = basQuery.value("TeslimatSekli").toString();
     const QString teslimatYeriDeger = basQuery.value("TeslimatYeri").toString();
+    const QString sozlesmeMetniDeger = basQuery.value("SatisSozlesmesiMetni").toString();
     const double paketlemeUcreti = basQuery.value("PaketlemeUcreti").toDouble();
     const double tasimaUcreti = basQuery.value("TasimaUcreti").toDouble();
 
@@ -789,6 +800,9 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
     sonuc["ilgiliKisiEposta"] = ilgiliKisiEpostaDeger;
     sonuc["teslimatSekli"] = teslimatSekliDeger;
     sonuc["teslimatYeri"] = teslimatYeriDeger;
+    // Teklife ozel sozlesme metni yoksa bos doner -- QML tarafi "Satış Sözleşmesi"
+    // penceresini acarken bos degeri gorup dilin varsayilan metnini yukler.
+    sonuc["sozlesmeMetni"] = sozlesmeMetniDeger;
     sonuc["paketlemeUcretiTl"] = paketlemeUcreti * kur;
     sonuc["tasimaUcretiTl"] = tasimaUcreti * kur;
     sonuc["kur"] = kur;
@@ -1636,6 +1650,7 @@ QVariantMap Database::teklifPdfOlustur(int teklifId)
         "SELECT t.TeklifId, t.OlusturmaTarihi, t.Durum, t.ParaBirimi, t.Dil, "
         "       t.IlgiliKisi, t.IlgiliKisiTelefonu, t.IlgiliKisiEposta, "
         "       t.TeslimatSekli, t.TeslimatYeri, t.GenelIndirimOrani, t.KdvOrani, "
+        "       t.SatisSozlesmesiMetni, "
         "       m.FirmaAdi, m.FirmaAdresi, "
         "       k.AdSoyad AS PersonelAdSoyad, k.Telefon AS PersonelTelefon, "
         "       tt.IndirimliToplam, tt.KdvTutari, tt.GenelToplam, tt.PaketlemeUcreti, tt.TasimaUcreti "
@@ -1674,6 +1689,9 @@ QVariantMap Database::teklifPdfOlustur(int teklifId)
     veri["genelToplam"] = basQuery.value("GenelToplam").toDouble();
     veri["paketlemeUcreti"] = basQuery.value("PaketlemeUcreti").toDouble();
     veri["tasimaUcreti"] = basQuery.value("TasimaUcreti").toDouble();
+    // PDF'in son sayfasindaki sozlesme maddeleri. Bos ise TeklifPdfOlusturucu
+    // dilin varsayilan metnini kullanir.
+    veri["sozlesmeMetni"] = basQuery.value("SatisSozlesmesiMetni").toString();
 
     QSqlQuery kalemQuery(m_db);
     kalemQuery.prepare(
@@ -1761,4 +1779,55 @@ QVariantMap Database::satisSozlesmesiOlustur(const QVariantMap &teklif)
     veri["firmaAdresi"] = firmaAdresi;
 
     return m_pdfOlusturucu.satisSozlesmesiUret(veri);
+}
+
+QString Database::varsayilanSozlesmeMetni(const QString &dil) const
+{
+    return TeklifPdfOlusturucu::varsayilanSozlesmeMetni(dil.compare("EN", Qt::CaseInsensitive) == 0);
+}
+
+QString Database::teklifSozlesmeMetniGetir(int teklifId, const QString &dil)
+{
+    if (m_baglantiHazir && teklifId > 0)
+    {
+        QSqlQuery query(m_db);
+        query.prepare("SELECT SatisSozlesmesiMetni FROM dbo.teklifler WHERE TeklifId = :id");
+        query.bindValue(":id", teklifId);
+        if (query.exec() && query.next())
+        {
+            const QString metin = query.value(0).toString();
+            if (!metin.trimmed().isEmpty())
+                return metin;
+        }
+        else
+        {
+            qWarning() << "teklifSozlesmeMetniGetir basarisiz:" << query.lastError().text();
+        }
+    }
+
+    // Teklif henuz kaydedilmemis veya kendine ozel bir metni yok: pencere
+    // fabrika varsayilaniyla acilir.
+    return varsayilanSozlesmeMetni(dil);
+}
+
+bool Database::teklifSozlesmeMetniKaydet(int teklifId, const QString &metin)
+{
+    if (!m_baglantiHazir || teklifId <= 0)
+        return false;
+
+    QSqlQuery query(m_db);
+    query.prepare("UPDATE dbo.teklifler SET SatisSozlesmesiMetni = :metin WHERE TeklifId = :id");
+    query.bindValue(":id", teklifId);
+    // Bos metin -> NULL: teklif tekrar dilin varsayilan metnine doner.
+    if (metin.trimmed().isEmpty())
+        query.bindValue(":metin", QVariant(QMetaType(QMetaType::QString)));
+    else
+        query.bindValue(":metin", metin);
+
+    if (!query.exec())
+    {
+        qWarning() << "teklifSozlesmeMetniKaydet basarisiz:" << query.lastError().text();
+        return false;
+    }
+    return true;
 }
