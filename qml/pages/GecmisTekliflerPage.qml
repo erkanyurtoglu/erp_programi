@@ -45,9 +45,24 @@ Item {
     readonly property int sutunPersonel: 130
     // Durum rozeti artik tiklanabilir bir menu acicisi oldugu icin icinde bir de
     // "▾" isareti tasiyor; sutun ona gore bir miktar genisletildi.
-    readonly property int sutunDurum: 128
-    // Detay(58) + PDF(50) + Sil(50) + 2 x 6px bosluk = 176
-    readonly property int sutunIslemler: 176
+    readonly property int sutunDurum: 140
+    // Detay + PDF + Sil butonlari ve aralarindaki 2 x 6px bosluk.
+    readonly property int sutunIslemler: 190
+
+    // --- Yuksekliklerin 4'un katina yuvarlanmasi (piksel hizalamasi) ----------
+    // Windows'ta ekran olcegi genelde %125'tir (devicePixelRatio = 1.25). Bu
+    // olcekte MANTIKSAL bir olcu ancak 4'un kati oldugunda tam FIZIKSEL piksele
+    // denk gelir (54 * 1.25 = 67.5 -> yarim piksel; 56 * 1.25 = 70 -> tam).
+    // Satir delegate'i layer.enabled ile ayri bir texture'a render edildiginden,
+    // yarim piksele denk gelen satirlarda texture 0.5 piksel kayik cizilir ve
+    // 1px'lik kenarliklar tamamen kaybolur -- listede her ikinci/besinci satirda
+    // "Detay butonunun ust cizgisi yok" goruntusunun sebebi buydu.
+    //
+    // Bu yuzden: satir yuksekligi + ListView spacing (52 + 4 = 56) ve icerikten
+    // turetilen tum oge yukseklikleri 4'un katidir. Ikisi de 4'un kati oldugunda
+    // dikey ortalama farki da ((52-28)/2 = 12) tam piksele oturur.
+    function hizalanmisYukseklik(h) { return 4 * Math.ceil(h / 4) }
+    readonly property int satirYuksekligi: 52
 
     // Hangi sekme oldugumuzu belirler (bkz. yukaridaki not) ve baslikta gosterilir.
     property string durumFiltresi: ""
@@ -424,7 +439,9 @@ Item {
                 required property var modelData
 
                 width: ListView.view.width
-                height: 46
+                // Satir yuksekligi + ListView spacing = 56 (4'un kati); bkz.
+                // root.hizalanmisYukseklik yanindaki piksel hizalamasi notu.
+                height: root.satirYuksekligi
                 radius: Theme.radiusKucuk
                 color: satirAlani.containsMouse ? Theme.panelHover : Theme.panel
                 border.width: 1
@@ -565,8 +582,12 @@ Item {
                             id: durumRozeti
                             anchors.left: parent.left
                             anchors.verticalCenter: parent.verticalCenter
-                            width: Math.min(root.sutunDurum, durumMetni.implicitWidth + 32)
-                            height: 24
+                            // Rozetin olculeri sabit degil, ICERIKTEN turetilir: metnin
+                            // genisligi/yuksekligi font ve DPI ile degistiginden sabit
+                            // 24px yukseklik "Tamamlandı"/"Kabul Edildi" gibi uzun ve
+                            // alt uzantili (ı, ğ, ç) metinleri kirpiyordu.
+                            width: Math.min(root.sutunDurum, Math.ceil(rozetIcerik.implicitWidth) + 24)
+                            height: root.hizalanmisYukseklik(Math.max(28, durumMetni.implicitHeight + 10))
                             radius: 5
                             color: {
                                 const d = satir.modelData.durum
@@ -593,6 +614,7 @@ Item {
                             }
 
                             Row {
+                                id: rozetIcerik
                                 anchors.centerIn: parent
                                 spacing: 4
 
@@ -715,8 +737,14 @@ Item {
                         Button {
                             id: detayButonu
                             text: "Detay"
-                            Layout.preferredWidth: 58
-                            Layout.preferredHeight: 28
+                            // Rozette oldugu gibi buton olculeri de metinden turetilir:
+                            // sabit 58x28 slot, font/DPI degisince "Detay" metnini
+                            // kenarlardan kirpiyordu.
+                            // Genislikler de tam sayiya yuvarlanir: ondalik bir genislik,
+                            // yanindaki butonlarin x konumunu da yarim piksele kaydirip
+                            // dikey kenarliklari ayni sekilde yok edebiliyor.
+                            Layout.preferredWidth: Math.max(58, Math.ceil(detayMetni.implicitWidth) + 20)
+                            Layout.preferredHeight: root.hizalanmisYukseklik(Math.max(28, detayMetni.implicitHeight + 10))
                             onClicked: root.detayIstendi(satir.modelData.teklifId)
                             background: Rectangle {
                                 radius: 5
@@ -725,6 +753,7 @@ Item {
                                 border.width: 1
                             }
                             contentItem: Text {
+                                id: detayMetni
                                 text: "Detay"
                                 color: Theme.vurguAcik
                                 font.family: Theme.fontAilesi
@@ -744,8 +773,8 @@ Item {
                         Button {
                             id: pdfButonu
                             text: "PDF"
-                            Layout.preferredWidth: 50
-                            Layout.preferredHeight: 28
+                            Layout.preferredWidth: Math.max(50, Math.ceil(pdfMetni.implicitWidth) + 20)
+                            Layout.preferredHeight: root.hizalanmisYukseklik(Math.max(28, pdfMetni.implicitHeight + 10))
                             onClicked: root.pdfOlusturVeAc(satir.modelData.teklifId)
                             background: Rectangle {
                                 radius: 5
@@ -754,6 +783,7 @@ Item {
                                 border.width: 1
                             }
                             contentItem: Text {
+                                id: pdfMetni
                                 text: "PDF"
                                 color: Theme.metinIkincil
                                 font.family: Theme.fontAilesi
@@ -766,8 +796,8 @@ Item {
                         Button {
                             id: silButonu
                             text: "Sil"
-                            Layout.preferredWidth: 50
-                            Layout.preferredHeight: 28
+                            Layout.preferredWidth: Math.max(50, Math.ceil(silMetni.implicitWidth) + 20)
+                            Layout.preferredHeight: root.hizalanmisYukseklik(Math.max(28, silMetni.implicitHeight + 10))
                             onClicked: silOnayDialogu.acilacakTeklifId = satir.modelData.teklifId
                             background: Rectangle {
                                 radius: 5
@@ -776,6 +806,7 @@ Item {
                                 border.width: 1
                             }
                             contentItem: Text {
+                                id: silMetni
                                 text: "Sil"
                                 color: Theme.tehlikeAcik
                                 font.family: Theme.fontAilesi
