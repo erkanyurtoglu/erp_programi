@@ -216,8 +216,13 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
     sonuc["dosyaYolu"] = QString();
     sonuc["hata"] = QString();
 
+    const bool ingilizce = veri.value("dil").toString().compare("EN", Qt::CaseInsensitive) == 0;
+
     QString hata;
-    const QString sablon = sabloniOku(QStringLiteral("teklif.html"), hata);
+    // EN icin ayri bir sablon kullanilir: kapak/antet/sozlesme sayfalarindaki
+    // gomulu resimler (arka plan) ve sozlesme maddeleri de İngilizce'dir --
+    // bunlar yerKoyucuDoldur ile degistirilebilecek basit metin degil.
+    const QString sablon = sabloniOku(ingilizce ? QStringLiteral("teklif_en.html") : QStringLiteral("teklif.html"), hata);
     if (sablon.isEmpty())
     {
         sonuc["hata"] = hata;
@@ -232,7 +237,6 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
     const QString teslimatYeri = veri.value("teslimatYeri").toString();
     const QString personelAdSoyad = veri.value("personelAdSoyad").toString();
     const QString personelTelefon = veri.value("personelTelefon").toString();
-    const bool ingilizce = veri.value("dil").toString().compare("EN", Qt::CaseInsensitive) == 0;
     const QString olusturmaTarihi = veri.value("olusturmaTarihi").toString();
     const double genelIndirimOrani = veri.value("genelIndirimOrani").toDouble();
     const double kdvOrani = veri.value("kdvOrani").toDouble();
