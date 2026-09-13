@@ -103,6 +103,7 @@ Item {
                 onClicked: {
                     duzenlemeDialogu.urunId = 0
                     duzenlemeDialogu.title = "Ürün Ekle"
+                    hataMesaji.text = ""
                     urunKoduAlani.text = ""
                     kategoriAlani.text = ""
                     aciklamaAlani.text = ""
@@ -272,6 +273,7 @@ Item {
                             onClicked: {
                                 duzenlemeDialogu.urunId = satir.modelData.urunId
                                 duzenlemeDialogu.title = "Ürün Düzenle"
+                                hataMesaji.text = ""
                                 urunKoduAlani.text = satir.modelData.urunKodu
                                 kategoriAlani.text = satir.modelData.kategori
                                 aciklamaAlani.text = satir.modelData.urunAciklamasi
@@ -289,7 +291,10 @@ Item {
                             text: "Sil"
                             Layout.preferredWidth: 50
                             Layout.preferredHeight: 28
-                            onClicked: silOnayDialogu.hedefId = satir.modelData.urunId
+                            onClicked: {
+                                silOnayDialogu.hedefId = satir.modelData.urunId
+                                silOnayDialogu.open()
+                            }
                             background: Rectangle {
                                 radius: 5
                                 color: silButonu.hovered ? "#3f1d24" : "transparent"
@@ -369,10 +374,15 @@ Item {
             const sonuc = duzenlemeDialogu.urunId > 0
                 ? database.urunGuncelle(duzenlemeDialogu.urunId, veri)
                 : database.urunEkle(veri)
-            if (sonuc.basarili)
+            if (sonuc.basarili) {
+                hataMesaji.text = ""
                 root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
-            else
+            } else {
+                // Save'e basilinca dialog zaten kapanmis oluyor; hata mesaji gorunsun
+                // ve girilen bilgiler kaybolmasin diye yeniden aciyoruz.
                 hataMesaji.text = sonuc.hata
+                duzenlemeDialogu.open()
+            }
         }
 
         contentItem: ColumnLayout {
@@ -403,7 +413,9 @@ Item {
         width: 320
         anchors.centerIn: parent
         standardButtons: Dialog.Yes | Dialog.No
-        visible: hedefId !== -1
+        // NOT: "visible: hedefId !== -1" binding'i kullanilmiyor -- Dialog kapaninca
+        // visible'i kendisi false yapip binding'i kiriyor, ikinci "Sil" tiklamasinda
+        // pencere hic acilmiyordu. Acma islemi butondan open() ile yapiliyor.
 
         background: Rectangle { color: Theme.panel; radius: Theme.radiusNormal; border.color: Theme.kenarlik; border.width: 1 }
 

@@ -98,6 +98,7 @@ Item {
                 onClicked: {
                     duzenlemeDialogu.musteriId = 0
                     duzenlemeDialogu.title = "Müşteri Ekle"
+                    hataMesaji.text = ""
                     firmaAdAlani.text = ""
                     firmaAdresAlani.text = ""
                     firmaTelAlani.text = ""
@@ -233,6 +234,7 @@ Item {
                         font.family: Theme.fontAilesi
                         font.pixelSize: Theme.fontBoyutNormal
                         Layout.preferredWidth: 140
+                        elide: Text.ElideRight
                         Layout.fillHeight: true
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -258,6 +260,7 @@ Item {
                             onClicked: {
                                 duzenlemeDialogu.musteriId = satir.modelData.musteriId
                                 duzenlemeDialogu.title = "Müşteri Düzenle"
+                                hataMesaji.text = ""
                                 firmaAdAlani.text = satir.modelData.firmaAdi
                                 firmaAdresAlani.text = satir.modelData.firmaAdresi
                                 firmaTelAlani.text = satir.modelData.firmaTelefonu
@@ -277,7 +280,10 @@ Item {
                             text: "Sil"
                             Layout.preferredWidth: 50
                             Layout.preferredHeight: 28
-                            onClicked: silOnayDialogu.hedefId = satir.modelData.musteriId
+                            onClicked: {
+                                silOnayDialogu.hedefId = satir.modelData.musteriId
+                                silOnayDialogu.open()
+                            }
                             background: Rectangle {
                                 radius: 5
                                 color: silButonu.hovered ? "#3f1d24" : "transparent"
@@ -359,10 +365,15 @@ Item {
             const sonuc = duzenlemeDialogu.musteriId > 0
                 ? database.musteriGuncelle(duzenlemeDialogu.musteriId, veri)
                 : database.musteriEkle(veri)
-            if (sonuc.basarili)
+            if (sonuc.basarili) {
+                hataMesaji.text = ""
                 root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
-            else
+            } else {
+                // Save'e basilinca dialog zaten kapanmis oluyor; hata mesaji gorunsun
+                // ve girilen bilgiler kaybolmasin diye yeniden aciyoruz.
                 hataMesaji.text = sonuc.hata
+                duzenlemeDialogu.open()
+            }
         }
 
         contentItem: ColumnLayout {
@@ -398,7 +409,9 @@ Item {
         width: 320
         anchors.centerIn: parent
         standardButtons: Dialog.Yes | Dialog.No
-        visible: hedefId !== -1
+        // NOT: "visible: hedefId !== -1" binding'i kullanilmiyor -- Dialog kapaninca
+        // visible'i kendisi false yapip binding'i kiriyor, ikinci "Sil" tiklamasinda
+        // pencere hic acilmiyordu. Acma islemi butondan open() ile yapiliyor.
 
         background: Rectangle { color: Theme.panel; radius: Theme.radiusNormal; border.color: Theme.kenarlik; border.width: 1 }
 

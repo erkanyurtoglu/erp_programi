@@ -168,6 +168,13 @@
         padding-top: 6px;
     }
 
+    /* Teslimat bilgileri: eski programdaki gibi GENEL TOPLAM satirinin altinda,
+       ayni tablonun satirlari olarak yazilir -- etiketler toplam etiketleriyle,
+       degerler tutar kolonuyla tam alt alta gelir. Bos olan satir basilmaz. */
+    .toplam-blok tr.teslimat-ilk td {
+        padding-top: 14px;
+    }
+
     .kapak-sayfa {
         position: relative;
         z-index: 1;
@@ -253,7 +260,7 @@
     </table>
 
     <div class="toplam-blok">
-        <table>{{TOPLAM_SATIRLARI}}</table>
+        <table>{{TOPLAM_SATIRLARI}}{{TESLIMAT_BLOK}}</table>
     </div>
 
     </td></tr></tbody>

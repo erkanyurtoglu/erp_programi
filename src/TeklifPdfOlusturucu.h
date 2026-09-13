@@ -5,6 +5,7 @@
 #include <QVariantMap>
 #include <QString>
 #include <QMarginsF>
+#include <QDate>
 
 // TeklifPdfOlusturucu: Teklif/Proforma ve Satis Sozlesmesi PDF'lerinin HTML
 // sablonunu doldurup basma isinin TAMAMINI ustlenir. Veritabaniyla hicbir
@@ -40,6 +41,25 @@ public:
     //   - bos satirlar yok sayilir.
     // HTML'e cevirme isi sozlesmeMetniniHtmleCevir'de yapilir.
     static QString varsayilanSozlesmeMetni(bool ingilizce);
+
+    // {{GECERLILIK_TARIHI}} gun sayisi verilmeden yazildiginda bugune eklenen gun.
+    static constexpr int kVarsayilanGecerlilikGunu = 3;
+
+    // Sozlesme metnindeki teklife bagli isaretleri doldurur (metin kullanici
+    // tarafindan duzenlense de calisir, boylece gomulu "DOLAR", "KDV dahil"
+    // gibi ifadeler teklifin secimleriyle celismez):
+    //   Satir basi kosullar (saglanmazsa satir atilir; yan yana birden fazla yazilabilir):
+    //     [DOVIZ] / [TL]                 -> para birimi USD/EUR mi, TL mi
+    //     [KDV_DAHIL] / [KDV_HARIC]      -> kdvOrani > 0 mi
+    //     [NAKLIYE_DAHIL] / [NAKLIYE_HARIC] -> tasimaUcreti > 0 mi
+    //   Degiskenler:
+    //     {{PARA_BIRIMI}} (ör. "Amerikan Doları (USD)"), {{PARA_KODU}} (USD/EUR/TL),
+    //     {{KDV_DURUMU}} ("%20 KDV dahildir" / "KDV hariçtir"), {{KDV_ORANI}},
+    //     {{TARIH}} (bugun), {{GECERLILIK_TARIHI}} (bugun + kVarsayilanGecerlilikGunu),
+    //     {{GECERLILIK_TARIHI+N}} (bugun + N gun), {{TESLIMAT_SEKLI}}, {{TESLIMAT_YERI}}.
+    // Tarihler TR'de dd.MM.yyyy, EN'de dd/MM/yyyy yazilir.
+    static QString sozlesmeDegiskenleriniUygula(const QString &metin, const QVariantMap &veri,
+                                                bool ingilizce, const QDate &bugun);
 
     // varsayilanSozlesmeMetni'nde anlatilan duz metin bicimini, teklif.html'deki
     // {{SOZLESME_MADDELERI}} yer tutucusuna girecek <ol>/<ul> yapisina cevirir.

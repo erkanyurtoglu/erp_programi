@@ -101,6 +101,7 @@ Item {
                 onClicked: {
                     duzenlemeDialogu.kullaniciId = 0
                     duzenlemeDialogu.title = "Personel Ekle"
+                    hataMesaji.text = ""
                     adSoyadAlani.text = ""
                     kullaniciAdiAlani.text = ""
                     sifreAlani.text = ""
@@ -269,6 +270,7 @@ Item {
                             onClicked: {
                                 duzenlemeDialogu.kullaniciId = satir.modelData.kullaniciId
                                 duzenlemeDialogu.title = "Personel Düzenle"
+                                hataMesaji.text = ""
                                 adSoyadAlani.text = satir.modelData.adSoyad
                                 kullaniciAdiAlani.text = satir.modelData.kullaniciAdi
                                 sifreAlani.text = ""
@@ -389,7 +391,10 @@ Item {
                 hataMesaji.text = ""
                 root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
             } else {
+                // Save'e basilinca dialog zaten kapanmis oluyor; hata mesaji gorunsun
+                // ve girilen bilgiler kaybolmasin diye yeniden aciyoruz.
                 hataMesaji.text = sonuc.hata
+                duzenlemeDialogu.open()
             }
         }
 

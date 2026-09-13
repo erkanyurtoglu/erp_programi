@@ -5,6 +5,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <QSqlDatabase>
+#include <QElapsedTimer>
 #include <QThread>
 #include <QPointer>
 
@@ -241,8 +242,20 @@ public:
     // icin (ana baglanti + arama worker'inin kendi baglantisi) benzersiz olmalidir.
     static bool baglantiAc(QSqlDatabase &db, const QString &baglantiAdi, QString &hataMesajiOut);
 
+    // Her sorgudan once cagrilir. Baglanti bir sure bosta kaldiysa (bilgisayar uykuya
+    // gecti, Wi-Fi koptu, SQL Server yeniden basladi...) "SELECT 1" ile yoklar; kopmussa
+    // baglantiyi kapatip yeniden acar. Eskiden kopmus baglanti hic yenilenmiyordu:
+    // sonraki her sorgu TCP zaman asimina kadar UI thread'ini bekletip "Yanıt Vermiyor"a
+    // dusuruyordu. Basarisiz yeniden baglanma denemeleri sonDeneme ile seyreltilir ki
+    // sunucu erisilemezken her tiklamada tekrar tekrar login zaman asimi beklenmesin.
+    static bool baglantiyiHazirla(QSqlDatabase &db, const QString &baglantiAdi,
+                                  QElapsedTimer &sonKullanim, QElapsedTimer &sonDeneme,
+                                  QString &hataMesajiOut);
+
 private:
     bool baglan();
+    // baglantiyiHazirla()'nin ana baglanti icin kisayolu; m_baglantiHazir'i gunceller.
+    bool baglantiHazir();
     // Ortak WHERE kosullarini (tarih + arama filtresi + durum filtresi) hem COUNT
     // hem de veri sorgusunda ayni sekilde kullanabilmek icin tek yerde uretir.
     void whereKosullariniOlustur(const QString &arama,
@@ -264,6 +277,8 @@ private:
     QSqlDatabase m_db;
     bool m_baglantiHazir = false;
     QString m_sonHataMesaji;
+    QElapsedTimer m_sonKullanim;
+    QElapsedTimer m_sonBaglantiDenemesi;
 
     // Firma/urun canli aramasini UI thread'inden ayirmak icin: worker, kendi
     // QSqlDatabase baglantisiyla bu ayri thread uzerinde yasar (bkz. AramaWorker.h).

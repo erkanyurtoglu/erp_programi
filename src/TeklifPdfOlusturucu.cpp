@@ -7,8 +7,11 @@
 #include <QDir>
 #include <QRegularExpression>
 #include <QDateTime>
+#include <QDate>
+#include <QHash>
 #include <QLocale>
 #include <QEventLoop>
+#include <QTimer>
 #include <QWebEnginePage>
 #include <QPageLayout>
 #include <QPageSize>
@@ -115,39 +118,135 @@ QString TeklifPdfOlusturucu::varsayilanSozlesmeMetni(bool ingilizce)
     // sablonda sadece {{SOZLESME_MADDELERI}} yer tutucusu var; varsayilan metin
     // burada duruyor ve kullanici "Satış Sözleşmesi" penceresinden teklif basina
     // degistirebiliyor (degisiklik dbo.teklifler.SatisSozlesmesiMetni'ne yazilir).
+    //
+    // Para birimi, KDV, nakliye ve gecerlilik tarihi GOMULU YAZILMAZ: metin
+    // {{DEGISKEN}} ve satir basi [KOSUL] isaretleri icerir, PDF basilirken
+    // sozlesmeDegiskenleriniUygula() bunlari teklifteki secimlere gore doldurur.
     if (ingilizce)
     {
         return QStringLiteral(
-            "Our prices are quoted in USD and are VAT-inclusive. Payment of this invoice must be made in "
-            "Turkish Lira, converted at the CBRT (Central Bank of the Republic of Turkey) foreign exchange "
-            "effective selling rate on the payment date. Otherwise, an invoice for the resulting exchange "
-            "rate difference will be issued and collected.\n"
-            "Equipment payment: 30% in advance upon order placement, with the remaining balance due upon delivery.\n"
-            "The equipment carries a free service warranty of 1 year for mechanical parts and 2 years for "
-            "electronic parts. Paid technical service and training will be provided for a period of 10 years.\n"
-            "Equipment Delivery: Delivered within 1 week of the order.\n"
-            "Quotation Validity: 3 days from the date of the quotation.\n"
-            "Shipping: To be borne by the buyer.\n"
-            "The prices of equipment offered as alternatives are not included in the total quotation amount.\n"
-            "Our Bank Details: Liya Laboratuvar Test Cihazları İmalat ve Dış Ticaret A.Ş.\n"
-            "- İŞ BANKASI TR16 0006 4000 0014 1520 1653 38\n"
-            "- HALK BANKASI TR51 0001 2009 4140 0010 2645 69");
+            "Prices are given in {{PARA_BIRIMI}}, {{KDV_DURUMU}}.\n"
+            "Mode of payment: 100% bank transfer in advance as order confirmation.\n"
+            "Warranty: 1 year.\n"
+            "Delivery: Ex-Works Ankara, Turkey in 2–3 weeks after payment date.\n"
+            "Quotation valid until {{GECERLILIK_TARIHI}}.\n"
+            "[NAKLIYE_HARIC] Freight costs are given as Ex-Works.\n"
+            "[NAKLIYE_DAHIL] Freight costs are included in the quotation.\n"
+            "Calibration will be charged separately.\n"
+            "Installation of equipment and training will be charged separately. The air freight and "
+            "accommodation belong to buyer. 150 USD subsistence should be paid for a technical personnel per day.\n"
+            "Bank details:\n"
+            "- Bank name: Türkiye Halkbankası A.Ş.\n"
+            "- Bank address: İvedik Mah. 1368. Cad. Daire:61/C Yenimahalle/Ankara/Turkey\n"
+            "- Branch name: İvedik Organize Sanayi\n"
+            "- Branch code: 0414\n"
+            "- Account name: Liya Test Laboratuvar Cih. İmlt Dış Tic. Ltd. Şti.\n"
+            "- Swift code: TRHBTR2A\n"
+            "- IBAN number: TR68 0001 2009 4140 0053 0008 14 (USD)\n"
+            "- IBAN number: TR74 0001 2009 4140 0058 0006 68 (EUR)");
     }
 
     return QStringLiteral(
-        "Fiyatımız DOLAR cinsinden belirtilmiş olup, KDV dahildir. İş bu fatura ödemesinin, ödeme "
-        "tarihindeki TCMB DÖVİZ EFEKTİF SATIŞ KURU ile Türk Lirası’na çevrilerek yapılması "
-        "gerekmektedir. Aksi durumda kesilecek kur farkı faturasının tahsili yapılacaktır.\n"
+        "[DOVIZ] Fiyatımız {{PARA_BIRIMI}} cinsinden belirtilmiş olup, {{KDV_DURUMU}}. İş bu fatura "
+        "ödemesinin, ödeme tarihindeki TCMB DÖVİZ EFEKTİF SATIŞ KURU ile Türk Lirası’na çevrilerek "
+        "yapılması gerekmektedir. Aksi durumda kesilecek kur farkı faturasının tahsili yapılacaktır.\n"
+        "[TL] Fiyatımız {{PARA_BIRIMI}} cinsinden belirtilmiş olup, {{KDV_DURUMU}}.\n"
         "Cihaz ücreti: %30’u sipariş sırasında peşin, kalan tutar teslimatta ödenecektir.\n"
         "Cihazlar; 1 yıl mekanik, 2 yıl elektronik parça olarak ücretsiz servis garantilidir. 10 yıl "
         "süreyle ücreti karşılığı teknik servis ve eğitim hizmeti verilecektir.\n"
         "Cihaz Teslimatı: Siparişe istinaden 1 hafta içinde teslim.\n"
-        "Teklif Opsiyonu: Teklif tarihinden itibaren 3 gündür.\n"
-        "Nakliye: Alıcı firmaya aittir.\n"
+        "Teklif Opsiyonu: Teklif {{GECERLILIK_TARIHI}} tarihine kadar geçerlidir.\n"
+        "[NAKLIYE_HARIC] Nakliye: Alıcı firmaya aittir.\n"
+        "[NAKLIYE_DAHIL] Nakliye: Teklif tutarına dahildir.\n"
         "Alternatif olarak sunulan cihaz bedelleri, toplam teklif tutarına dahil edilmemiştir.\n"
         "Banka Bilgilerimiz: Liya Laboratuvar Test Cihazları İmalat ve Dış Ticaret A.Ş.\n"
         "- İŞ BANKASI TR16 0006 4000 0014 1520 1653 38\n"
         "- HALK BANKASI TR51 0001 2009 4140 0010 2645 69");
+}
+
+QString TeklifPdfOlusturucu::sozlesmeDegiskenleriniUygula(const QString &metin, const QVariantMap &veri,
+                                                          bool ingilizce, const QDate &bugun)
+{
+    const QString paraBirimi = veri.value("paraBirimi").toString().trimmed().toUpper();
+    const double kdvOrani = veri.value("kdvOrani").toDouble();
+    const bool dovizMi = paraBirimi == QStringLiteral("USD") || paraBirimi == QStringLiteral("EUR");
+    const bool kdvDahil = kdvOrani > 0.0001;
+    const bool nakliyeDahil = veri.value("tasimaUcreti").toDouble() > 0.0001;
+
+    // --- Satir basi kosullari: kosulu saglamayan satir tamamen atilir ---
+    const QHash<QString, bool> kosullar = {
+        { QStringLiteral("DOVIZ"), dovizMi },
+        { QStringLiteral("TL"), !dovizMi },
+        { QStringLiteral("KDV_DAHIL"), kdvDahil },
+        { QStringLiteral("KDV_HARIC"), !kdvDahil },
+        { QStringLiteral("NAKLIYE_DAHIL"), nakliyeDahil },
+        { QStringLiteral("NAKLIYE_HARIC"), !nakliyeDahil },
+    };
+
+    static const QRegularExpression kosulDeseni(QStringLiteral("^\\s*(-\\s+|•\\s+)?\\[([A-Z_]+)\\]\\s*"));
+    QStringList cikti;
+    for (QString satir : metin.split(QRegularExpression("\r\n|\n|\r")))
+    {
+        bool gecerli = true;
+        // Birden fazla kosul yan yana yazilabilir: "[DOVIZ] [KDV_DAHIL] ..." (hepsi saglanmali).
+        // Tanimsiz koseli parantezler ("[Not] ...") dokunulmadan metinde kalir.
+        forever
+        {
+            const QRegularExpressionMatch m = kosulDeseni.match(satir);
+            if (!m.hasMatch() || !kosullar.contains(m.captured(2)))
+                break;
+            gecerli = gecerli && kosullar.value(m.captured(2));
+            // Alt madde isareti ("- ") varsa korunur, sadece kosul etiketi silinir.
+            satir = m.captured(1) + satir.mid(m.capturedEnd());
+        }
+        if (gecerli)
+            cikti << satir;
+    }
+    QString sonuc = cikti.join(QLatin1Char('\n'));
+
+    // --- {{DEGISKEN}} yer tutuculari ---
+    QString paraBirimiAdi;
+    if (paraBirimi == QStringLiteral("USD"))
+        paraBirimiAdi = ingilizce ? QStringLiteral("US Dollars (USD)") : QStringLiteral("Amerikan Doları (USD)");
+    else if (paraBirimi == QStringLiteral("EUR"))
+        paraBirimiAdi = ingilizce ? QStringLiteral("Euro (EUR)") : QStringLiteral("Euro (EUR)");
+    else
+        paraBirimiAdi = ingilizce ? QStringLiteral("Turkish Lira (TRY)") : QStringLiteral("Türk Lirası (TL)");
+
+    static const QLocale trLocale(QLocale::Turkish, QLocale::Turkey);
+    static const QLocale enLocale(QLocale::English, QLocale::UnitedStates);
+    const QString kdvOraniYazi = (ingilizce ? enLocale : trLocale).toString(kdvOrani, 'g', 4);
+    const QString kdvDurumu = kdvDahil
+        ? (ingilizce ? QStringLiteral("including %1% VAT").arg(kdvOraniYazi)
+                     : QStringLiteral("%%1 KDV dahildir").arg(kdvOraniYazi))
+        : (ingilizce ? QStringLiteral("excluding VAT") : QStringLiteral("KDV hariçtir"));
+
+    const QString tarihBicimi = ingilizce ? QStringLiteral("dd/MM/yyyy") : QStringLiteral("dd.MM.yyyy");
+
+    sonuc.replace(QStringLiteral("{{PARA_BIRIMI}}"), paraBirimiAdi);
+    sonuc.replace(QStringLiteral("{{PARA_KODU}}"), paraBirimi.isEmpty() ? QStringLiteral("TL") : paraBirimi);
+    sonuc.replace(QStringLiteral("{{KDV_ORANI}}"), kdvOraniYazi);
+    sonuc.replace(QStringLiteral("{{KDV_DURUMU}}"), kdvDurumu);
+    sonuc.replace(QStringLiteral("{{TARIH}}"), bugun.toString(tarihBicimi));
+    sonuc.replace(QStringLiteral("{{TESLIMAT_SEKLI}}"), veri.value("teslimatSekli").toString().trimmed());
+    sonuc.replace(QStringLiteral("{{TESLIMAT_YERI}}"), veri.value("teslimatYeri").toString().trimmed());
+
+    // {{GECERLILIK_TARIHI}} = bugun + varsayilan gun; {{GECERLILIK_TARIHI+N}} = bugun + N gun.
+    static const QRegularExpression gecerlilikDeseni(QStringLiteral("\\{\\{GECERLILIK_TARIHI(?:\\s*\\+\\s*(\\d{1,4}))?\\}\\}"));
+    QString doldurulmus;
+    qsizetype son = 0;
+    auto it = gecerlilikDeseni.globalMatch(sonuc);
+    while (it.hasNext())
+    {
+        const QRegularExpressionMatch m = it.next();
+        const int gun = m.captured(1).isEmpty() ? kVarsayilanGecerlilikGunu : m.captured(1).toInt();
+        doldurulmus += sonuc.mid(son, m.capturedStart() - son);
+        doldurulmus += bugun.addDays(gun).toString(tarihBicimi);
+        son = m.capturedEnd();
+    }
+    doldurulmus += sonuc.mid(son);
+
+    return doldurulmus;
 }
 
 QString TeklifPdfOlusturucu::sozlesmeMetniniHtmleCevir(const QString &metin)
@@ -287,9 +386,27 @@ bool TeklifPdfOlusturucu::htmlyiPdfeBas(const QString &html, const QString &dosy
         sayfa.printToPdf(dosyaYolu, duzen);
     });
 
+    // Chromium sureci takilir/cokerse sinyaller hic gelmeyebilir; o durumda donguden
+    // hic cikilmaz ve PDF butonu bir daha calismazdi.
+    QTimer zamanAsimi;
+    zamanAsimi.setSingleShot(true);
+    QObject::connect(&zamanAsimi, &QTimer::timeout, &dongu, [&]() {
+        if (tamamlandiMi)
+            return;
+        hataOut = "PDF oluşturma zaman aşımına uğradı.";
+        tamamlandiMi = true;
+        dongu.quit();
+    });
+
     sayfa.load(geciciUrl);
     if (!tamamlandiMi)
-        dongu.exec();
+    {
+        zamanAsimi.start(60 * 1000);
+        // Kullanici girdisi bu surede islenmez: PDF uretilirken ayni butona tekrar
+        // basilip bu fonksiyona ic ice yeniden girilmesi (ve ayni dosyaya iki kez
+        // yazilmasi) engellenir. Pencere yine de cizilmeye devam eder.
+        dongu.exec(QEventLoop::ExcludeUserInputEvents);
+    }
     return basariliMi;
 }
 
@@ -406,10 +523,25 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
         solBlokHtml += QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkTelefon, ilgiliKisiTel.toHtmlEscaped());
     if (!ilgiliKisiEposta.trimmed().isEmpty())
         solBlokHtml += QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkEposta, ilgiliKisiEposta.toHtmlEscaped());
-    if (!teslimatSekli.trimmed().isEmpty())
-        solBlokHtml += QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkTeslimatSekli, teslimatSekli.toHtmlEscaped());
-    if (!teslimatYeri.trimmed().isEmpty())
-        solBlokHtml += QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkTeslimatYeri, teslimatYeri.toHtmlEscaped());
+
+    // Teslimat sekli/yeri: eski programdaki yerlesime uyacak sekilde ust bilgi
+    // blogunda degil, GENEL TOPLAM satirinin ALTINDA -- ve ayni tablonun satirlari
+    // olarak (bkz. sablondaki {{TESLIMAT_BLOK}}) yazilir; boylece etiketler toplam
+    // etiketleriyle, degerler tutar kolonuyla tam alt alta gelir. Ilk satira,
+    // toplam blogundan gorsel olarak ayrilmasi icin ekstra bosluk veren
+    // "teslimat-ilk" sinifi konur. Bos olan alan hic basilmaz.
+    QString teslimatBlokHtml;
+    auto teslimatSatiriEkle = [&](const QString &etiket, const QString &deger) {
+        if (deger.trimmed().isEmpty())
+            return;
+        const QString sinif = teslimatBlokHtml.isEmpty()
+            ? QStringLiteral(" class='teslimat-ilk'")
+            : QString();
+        teslimatBlokHtml += QStringLiteral("<tr%1><td><b>%2:</b></td><td>%3</td></tr>")
+            .arg(sinif, etiket, deger.trimmed().toHtmlEscaped());
+    };
+    teslimatSatiriEkle(etkTeslimatSekli, teslimatSekli);
+    teslimatSatiriEkle(etkTeslimatYeri, teslimatYeri);
 
     QString sagBlokHtml = QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkTeklifTarihi, olusturmaTarihi);
     sagBlokHtml += QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkTeklifNo, QString::number(teklifId));
@@ -439,12 +571,16 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
     degerler["KALEM_BASLIK"] = kalemBaslikHtml;
     degerler["KALEM_SATIRLARI"] = kalemSatirlariHtml;
     degerler["TOPLAM_SATIRLARI"] = toplamSatirlariHtml;
+    degerler["TESLIMAT_BLOK"] = teslimatBlokHtml;
 
     // Son sayfadaki satis sozlesmesi maddeleri: teklife ozel bir metin
     // kaydedilmisse o, kaydedilmemisse dilin fabrika varsayilani kullanilir.
+    // Metindeki {{DEGISKEN}}/[KOSUL] isaretleri bu teklifin para birimi, KDV,
+    // nakliye secimleri ve bilgisayarin bugunku tarihiyle doldurulur.
     const QString sozlesmeMetni = veri.value("sozlesmeMetni").toString().trimmed();
-    degerler["SOZLESME_MADDELERI"] = sozlesmeMetniniHtmleCevir(
-        sozlesmeMetni.isEmpty() ? varsayilanSozlesmeMetni(ingilizce) : sozlesmeMetni);
+    degerler["SOZLESME_MADDELERI"] = sozlesmeMetniniHtmleCevir(sozlesmeDegiskenleriniUygula(
+        sozlesmeMetni.isEmpty() ? varsayilanSozlesmeMetni(ingilizce) : sozlesmeMetni,
+        veri, ingilizce, QDate::currentDate()));
 
     const QString html = yerKoyucuDoldur(sablon, degerler);
 

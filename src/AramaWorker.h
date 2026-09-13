@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QSqlDatabase>
+#include <QElapsedTimer>
 #include <QVariantList>
 
 // TeklifVerPage'deki firma/urun canli aramasini ayri bir thread + ayri bir SQL
@@ -34,6 +35,10 @@ signals:
     void urunSonucHazir(const QString &arama, const QString &dil, const QVariantList &sonuclar);
 
 private:
+    // Kopmus baglantiyi gerekirse yeniden acar (bkz. Database::baglantiyiHazirla).
+    bool baglantiHazir();
+
     QSqlDatabase m_db;
-    bool m_baglantiHazir = false;
+    QElapsedTimer m_sonKullanim;
+    QElapsedTimer m_sonBaglantiDenemesi;
 };

@@ -4,6 +4,11 @@
 
 #include <QDebug>
 
+namespace
+{
+    const QString ARAMA_BAGLANTI_ADI = "erp_arama_baglantisi";
+}
+
 AramaWorker::AramaWorker(QObject *parent) : QObject(parent)
 {
 }
@@ -15,14 +20,23 @@ void AramaWorker::baglantiyiAc()
     // acilan QSqlDatabase baglantisi da worker thread'ine ait olur (Database'in
     // ana baglantisindan tamamen bagimsiz, ayri bir ODBC oturumu).
     QString hata;
-    m_baglantiHazir = Database::baglantiAc(m_db, "erp_arama_baglantisi", hata);
-    if (!m_baglantiHazir)
+    m_sonBaglantiDenemesi.start();
+    if (Database::baglantiAc(m_db, ARAMA_BAGLANTI_ADI, hata))
+        m_sonKullanim.start();
+    else
         qWarning() << "Arama worker veritabanina baglanamadi:" << hata;
+}
+
+bool AramaWorker::baglantiHazir()
+{
+    QString hata;
+    return Database::baglantiyiHazirla(m_db, ARAMA_BAGLANTI_ADI, m_sonKullanim,
+                                       m_sonBaglantiDenemesi, hata);
 }
 
 void AramaWorker::musteriAraCalistir(const QString &arama, int limit)
 {
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
     {
         emit musteriSonucHazir(arama, QVariantList());
         return;
@@ -32,7 +46,7 @@ void AramaWorker::musteriAraCalistir(const QString &arama, int limit)
 
 void AramaWorker::urunAraCalistir(const QString &arama, int limit, const QString &dil)
 {
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
     {
         emit urunSonucHazir(arama, dil, QVariantList());
         return;

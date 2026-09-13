@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QCryptographicHash>
+#include <QHash>
 #include <cmath>
 #include <algorithm>
 
@@ -18,6 +19,13 @@ namespace
     // eski LiyaTeklifVeriTabani'nden bagimsiz, yeniden tasarlanmis veritabani.
     const QString SUNUCU = R"(EXCALIBUR\SQLEXPRESS)";
     const QString VERITABANI = "LiyaErpVeriTabani";
+
+    const int LOGIN_ZAMAN_ASIMI_SN = 5;
+    const int ISTEK_ZAMAN_ASIMI_SN = 30;
+    // Bu sureden uzun bosta kalan baglanti kullanilmadan once "SELECT 1" ile yoklanir.
+    const qint64 BOSTA_YOKLAMA_ESIGI_MS = 30 * 1000;
+    // Sunucu erisilemezken yeniden baglanma en fazla bu aralikla denenir.
+    const qint64 YENIDEN_BAGLANMA_ARALIGI_MS = 10 * 1000;
 
     QString tarihStr(const QVariant &v)
     {
@@ -97,6 +105,12 @@ bool Database::baglantiAc(QSqlDatabase &db, const QString &baglantiAdi, QString 
         }
 
         db.setDatabaseName(baglantiDizesi);
+        // Varsayilan login zaman asimi ~15 sn ve 3 surucu sirayla deneniyor; sunucu
+        // erisilemezken bu, UI thread'inde dakikaya yakin donma demekti.
+        // CONNECTION_TIMEOUT: kopmus bir baglantida bekleyen istek sonsuza kadar
+        // (TCP zaman asimina kadar) askida kalmasin.
+        db.setConnectOptions(QString("SQL_ATTR_LOGIN_TIMEOUT=%1;SQL_ATTR_CONNECTION_TIMEOUT=%2")
+                                 .arg(LOGIN_ZAMAN_ASIMI_SN).arg(ISTEK_ZAMAN_ASIMI_SN));
 
         if (db.open())
         {
@@ -119,9 +133,62 @@ bool Database::baglantiAc(QSqlDatabase &db, const QString &baglantiAdi, QString 
     return false;
 }
 
+bool Database::baglantiyiHazirla(QSqlDatabase &db, const QString &baglantiAdi,
+                                 QElapsedTimer &sonKullanim, QElapsedTimer &sonDeneme,
+                                 QString &hataMesajiOut)
+{
+    if (db.isValid() && db.isOpen())
+    {
+        // Yakin zamanda kullanilan baglantiyi her seferinde yoklamaya gerek yok.
+        if (sonKullanim.isValid() && sonKullanim.elapsed() < BOSTA_YOKLAMA_ESIGI_MS)
+        {
+            sonKullanim.restart();
+            return true;
+        }
+
+        {
+            // Kapsam onemli: removeDatabase() cagrilmadan once bu sorgu yok edilmeli.
+            QSqlQuery yokla(db);
+            if (yokla.exec("SELECT 1"))
+            {
+                sonKullanim.restart();
+                return true;
+            }
+            qWarning() << "Veritabani baglantisi kopmus (" << baglantiAdi << "), yeniden baglaniliyor:"
+                       << yokla.lastError().text();
+        }
+    }
+
+    if (sonDeneme.isValid() && sonDeneme.elapsed() < YENIDEN_BAGLANMA_ARALIGI_MS)
+        return false;
+    sonDeneme.restart();
+
+    if (db.isValid())
+        db.close();
+    db = QSqlDatabase();
+    QSqlDatabase::removeDatabase(baglantiAdi);
+
+    if (!baglantiAc(db, baglantiAdi, hataMesajiOut))
+        return false;
+
+    sonKullanim.restart();
+    return true;
+}
+
 bool Database::baglan()
 {
-    return baglantiAc(m_db, "erp_baglantisi", m_sonHataMesaji);
+    const bool basarili = baglantiAc(m_db, "erp_baglantisi", m_sonHataMesaji);
+    m_sonBaglantiDenemesi.start();
+    if (basarili)
+        m_sonKullanim.start();
+    return basarili;
+}
+
+bool Database::baglantiHazir()
+{
+    m_baglantiHazir = baglantiyiHazirla(m_db, "erp_baglantisi", m_sonKullanim,
+                                        m_sonBaglantiDenemesi, m_sonHataMesaji);
+    return m_baglantiHazir;
 }
 
 QVariantMap Database::girisYap(const QString &kullaniciAdi, const QString &sifre)
@@ -130,7 +197,7 @@ QVariantMap Database::girisYap(const QString &kullaniciAdi, const QString &sifre
     sonuc["basarili"] = false;
     sonuc["hata"] = QString();
 
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
@@ -331,7 +398,7 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
     sonuc["toplamSayfa"] = 1;
     sonuc["mevcutSayfa"] = 1;
 
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
     {
         qWarning() << "gecmisTekliflerGetir: veritabani baglantisi yok.";
         return sonuc;
@@ -438,7 +505,7 @@ bool Database::teklifSil(int teklifId)
     // NOT: WPF tarafindaki sifre onayli silme akisi burada henuz yok;
     // bu ilk asamada sadece mimariyi (QML -> C++ -> SQL Server) dogruluyoruz.
     // Sifre onayi/onay penceresi sonraki adimda eklenecek.
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
         return false;
 
     QSqlQuery query(m_db);
@@ -476,7 +543,7 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
     sonuc["teklifId"] = 0;
     sonuc["hata"] = QString();
 
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
@@ -685,7 +752,7 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
     sonuc["basarili"] = false;
     sonuc["hata"] = QString();
 
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
@@ -818,7 +885,7 @@ QStringList Database::gecerliDurumlar() const
 
 bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QString &redSebebi, int kullaniciId)
 {
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
         return false;
 
     if (!gecerliDurumlar().contains(durum))
@@ -909,7 +976,7 @@ void Database::durumDegisiminiLogla(int teklifId, const QString &eskiDurum, cons
 QVariantList Database::teklifDurumGecmisiGetir(int teklifId)
 {
     QVariantList gecmis;
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
         return gecmis;
 
     QSqlQuery query(m_db);
@@ -950,7 +1017,7 @@ QVariantMap Database::musteriListesiGetir(const QString &arama, int sayfaNo, int
     sonuc["toplamSayfa"] = 1;
     sonuc["mevcutSayfa"] = 1;
 
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
         return sonuc;
 
     const QString aramaTrim = arama.trimmed();
@@ -1024,7 +1091,7 @@ QVariantMap Database::musteriEkle(const QVariantMap &musteri)
     sonuc["musteriId"] = 0;
     sonuc["hata"] = QString();
 
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
@@ -1070,7 +1137,7 @@ QVariantMap Database::musteriGuncelle(int musteriId, const QVariantMap &musteri)
     sonuc["basarili"] = false;
     sonuc["hata"] = QString();
 
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
@@ -1117,7 +1184,7 @@ QVariantMap Database::musteriSil(int musteriId)
     sonuc["basarili"] = false;
     sonuc["hata"] = QString();
 
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
@@ -1149,7 +1216,7 @@ QVariantMap Database::urunListesiGetir(const QString &arama, int sayfaNo, int sa
     sonuc["toplamSayfa"] = 1;
     sonuc["mevcutSayfa"] = 1;
 
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
         return sonuc;
 
     const QString aramaTrim = arama.trimmed();
@@ -1222,7 +1289,7 @@ QVariantMap Database::urunEkle(const QVariantMap &urun)
     sonuc["urunId"] = 0;
     sonuc["hata"] = QString();
 
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
@@ -1266,7 +1333,7 @@ QVariantMap Database::urunGuncelle(int urunId, const QVariantMap &urun)
     sonuc["basarili"] = false;
     sonuc["hata"] = QString();
 
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
@@ -1310,7 +1377,7 @@ QVariantMap Database::urunSil(int urunId)
     sonuc["basarili"] = false;
     sonuc["hata"] = QString();
 
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
@@ -1334,7 +1401,7 @@ QVariantMap Database::urunSil(int urunId)
 QVariantList Database::rolListesiGetir()
 {
     QVariantList sonuc;
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
         return sonuc;
 
     QSqlQuery query(m_db);
@@ -1362,7 +1429,7 @@ QVariantMap Database::personelListesiGetir(const QString &arama, int sayfaNo, in
     sonuc["toplamSayfa"] = 1;
     sonuc["mevcutSayfa"] = 1;
 
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
         return sonuc;
 
     const QString aramaTrim = arama.trimmed();
@@ -1405,30 +1472,15 @@ QVariantMap Database::personelListesiGetir(const QString &arama, int sayfaNo, in
         return sonuc;
     }
 
-    QVariantList kayitlar;
+    // Once sayfadaki personeller tamamen okunur, sonra TEK sorguyla rolleri cekilir.
+    // Eskiden her satir icin, veriQuery'nin sonuc kumesi hala acikken ayni baglantida
+    // ayri bir rol sorgusu calisiyordu (N+1): hem gereksiz ag gidis-donusu hem de
+    // MARS kapali ODBC baglantisinda "connection is busy" riski.
+    QList<QVariantMap> personeller;
+    QStringList idListesi;
     while (veriQuery.next())
     {
         const int kullaniciId = veriQuery.value("KullaniciId").toInt();
-
-        // Kucuk personel sayisi (tipik olarak birkac düzine) icin N+1 sorgu
-        // performans acisindan sorun degil; gecmisTekliflerGetir'deki gibi tek
-        // sorguya sikistirmaya gerek yok.
-        QSqlQuery rolQuery(m_db);
-        rolQuery.prepare(
-            "SELECT r.RolId, r.RolAdi FROM dbo.kullanici_rolleri kr "
-            "INNER JOIN dbo.roller r ON r.RolId = kr.RolId "
-            "WHERE kr.KullaniciId = :id ORDER BY r.RolAdi");
-        rolQuery.bindValue(":id", kullaniciId);
-        rolQuery.exec();
-
-        QVariantList rolIdListesi;
-        QStringList rolAdlari;
-        while (rolQuery.next())
-        {
-            rolIdListesi << rolQuery.value("RolId").toInt();
-            rolAdlari << rolQuery.value("RolAdi").toString();
-        }
-
         QVariantMap p;
         p["kullaniciId"] = kullaniciId;
         p["adSoyad"] = veriQuery.value("AdSoyad").toString();
@@ -1436,8 +1488,41 @@ QVariantMap Database::personelListesiGetir(const QString &arama, int sayfaNo, in
         p["telefon"] = veriQuery.value("Telefon").toString();
         p["pozisyon"] = veriQuery.value("Pozisyon").toString();
         p["aktifMi"] = veriQuery.value("AktifMi").toBool();
-        p["rolIdListesi"] = rolIdListesi;
-        p["rolAdlari"] = rolAdlari.join(", ");
+        personeller << p;
+        idListesi << QString::number(kullaniciId);
+    }
+    veriQuery.finish();
+
+    QHash<int, QVariantList> rolIdleri;
+    QHash<int, QStringList> rolAdlari;
+    if (!idListesi.isEmpty())
+    {
+        // IN listesi yalnizca veritabanindan okunmus tamsayilardan olusuyor.
+        QSqlQuery rolQuery(m_db);
+        if (rolQuery.exec(QString(
+                "SELECT kr.KullaniciId, r.RolId, r.RolAdi FROM dbo.kullanici_rolleri kr "
+                "INNER JOIN dbo.roller r ON r.RolId = kr.RolId "
+                "WHERE kr.KullaniciId IN (%1) ORDER BY r.RolAdi").arg(idListesi.join(','))))
+        {
+            while (rolQuery.next())
+            {
+                const int kid = rolQuery.value("KullaniciId").toInt();
+                rolIdleri[kid] << rolQuery.value("RolId").toInt();
+                rolAdlari[kid] << rolQuery.value("RolAdi").toString();
+            }
+        }
+        else
+        {
+            qWarning() << "personelListesiGetir (roller) basarisiz:" << rolQuery.lastError().text();
+        }
+    }
+
+    QVariantList kayitlar;
+    for (QVariantMap &p : personeller)
+    {
+        const int kid = p.value("kullaniciId").toInt();
+        p["rolIdListesi"] = rolIdleri.value(kid);
+        p["rolAdlari"] = rolAdlari.value(kid).join(", ");
         kayitlar << p;
     }
 
@@ -1455,7 +1540,7 @@ QVariantMap Database::personelEkle(const QVariantMap &personel)
     sonuc["kullaniciId"] = 0;
     sonuc["hata"] = QString();
 
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
@@ -1532,7 +1617,7 @@ QVariantMap Database::personelGuncelle(int kullaniciId, const QVariantMap &perso
     sonuc["basarili"] = false;
     sonuc["hata"] = QString();
 
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
@@ -1616,7 +1701,7 @@ QVariantMap Database::personelGuncelle(int kullaniciId, const QVariantMap &perso
 
 bool Database::personelAktifDurumDegistir(int kullaniciId, bool aktif)
 {
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
         return false;
 
     QSqlQuery query(m_db);
@@ -1639,7 +1724,7 @@ QVariantMap Database::teklifPdfOlustur(int teklifId)
     sonuc["dosyaYolu"] = QString();
     sonuc["hata"] = QString();
 
-    if (!m_baglantiHazir)
+    if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
@@ -1750,7 +1835,7 @@ QVariantMap Database::satisSozlesmesiOlustur(const QVariantMap &teklif)
     const int musteriId = teklif.value("musteriId").toInt();
     QString firmaAdresi;
 
-    if (m_baglantiHazir && musteriId > 0)
+    if (musteriId > 0 && baglantiHazir())
     {
         QSqlQuery musteriQuery(m_db);
         musteriQuery.prepare("SELECT FirmaAdi, FirmaAdresi FROM dbo.musteriler WHERE MusteriId = :id");
@@ -1788,7 +1873,7 @@ QString Database::varsayilanSozlesmeMetni(const QString &dil) const
 
 QString Database::teklifSozlesmeMetniGetir(int teklifId, const QString &dil)
 {
-    if (m_baglantiHazir && teklifId > 0)
+    if (teklifId > 0 && baglantiHazir())
     {
         QSqlQuery query(m_db);
         query.prepare("SELECT SatisSozlesmesiMetni FROM dbo.teklifler WHERE TeklifId = :id");
@@ -1812,7 +1897,7 @@ QString Database::teklifSozlesmeMetniGetir(int teklifId, const QString &dil)
 
 bool Database::teklifSozlesmeMetniKaydet(int teklifId, const QString &metin)
 {
-    if (!m_baglantiHazir || teklifId <= 0)
+    if (teklifId <= 0 || !baglantiHazir())
         return false;
 
     QSqlQuery query(m_db);
