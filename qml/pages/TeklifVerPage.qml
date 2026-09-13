@@ -474,7 +474,8 @@ Item {
     readonly property real kdvTutariTl: indirimliToplamTl * (kdvOrani / 100)
     readonly property real genelToplamTl: indirimliToplamTl + kdvTutariTl + paketlemeUcretiTl + tasimaUcretiTl
     readonly property real karTutariTl: indirimliToplamTl - toplamMaliyetTl
-    readonly property real karOrani: indirimliToplamTl > 0 ? (karTutariTl / indirimliToplamTl * 100) : 0
+    // Kar orani maliyet uzerinden hesaplanir (kar tutari / toplam maliyet).
+    readonly property real karOrani: toplamMaliyetTl > 0 ? (karTutariTl / toplamMaliyetTl * 100) : 0
 
     function paraFormat(deger) {
         return deger.toLocaleString(Qt.locale("tr_TR"), 'f', 2)
@@ -1686,7 +1687,9 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 60
+            // Metrikler tek satira sigmayip alt satira kaydiginda cubuk da
+            // birlikte uzar; en az 60 px.
+            Layout.preferredHeight: Math.max(60, ozetMetrikleri.implicitHeight + 16)
             radius: Theme.radiusNormal
             color: Theme.panel
             border.width: 1
@@ -1709,16 +1712,23 @@ Item {
                 spacing: 18
                 clip: true
 
-                // Ozet metrikleri: tek satirda yan yana, dikey yer kaplamadan.
-                RowLayout {
-                    spacing: 26
+                // Ozet metrikleri: yer yettikce tek satirda yan yana; rakamlar
+                // buyuyup sigmadiginda kalanlar alt satira kayar (Genel Toplam
+                // kutusu hic sikismaz).
+                Flow {
+                    id: ozetMetrikleri
+                    spacing: 20
                     Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.preferredHeight: implicitHeight
 
                     Ozet { baslik: "Toplam Maliyet"; deger: root.paraFormat(root.tlDenCevir(root.toplamMaliyetTl)) + " " + root.paraBirimiSembol(paraBirimiCombo.currentText) }
                     Ozet { baslik: "Kar Tutarı"; deger: root.paraFormat(root.tlDenCevir(root.karTutariTl)) + " " + root.paraBirimiSembol(paraBirimiCombo.currentText); renk: Theme.basariAcik }
                     Ozet { baslik: "Kar Oranı"; deger: root.paraFormat(root.karOrani) + " %"; renk: Theme.basariAcik }
-                    Ozet { baslik: "İndirimli Toplam"; deger: root.paraFormat(root.tlDenCevir(root.indirimliToplamTl)) + " " + root.paraBirimiSembol(paraBirimiCombo.currentText) }
+                    Ozet { baslik: "Toplam Fiyat"; deger: root.paraFormat(root.tlDenCevir(root.indirimliToplamTl)) + " " + root.paraBirimiSembol(paraBirimiCombo.currentText) }
                     Ozet { baslik: "KDV Tutarı"; deger: root.paraFormat(root.tlDenCevir(root.kdvTutariTl)) + " " + root.paraBirimiSembol(paraBirimiCombo.currentText) }
+                    Ozet { baslik: "Taşıma Ücreti"; deger: root.paraFormat(root.tlDenCevir(root.tasimaUcretiTl)) + " " + root.paraBirimiSembol(paraBirimiCombo.currentText) }
+                    Ozet { baslik: "Paketleme Ücreti"; deger: root.paraFormat(root.tlDenCevir(root.paketlemeUcretiTl)) + " " + root.paraBirimiSembol(paraBirimiCombo.currentText) }
                 }
 
                 // Genel Toplam: ekrandaki en kritik rakam oldugu icin diger ozet
@@ -1728,7 +1738,9 @@ Item {
                     // Sabit genislik yerine icerige gore hesaplanan genislik: rakam
                     // buyudukce (ornegin 25.299.019,20 ₺ gibi) kutu tasmadan otomatik genisler.
                     Layout.preferredWidth: genelToplamIcerik.implicitWidth + 32
-                    Layout.fillHeight: true
+                    Layout.minimumWidth: genelToplamIcerik.implicitWidth + 32
+                    Layout.preferredHeight: 44
+                    Layout.alignment: Qt.AlignVCenter
                     radius: Theme.radiusNormal
                     color: Theme.vurguZeminSoluk
                     border.width: 1
