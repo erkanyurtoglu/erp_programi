@@ -41,6 +41,16 @@ namespace
         return v.toDateTime().toString("dd.MM.yyyy HH:mm");
     }
 
+    // QML'deki tarih secicinin (TarihTakvimi) "yyyy-MM-dd" ciktisini DATETIME2
+    // parametresine cevirir; bos veya gecersizse NULL baglanir.
+    QVariant tarihParametresi(const QString &yyyyAaGg)
+    {
+        const QDate tarih = QDate::fromString(yyyyAaGg.trimmed(), "yyyy-MM-dd");
+        if (!tarih.isValid())
+            return QVariant(QMetaType(QMetaType::QDateTime));
+        return QDateTime(tarih, QTime(0, 0));
+    }
+
     // Sifreleri duz metin yerine SHA-256 hash olarak saklamak icin.
     QString sifreyiHashle(const QString &sifre)
     {
@@ -442,7 +452,7 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
         "SELECT t.TeklifId, m.FirmaAdi, t.OlusturmaTarihi, t.KabulTarihi, "
         "       t.TeslimatTarihi, t.TeslimTarihi, t.UretimPdfTarihi, "
         "       p.KullaniciAdi AS PersonelKullaniciAdi, t.Durum, t.RedSebebi, sb.Aciklamalar, "
-        "       t.AnaTeklifId, t.RevizyonNo "
+        "       t.MusteriNotu, t.UretimNotu, t.AnaTeklifId, t.RevizyonNo "
         "FROM dbo.teklifler t "
         "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
         "LEFT JOIN dbo.kullanicilar p ON p.KullaniciId = t.KullaniciId "
@@ -484,6 +494,8 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
         kayit["durum"] = veriQuery.value("Durum").toString();
         kayit["redSebebi"] = veriQuery.value("RedSebebi").toString();
         kayit["aciklamalar"] = veriQuery.value("Aciklamalar").toString();
+        kayit["musteriNotu"] = veriQuery.value("MusteriNotu").toString();
+        kayit["uretimNotu"] = veriQuery.value("UretimNotu").toString();
         // Revizyon izleme: AnaTeklifId doluysa bu satir bir revizyondur --
         // Giden Tekliflerim listesinde "Rev N" rozetiyle gosterilir (bkz.
         // GecmisTekliflerPage.qml). anaTeklifId hep KOK teklifin TeklifId'sini
@@ -507,6 +519,13 @@ bool Database::teklifSil(int teklifId)
     // Sifre onayi/onay penceresi sonraki adimda eklenecek.
     if (!baglantiHazir())
         return false;
+
+    // Kabul edilmis / tamamlanmis teklif silinemez (bkz. teklifKilitliMi).
+    if (teklifKilitliMi(teklifDurumuGetir(teklifId)))
+    {
+        qWarning() << "teklifSil: kilitli teklif silinemez:" << teklifId;
+        return false;
+    }
 
     QSqlQuery query(m_db);
     query.prepare("DELETE FROM dbo.teklifler WHERE TeklifId = :teklifId");
@@ -602,13 +621,13 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
     QSqlQuery teklifEkle(m_db);
     teklifEkle.prepare(
         "INSERT INTO dbo.teklifler "
-        "(MusteriId, KullaniciId, GenelIndirimOrani, KdvOrani, Durum, MusteriNotu, ParaBirimi, Dil, "
+        "(MusteriId, KullaniciId, GenelIndirimOrani, KdvOrani, Durum, MusteriNotu, UretimNotu, ParaBirimi, Dil, "
         " IlgiliKisi, IlgiliKisiTelefonu, IlgiliKisiEposta, TeslimatSekli, TeslimatYeri, "
-        " SatisSozlesmesiMetni, AnaTeklifId, RevizyonNo) "
+        " TeslimatTarihi, SatisSozlesmesiMetni, AnaTeklifId, RevizyonNo) "
         "OUTPUT INSERTED.TeklifId "
-        "VALUES (:musteriId, :kullaniciId, :indirim, :kdv, N'Beklemede', :not, :paraBirimi, :dil, "
+        "VALUES (:musteriId, :kullaniciId, :indirim, :kdv, N'Beklemede', :not, :uretimNotu, :paraBirimi, :dil, "
         "        :ilgiliKisi, :ilgiliKisiTel, :ilgiliKisiEposta, :teslimatSekli, :teslimatYeri, "
-        "        :sozlesmeMetni, :anaTeklifId, :revizyonNo)");
+        "        :teslimatTarihi, :sozlesmeMetni, :anaTeklifId, :revizyonNo)");
     teklifEkle.bindValue(":musteriId", musteriId);
     if (anaTeklifId > 0)
         teklifEkle.bindValue(":anaTeklifId", anaTeklifId);
@@ -623,6 +642,7 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
     teklifEkle.bindValue(":indirim", teklif.value("genelIndirimOrani", 0).toDouble());
     teklifEkle.bindValue(":kdv", teklif.value("kdvOrani", 0).toDouble());
     teklifEkle.bindValue(":not", teklif.value("musteriNotu").toString());
+    teklifEkle.bindValue(":uretimNotu", teklif.value("uretimNotu").toString());
     teklifEkle.bindValue(":paraBirimi", teklif.value("paraBirimi", "TL").toString());
     teklifEkle.bindValue(":dil", teklif.value("dil", "TR").toString());
     teklifEkle.bindValue(":ilgiliKisi", teklif.value("ilgiliKisi").toString());
@@ -630,6 +650,7 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
     teklifEkle.bindValue(":ilgiliKisiEposta", teklif.value("ilgiliKisiEposta").toString());
     teklifEkle.bindValue(":teslimatSekli", teklif.value("teslimatSekli").toString());
     teklifEkle.bindValue(":teslimatYeri", teklif.value("teslimatYeri").toString());
+    teklifEkle.bindValue(":teslimatTarihi", tarihParametresi(teklif.value("teslimatTarihi").toString()));
 
     // Sozlesme metni: kullanici "Satış Sözleşmesi" penceresinde bir degisiklik
     // yapmadiysa QML bu alani bos gonderir -> NULL kaydedilir ve PDF uretilirken
@@ -763,7 +784,7 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
         "SELECT t.TeklifId, t.MusteriId, m.FirmaAdi, t.GenelIndirimOrani, t.KdvOrani, "
         "       t.ParaBirimi, t.Dil, t.IlgiliKisi, t.IlgiliKisiTelefonu, t.IlgiliKisiEposta, "
         "       t.TeslimatSekli, t.TeslimatYeri, t.SatisSozlesmesiMetni, "
-        "       t.AnaTeklifId, t.RevizyonNo, "
+        "       t.AnaTeklifId, t.RevizyonNo, t.MusteriNotu, t.UretimNotu, t.TeslimatTarihi, t.Durum, "
         "       tt.PaketlemeUcreti, tt.TasimaUcreti "
         "FROM dbo.teklifler t "
         "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
@@ -801,6 +822,12 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
     const QString sozlesmeMetniDeger = basQuery.value("SatisSozlesmesiMetni").toString();
     const double paketlemeUcreti = basQuery.value("PaketlemeUcreti").toDouble();
     const double tasimaUcreti = basQuery.value("TasimaUcreti").toDouble();
+    const QString musteriNotuDeger = basQuery.value("MusteriNotu").toString();
+    const QString uretimNotuDeger = basQuery.value("UretimNotu").toString();
+    const QVariant teslimatTarihiHam = basQuery.value("TeslimatTarihi");
+    const QString teslimatTarihiDeger = teslimatTarihiHam.isNull()
+        ? QString() : teslimatTarihiHam.toDateTime().date().toString("yyyy-MM-dd");
+    const QString durumDeger = basQuery.value("Durum").toString();
 
     QSqlQuery kalemQuery(m_db);
     kalemQuery.prepare(
@@ -883,11 +910,110 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
     // Teklife ozel sozlesme metni yoksa bos doner -- QML tarafi "Satış Sözleşmesi"
     // penceresini acarken bos degeri gorup dilin varsayilan metnini yukler.
     sonuc["sozlesmeMetni"] = sozlesmeMetniDeger;
+    sonuc["musteriNotu"] = musteriNotuDeger;
+    sonuc["uretimNotu"] = uretimNotuDeger;
+    sonuc["teslimatTarihi"] = teslimatTarihiDeger;
+    sonuc["durum"] = durumDeger;
     sonuc["paketlemeUcretiTl"] = paketlemeUcreti * kur;
     sonuc["tasimaUcretiTl"] = tasimaUcreti * kur;
     sonuc["kur"] = kur;
     sonuc["kalemler"] = kalemler;
     return sonuc;
+}
+
+bool Database::teklifKilitliMi(const QString &durum)
+{
+    return durum == "Kabul Edildi" || durum == "Tamamlandı";
+}
+
+QString Database::teklifDurumuGetir(int teklifId)
+{
+    QSqlQuery query(m_db);
+    query.prepare("SELECT Durum FROM dbo.teklifler WHERE TeklifId = :id");
+    query.bindValue(":id", teklifId);
+    if (query.exec() && query.next())
+        return query.value(0).toString();
+    qWarning() << "teklifDurumuGetir basarisiz:" << teklifId << query.lastError().text();
+    return QString();
+}
+
+bool Database::teklifTeslimatTarihiGuncelle(int teklifId, const QString &teslimatTarihi)
+{
+    if (teklifId <= 0 || !baglantiHazir())
+        return false;
+
+    // Uretim planlamasi bilgisi: kabul edilmis teklifte de degisebilir, ama
+    // tamamlanmis (teslim edilmis) teklifte artik degistirilemez.
+    if (teklifDurumuGetir(teklifId) == "Tamamlandı")
+    {
+        qWarning() << "teklifTeslimatTarihiGuncelle: tamamlanmis teklif degistirilemez:" << teklifId;
+        return false;
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare("UPDATE dbo.teklifler SET TeslimatTarihi = :tarih WHERE TeklifId = :id");
+    query.bindValue(":tarih", tarihParametresi(teslimatTarihi));
+    query.bindValue(":id", teklifId);
+
+    if (!query.exec())
+    {
+        qWarning() << "teklifTeslimatTarihiGuncelle basarisiz:" << query.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool Database::teklifMusteriNotuGuncelle(int teklifId, const QString &musteriNotu)
+{
+    if (teklifId <= 0 || !baglantiHazir())
+        return false;
+
+    // Teklif notu teklifin parcasidir: kabul edilmis teklifte degistirilemez.
+    if (teklifKilitliMi(teklifDurumuGetir(teklifId)))
+    {
+        qWarning() << "teklifMusteriNotuGuncelle: kilitli teklif degistirilemez:" << teklifId;
+        return false;
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare("UPDATE dbo.teklifler SET MusteriNotu = :not WHERE TeklifId = :id");
+    const QString temiz = musteriNotu.trimmed();
+    query.bindValue(":not", temiz.isEmpty() ? QVariant(QMetaType(QMetaType::QString)) : QVariant(temiz));
+    query.bindValue(":id", teklifId);
+
+    if (!query.exec())
+    {
+        qWarning() << "teklifMusteriNotuGuncelle basarisiz:" << query.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool Database::teklifUretimNotuGuncelle(int teklifId, const QString &uretimNotu)
+{
+    if (teklifId <= 0 || !baglantiHazir())
+        return false;
+
+    // Planlanan teslim tarihi gibi: kabul edilmis teklifte yazilabilir,
+    // tamamlanmis teklifte degistirilemez.
+    if (teklifDurumuGetir(teklifId) == "Tamamlandı")
+    {
+        qWarning() << "teklifUretimNotuGuncelle: tamamlanmis teklif degistirilemez:" << teklifId;
+        return false;
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare("UPDATE dbo.teklifler SET UretimNotu = :not WHERE TeklifId = :id");
+    const QString temiz = uretimNotu.trimmed();
+    query.bindValue(":not", temiz.isEmpty() ? QVariant(QMetaType(QMetaType::QString)) : QVariant(temiz));
+    query.bindValue(":id", teklifId);
+
+    if (!query.exec())
+    {
+        qWarning() << "teklifUretimNotuGuncelle basarisiz:" << query.lastError().text();
+        return false;
+    }
+    return true;
 }
 
 QStringList Database::gecerliDurumlar() const
@@ -934,11 +1060,18 @@ bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QSt
     // KabulTarihi'nin "Tamamlandı"da korunmasinin sebebi: tamamlanmis bir teklif
     // tanim geregi once kabul edilmistir; o tarih raporlamada anlamlidir. Zaten
     // dolu degilse (dogrudan Beklemede -> Tamamlandı gibi bir gecis) simdiki zamanla doldurulur.
+    // Ayni sebeple "Tamamlandı -> Kabul Edildi" geri alisinda da musterinin ASIL
+    // kabul tarihi korunur (ISNULL); diger durumlardan gelindiginde (goc verisinde
+    // eski bir deger kalmis olabilir) her zaman simdiki zaman yazilir.
+    //
+    // UretimPdfTarihi hicbir gecişte silinmez: uretim PDF'inin teknik ekibe
+    // verilmis olmasi, durum sonradan degisse de gecmiste yasanmis bir olaydir.
     QString sql = "UPDATE dbo.teklifler SET Durum = :durum";
     if (durum == "Beklemede")
         sql += ", KabulTarihi = NULL, RedTarihi = NULL, RedSebebi = NULL, TeslimTarihi = NULL";
     else if (durum == "Kabul Edildi")
-        sql += ", KabulTarihi = SYSDATETIME(), RedTarihi = NULL, RedSebebi = NULL, TeslimTarihi = NULL";
+        sql += QString(", KabulTarihi = %1, RedTarihi = NULL, RedSebebi = NULL, TeslimTarihi = NULL")
+                   .arg(eskiDurum == "Tamamlandı" ? "ISNULL(KabulTarihi, SYSDATETIME())" : "SYSDATETIME()");
     else if (durum == "Reddedildi")
         sql += ", KabulTarihi = NULL, RedTarihi = SYSDATETIME(), RedSebebi = :redSebebi, TeslimTarihi = NULL";
     else if (durum == "Tamamlandı")
@@ -1730,17 +1863,12 @@ bool Database::personelAktifDurumDegistir(int kullaniciId, bool aktif)
     return true;
 }
 
-QVariantMap Database::teklifPdfOlustur(int teklifId)
+bool Database::pdfVerisiniOku(int teklifId, QString &firmaAdiOut, QVariantMap &veriOut, QString &hataOut)
 {
-    QVariantMap sonuc;
-    sonuc["basarili"] = false;
-    sonuc["dosyaYolu"] = QString();
-    sonuc["hata"] = QString();
-
     if (!baglantiHazir())
     {
-        sonuc["hata"] = "Veritabanına bağlanılamadı.";
-        return sonuc;
+        hataOut = "Veritabanına bağlanılamadı.";
+        return false;
     }
 
     QSqlQuery basQuery(m_db);
@@ -1748,7 +1876,7 @@ QVariantMap Database::teklifPdfOlustur(int teklifId)
         "SELECT t.TeklifId, t.OlusturmaTarihi, t.Durum, t.ParaBirimi, t.Dil, "
         "       t.IlgiliKisi, t.IlgiliKisiTelefonu, t.IlgiliKisiEposta, "
         "       t.TeslimatSekli, t.TeslimatYeri, t.GenelIndirimOrani, t.KdvOrani, "
-        "       t.SatisSozlesmesiMetni, "
+        "       t.SatisSozlesmesiMetni, t.UretimNotu, t.TeslimatTarihi, t.KabulTarihi, "
         "       m.FirmaAdi, m.FirmaAdresi, "
         "       k.AdSoyad AS PersonelAdSoyad, k.Telefon AS PersonelTelefon, "
         "       tt.IndirimliToplam, tt.KdvTutari, tt.GenelToplam, tt.PaketlemeUcreti, tt.TasimaUcreti "
@@ -1761,14 +1889,14 @@ QVariantMap Database::teklifPdfOlustur(int teklifId)
 
     if (!basQuery.exec() || !basQuery.next())
     {
-        qWarning() << "teklifPdfOlustur (baslik) basarisiz:" << basQuery.lastError().text();
-        sonuc["hata"] = "Teklif bulunamadı.";
-        return sonuc;
+        qWarning() << "pdfVerisiniOku (baslik) basarisiz:" << basQuery.lastError().text();
+        hataOut = "Teklif bulunamadı.";
+        return false;
     }
 
-    const QString firmaAdi = basQuery.value("FirmaAdi").toString();
+    firmaAdiOut = basQuery.value("FirmaAdi").toString();
 
-    QVariantMap veri;
+    QVariantMap &veri = veriOut;
     veri["firmaAdresi"] = basQuery.value("FirmaAdresi").toString();
     veri["ilgiliKisi"] = basQuery.value("IlgiliKisi").toString();
     veri["ilgiliKisiTelefonu"] = basQuery.value("IlgiliKisiTelefonu").toString();
@@ -1790,11 +1918,19 @@ QVariantMap Database::teklifPdfOlustur(int teklifId)
     // PDF'in son sayfasindaki sozlesme maddeleri. Bos ise TeklifPdfOlusturucu
     // dilin varsayilan metnini kullanir.
     veri["sozlesmeMetni"] = basQuery.value("SatisSozlesmesiMetni").toString();
+    // Uretim PDF'ine yalnizca uretim notu basilir. Teklif notu (MusteriNotu)
+    // uretimciye gitmemesi icin burada bilincli olarak OKUNMAZ.
+    veri["uretimNotu"] = basQuery.value("UretimNotu").toString();
+    // Planlanan teslim tarihi (bos olabilir) ve kabul tarihi: teklif PDF'inde
+    // teslimat blogunda, uretim PDF'inde bilgi blogunda gosterilir.
+    veri["teslimatTarihi"] = tarihStr(basQuery.value("TeslimatTarihi"));
+    veri["kabulTarihi"] = tarihStr(basQuery.value("KabulTarihi"));
+    veri["durum"] = basQuery.value("Durum").toString();
 
     QSqlQuery kalemQuery(m_db);
     kalemQuery.prepare(
         "SELECT tk.Adet, tk.BirimFiyat, tk.IndirimliBirimFiyat, tk.ToplamTutar, "
-        "       u.UrunKodu, tk.UrunAciklamasi "
+        "       u.UrunKodu, tk.UrunAciklamasi, u.UrunAciklamasi AS KatalogAciklamaTr "
         "FROM dbo.teklif_kalemleri tk "
         "LEFT JOIN dbo.urunler u ON u.UrunId = tk.UrunId "
         "WHERE tk.TeklifId = :teklifId "
@@ -1817,19 +1953,66 @@ QVariantMap Database::teklifPdfOlustur(int teklifId)
         kalem["toplamTutar"] = kalemQuery.value("ToplamTutar").toDouble();
         kalem["urunKodu"] = kalemQuery.value("UrunKodu").toString();
         kalem["urunAciklamasi"] = kalemQuery.value("UrunAciklamasi").toString();
+        // Uretim PDF'i teknik ekip icin HER ZAMAN Turkce basilir; teklif EN
+        // kaydedildiyse katalogdaki TR aciklamayi kullanabilsin diye tasinir.
+        // Manuel kalemlerde ("MANUEL-...") katalog satiri teklife ozeldir ve
+        // zaten kayitli aciklamanin aynisidir.
+        kalem["urunAciklamasiTr"] = kalemQuery.value("KatalogAciklamaTr").toString();
         kalemler.append(kalem);
     }
     veri["kalemler"] = kalemler;
+    return true;
+}
 
-    sonuc = m_pdfOlusturucu.teklifPdfUret(teklifId, firmaAdi, veri);
+QVariantMap Database::teklifPdfOlustur(int teklifId)
+{
+    QVariantMap sonuc;
+    sonuc["basarili"] = false;
+    sonuc["dosyaYolu"] = QString();
+    sonuc["hata"] = QString();
+
+    QString firmaAdi;
+    QVariantMap veri;
+    QString hata;
+    if (!pdfVerisiniOku(teklifId, firmaAdi, veri, hata))
+    {
+        sonuc["hata"] = hata;
+        return sonuc;
+    }
+
+    // NOT: Eskiden burada UretimPdfTarihi de guncelleniyordu; bu yanlisti --
+    // musteriye giden teklif PDF'i uretim emri degildir. O alan artik yalnizca
+    // uretimPdfOlustur() tarafindan yazilir.
+    return m_pdfOlusturucu.teklifPdfUret(teklifId, firmaAdi, veri);
+}
+
+QVariantMap Database::uretimPdfOlustur(int teklifId)
+{
+    QVariantMap sonuc;
+    sonuc["basarili"] = false;
+    sonuc["dosyaYolu"] = QString();
+    sonuc["hata"] = QString();
+
+    QString firmaAdi;
+    QVariantMap veri;
+    QString hata;
+    if (!pdfVerisiniOku(teklifId, firmaAdi, veri, hata))
+    {
+        sonuc["hata"] = hata;
+        return sonuc;
+    }
+
+    sonuc = m_pdfOlusturucu.uretimPdfUret(teklifId, firmaAdi, veri);
     if (!sonuc.value("basarili").toBool())
         return sonuc;
 
-    // Uretim tarihini kaydet (Gecmis Teklifler ekraninda "Üretim Pdf Tarihi" sütunu bunu gösteriyor).
+    // "Üretim PDF Tarihi" sutunu bunu gosterir. PDF zaten diske yazildigi icin
+    // bu guncelleme basarisiz olsa bile islem basarili sayilir, sadece uyari basilir.
     QSqlQuery guncelle(m_db);
     guncelle.prepare("UPDATE dbo.teklifler SET UretimPdfTarihi = SYSDATETIME() WHERE TeklifId = :id");
     guncelle.bindValue(":id", teklifId);
-    guncelle.exec();
+    if (!guncelle.exec())
+        qWarning() << "UretimPdfTarihi guncellenemedi:" << guncelle.lastError().text();
 
     return sonuc;
 }
@@ -1912,6 +2095,12 @@ bool Database::teklifSozlesmeMetniKaydet(int teklifId, const QString &metin)
 {
     if (teklifId <= 0 || !baglantiHazir())
         return false;
+
+    if (teklifKilitliMi(teklifDurumuGetir(teklifId)))
+    {
+        qWarning() << "teklifSozlesmeMetniKaydet: kilitli teklif degistirilemez:" << teklifId;
+        return false;
+    }
 
     QSqlQuery query(m_db);
     query.prepare("UPDATE dbo.teklifler SET SatisSozlesmesiMetni = :metin WHERE TeklifId = :id");

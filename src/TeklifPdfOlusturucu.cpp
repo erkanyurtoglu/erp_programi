@@ -489,6 +489,7 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
     const QString etkPersonelTelefon = ingilizce ? QStringLiteral("Staff Phone") : QStringLiteral("Personel Telefon");
     const QString etkTeslimatSekli = ingilizce ? QStringLiteral("Delivery Method") : QStringLiteral("Teslimat Şekli");
     const QString etkTeslimatYeri = ingilizce ? QStringLiteral("Delivery Location") : QStringLiteral("Teslimat Yeri");
+    const QString etkTeslimatTarihi = ingilizce ? QStringLiteral("Delivery Date") : QStringLiteral("Teslimat Tarihi");
     const QString etkUrunlerBaslik = ingilizce ? QStringLiteral("Quoted Products") : QStringLiteral("Teklif Edilen Ürünler");
     const QString etkNo = QStringLiteral("No");
     const QString etkUrunKodu = ingilizce ? QStringLiteral("Product Code") : QStringLiteral("Ürün Kodu");
@@ -542,6 +543,10 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
     };
     teslimatSatiriEkle(etkTeslimatSekli, teslimatSekli);
     teslimatSatiriEkle(etkTeslimatYeri, teslimatYeri);
+    // Planlanan teslim tarihi (Teklif Ver ekranindaki tarih secici). EN'de
+    // sozlesme tarihleriyle ayni dd/MM/yyyy bicimi kullanilir.
+    const QString teslimatTarihi = veri.value("teslimatTarihi").toString();
+    teslimatSatiriEkle(etkTeslimatTarihi, ingilizce ? QString(teslimatTarihi).replace('.', '/') : teslimatTarihi);
 
     QString sagBlokHtml = QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkTeklifTarihi, olusturmaTarihi);
     sagBlokHtml += QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkTeklifNo, QString::number(teklifId));
@@ -591,6 +596,157 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
     // Kenar bosluklari 0: sablonun kendi CSS padding'i (25mm ust/alt, 15mm sol/sag)
     // gercek bosluk gorevi goruyor, boylece antetli kagit (teklifSayfa.pdf) bantlari
     // sayfa kenarina tam dayanabiliyor.
+    QString basHata;
+    if (!htmlyiPdfeBas(html, dosyaYolu, basHata, QMarginsF(0, 0, 0, 0)))
+    {
+        sonuc["hata"] = basHata;
+        return sonuc;
+    }
+
+    sonuc["basarili"] = true;
+    sonuc["dosyaYolu"] = dosyaYolu;
+    return sonuc;
+}
+
+QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firmaAdi, const QVariantMap &veri)
+{
+    QVariantMap sonuc;
+    sonuc["basarili"] = false;
+    sonuc["dosyaYolu"] = QString();
+    sonuc["hata"] = QString();
+
+    // Teknik ekip icin her zaman TR sablon: antet/altbilgi teklif PDF'iyle ayni kalsin.
+    QString hata;
+    QString sablon = sabloniOku(QStringLiteral("teklif.html"), hata);
+    if (sablon.isEmpty())
+    {
+        sonuc["hata"] = hata;
+        return sonuc;
+    }
+
+    // --- Kapak ve sozlesme sayfalarini sablondan cikar ---
+    // Kapak: tek bir <img> iceren <div class="kapak-sayfa">...</div>.
+    // Sozlesme: govdenin en sonundaki, ic ice div'ler iceren blok -- </body>'ye kadar atilir.
+    const QString kapakBasi = QStringLiteral("<div class=\"kapak-sayfa\">");
+    qsizetype bas = sablon.indexOf(kapakBasi);
+    if (bas >= 0)
+    {
+        const qsizetype son = sablon.indexOf(QStringLiteral("</div>"), bas);
+        if (son >= 0)
+            sablon.remove(bas, son + 6 - bas);
+    }
+    bas = sablon.indexOf(QStringLiteral("<div class=\"sozlesme-sayfa\">"));
+    const qsizetype govdeSonu = sablon.lastIndexOf(QStringLiteral("</body>"));
+    if (bas >= 0 && govdeSonu > bas)
+        sablon.remove(bas, govdeSonu - bas);
+
+    // Fiyatsiz 4 sutunluk tablo ve uretim notu kutusu icin ek stiller.
+    sablon.replace(QStringLiteral("</style>"), QStringLiteral(
+        "    table.uretim col:nth-child(1) { width: 7%; }\n"
+        "    table.uretim col:nth-child(2) { width: 18%; }\n"
+        "    table.uretim col:nth-child(3) { width: 63%; }\n"
+        "    table.uretim col:nth-child(4) { width: 12%; }\n"
+        "    .uretim-not { margin-top: 16px; border: 1px solid #333; padding: 8px 10px; }\n"
+        "    .uretim-not .etiket { font-weight: bold; margin-bottom: 4px; }\n"
+        "    .uretim-not .metin { white-space: pre-wrap; }\n"
+        "</style>"));
+
+    const bool teklifIngilizce = veri.value("dil").toString().compare("EN", Qt::CaseInsensitive) == 0;
+    const QVariantList kalemler = veri.value("kalemler").toList();
+
+    // --- Kalemler: fiyat yok, sadece kod/aciklama/adet ---
+    QString kalemSatirlariHtml;
+    int satirNo = 0;
+    int toplamAdet = 0;
+    for (const QVariant &kalemVar : kalemler)
+    {
+        const QVariantMap k = kalemVar.toMap();
+        ++satirNo;
+        const int adet = k.value("adet").toInt();
+        toplamAdet += adet;
+
+        const QString urunKodu = k.value("urunKodu").toString();
+        const bool manuelMi = urunKodu.startsWith(QStringLiteral("MANUEL-"));
+        const QString katalogTr = k.value("urunAciklamasiTr").toString();
+        const QString aciklama = (teklifIngilizce && !manuelMi && !katalogTr.trimmed().isEmpty())
+            ? katalogTr : k.value("urunAciklamasi").toString();
+
+        const QString satirSinifi = (satirNo % 2 == 0) ? QStringLiteral(" class='zebra'") : QString();
+        // Hucreler ayri ayri eklenir: zincirli .arg() kullanilsaydi aciklamadaki
+        // "%5" gibi bir ifade sonraki argumanla degistirilirdi.
+        kalemSatirlariHtml += QStringLiteral("<tr%1>").arg(satirSinifi);
+        kalemSatirlariHtml += QStringLiteral("<td>%1</td>").arg(satirNo);
+        kalemSatirlariHtml += QStringLiteral("<td>%1</td>").arg((manuelMi ? QString() : urunKodu).toHtmlEscaped());
+        kalemSatirlariHtml += QStringLiteral("<td>%1</td>").arg(aciklama.toHtmlEscaped());
+        kalemSatirlariHtml += QStringLiteral("<td class='sag'>%1</td></tr>").arg(adet);
+    }
+    kalemSatirlariHtml += QStringLiteral("<tr><td></td><td></td><td class='sag'><b>Toplam Adet:</b></td>"
+                                         "<td class='sag'><b>%1</b></td></tr>").arg(toplamAdet);
+
+    const QString kalemBaslikHtml = QStringLiteral(
+        "<th>No</th><th>Ürün Kodu</th><th>Açıklama</th><th class='sag'>Adet</th>");
+
+    // --- Bilgi bloklari (bos alanlar gizlenir) ---
+    auto satir = [](const QString &etiket, const QString &deger) {
+        return deger.trimmed().isEmpty()
+            ? QString()
+            : QStringLiteral("<div><b>%1:</b> %2</div>").arg(etiket, deger.trimmed().toHtmlEscaped());
+    };
+
+    QString solBlokHtml = satir(QStringLiteral("Firma Adı"), firmaAdi);
+    const QString firmaAdresi = veri.value("firmaAdresi").toString();
+    if (!firmaAdresi.trimmed().isEmpty())
+        solBlokHtml += QStringLiteral("<div>%1</div>").arg(firmaAdresi.toHtmlEscaped());
+    solBlokHtml += satir(QStringLiteral("İlgili Kişi"), veri.value("ilgiliKisi").toString());
+    solBlokHtml += satir(QStringLiteral("Telefon"), veri.value("ilgiliKisiTelefonu").toString());
+    solBlokHtml += satir(QStringLiteral("Teslimat Şekli"), veri.value("teslimatSekli").toString());
+    solBlokHtml += satir(QStringLiteral("Teslimat Yeri"), veri.value("teslimatYeri").toString());
+
+    QString sagBlokHtml = satir(QStringLiteral("Teklif No"), QString::number(teklifId));
+    sagBlokHtml += satir(QStringLiteral("Teklif Tarihi"), veri.value("olusturmaTarihi").toString());
+    sagBlokHtml += satir(QStringLiteral("Kabul Tarihi"), veri.value("kabulTarihi").toString());
+    // Planlanan teslim tarihi uretimin en kritik bilgisi: girilmemisse de
+    // bos gecmek yerine acikca belirtilir.
+    const QString teslimatTarihi = veri.value("teslimatTarihi").toString();
+    sagBlokHtml += QStringLiteral("<div><b>Planlanan Teslim Tarihi:</b> %1</div>")
+        .arg(teslimatTarihi.isEmpty() ? QStringLiteral("Belirtilmedi") : teslimatTarihi);
+    sagBlokHtml += satir(QStringLiteral("Teklifi Yapan"), veri.value("personelAdSoyad").toString());
+    sagBlokHtml += satir(QStringLiteral("Üretim Formu Tarihi"),
+                         QDateTime::currentDateTime().toString(QStringLiteral("dd.MM.yyyy HH:mm")));
+
+    // Yalnizca uretim notu basilir; teklif notu uretimciye gitmez.
+    const QString uretimNotu = veri.value("uretimNotu").toString().trimmed();
+    const QString notHtml = uretimNotu.isEmpty()
+        ? QString()
+        : QStringLiteral("<div class=\"uretim-not\"><div class=\"etiket\">Üretim Notu</div>"
+                         "<div class=\"metin\">%1</div></div>").arg(uretimNotu.toHtmlEscaped());
+
+    // Not kutusu tablonun hemen altina (toplam blogunun yerine) konur.
+    const QString toplamBlokBasi = QStringLiteral("<div class=\"toplam-blok\">");
+    if (sablon.contains(toplamBlokBasi))
+        sablon.replace(toplamBlokBasi, notHtml + toplamBlokBasi);
+    else
+        solBlokHtml += notHtml;
+
+    QVariantMap degerler;
+    degerler["BASLIK"] = QStringLiteral("ÜRETİM FORMU");
+    degerler["SOL_BLOK"] = solBlokHtml;
+    degerler["SAG_BLOK"] = sagBlokHtml;
+    degerler["URUNLER_BASLIK"] = QStringLiteral("Üretilecek Ürünler");
+    degerler["INDIRIM_SINIFI"] = QStringLiteral("uretim");
+    degerler["KOLON_GRUBU"] = QStringLiteral("<col/><col/><col/><col/>");
+    degerler["KALEM_BASLIK"] = kalemBaslikHtml;
+    degerler["KALEM_SATIRLARI"] = kalemSatirlariHtml;
+    degerler["TOPLAM_SATIRLARI"] = QString();
+    degerler["TESLIMAT_BLOK"] = QString();
+    degerler["SOZLESME_MADDELERI"] = QString();
+
+    const QString html = yerKoyucuDoldur(sablon, degerler);
+
+    const QString klasor = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/Liya ERP Teklifler";
+    QDir().mkpath(klasor);
+    const QString dosyaYolu = QStringLiteral("%1/Uretim_%2_%3.pdf").arg(klasor, QString::number(teklifId), dosyaAdiTemizle(firmaAdi));
+
     QString basHata;
     if (!htmlyiPdfeBas(html, dosyaYolu, basHata, QMarginsF(0, 0, 0, 0)))
     {

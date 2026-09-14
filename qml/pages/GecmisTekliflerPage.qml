@@ -26,6 +26,44 @@ import erp_programi
 Item {
     id: root
 
+    // Tarih sutunlarinin basligi: dar sutuna sigmayan basliklar iki satira sarilir.
+    component TarihBasligi: Label {
+        color: Theme.metinCokSoluk
+        font.family: Theme.fontAilesi
+        font.pixelSize: Theme.fontBoyutKucuk
+        wrapMode: Text.WordWrap
+        maximumLineCount: 2
+        elide: Text.ElideRight
+        lineHeight: 0.9
+        Layout.preferredWidth: root.sutunTarih
+        Layout.maximumWidth: root.sutunTarih
+    }
+
+    // Veri satirindaki tarih hucresi. Uretim PDF tarihi "dd.MM.yyyy HH:mm"
+    // geldigi icin saat ikinci satira, daha soluk yazilir.
+    component TarihHucresi: Column {
+        property string deger: ""
+        Layout.preferredWidth: root.sutunTarih
+        Layout.maximumWidth: root.sutunTarih
+        Layout.alignment: Qt.AlignVCenter
+        spacing: 0
+        Text {
+            width: root.sutunTarih
+            text: parent.deger.length > 0 ? parent.deger.split(" ")[0] : "—"
+            color: parent.deger.length > 0 ? Theme.metinIkincil : Theme.metinCokSoluk
+            font.family: Theme.fontAilesi
+            font.pixelSize: Theme.fontBoyutKucuk + 1
+            elide: Text.ElideRight
+        }
+        Text {
+            visible: parent.deger.indexOf(" ") > 0
+            text: parent.deger.substring(parent.deger.indexOf(" ") + 1)
+            color: Theme.metinSoluk
+            font.family: Theme.fontAilesi
+            font.pixelSize: Theme.fontBoyutKucuk - 1
+        }
+    }
+
     // Bir satirda "Detay" butonuna basildiginda yayinlanir; SatisModuluPage bunu
     // dinleyip "Teklif Ver" sekmesine gecip TeklifVerPage.duzenlemeyeBasla()'yi
     // cagirir -- Detay, o teklifin verileriyle DOLU Teklif Ver ekranini acar.
@@ -38,16 +76,25 @@ Item {
     // genislikler tek bir yerde tanimlanip iki tarafta da buradan okunur. Bir sutunu
     // genisletmek/daraltmak icin sadece asagidaki sayiyi degistirmek yeterli.
     // FIRMA ADI sutunu kalan tum alani kaplar (her iki tarafta da Layout.fillWidth).
-    readonly property int sutunBosluk: 10
+    readonly property int sutunBosluk: 8
     readonly property int sutunKenarBosluk: 12
-    readonly property int sutunTeklifNo: 100
-    readonly property int sutunTarih: 100
-    readonly property int sutunPersonel: 130
+    // Teklif no + revizyon rozeti + not ikonu.
+    readonly property int sutunTeklifNo: 96
+    // Teklif / Kabul / Planlanan Teslim / Teslim / Uretim PDF tarihlerinin her biri.
+    readonly property int sutunTarih: 80
+    readonly property int sutunPersonel: 104
     // Durum rozeti artik tiklanabilir bir menu acicisi oldugu icin icinde bir de
     // "▾" isareti tasiyor; sutun ona gore bir miktar genisletildi.
-    readonly property int sutunDurum: 140
-    // Detay + PDF + Sil butonlari ve aralarindaki 2 x 6px bosluk.
-    readonly property int sutunIslemler: 190
+    readonly property int sutunDurum: 126
+    // Detay + PDF (+ Uretim) + Sil butonlari ve aralarindaki 6px bosluklar.
+    readonly property int sutunIslemler: root.uretimButonuGoster ? 262 : 190
+    // Aciklamalar sutunu yalnizca yer oldugunda gosterilir; dar ekranda Firma Adi
+    // sutunu ezilmesin diye gizlenir (icerik yine satirin tooltip'inde okunur).
+    readonly property bool aciklamaSutunuGoster: root.width >= 1360
+
+    // "Üretim" (uretim PDF'i) butonu: siparis kesinlesmis teklifler icin anlamli
+    // oldugundan Alınan ve Biten Tekliflerim'de gosterilir.
+    readonly property bool uretimButonuGoster: root.durumFiltresi === "Kabul Edildi" || root.durumFiltresi === "Tamamlandı"
 
     // --- Yuksekliklerin 4'un katina yuvarlanmasi (piksel hizalamasi) ----------
     // Windows'ta ekran olcegi genelde %125'tir (devicePixelRatio = 1.25). Bu
@@ -187,6 +234,49 @@ Item {
             root.pdfMesaji = "Teklif #" + teklifId + " için PDF oluşturulamadı: " + sonuc.hata
             root.pdfMesajiHata = true
         }
+    }
+
+    // Teknik ekip icin fiyatsiz uretim PDF'i. Basarili olursa teklifin "Üretim PDF"
+    // tarihi dolar; bunun listede hemen gorunmesi icin sayfa yenilenir.
+    function uretimPdfOlusturVeAc(teklifId) {
+        const sonuc = database.uretimPdfOlustur(teklifId)
+        if (sonuc.basarili) {
+            root.pdfMesaji = "Teklif #" + teklifId + " üretim PDF: " + sonuc.dosyaYolu
+            root.pdfMesajiHata = false
+            Qt.openUrlExternally("file:///" + sonuc.dosyaYolu)
+            root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
+        } else {
+            root.pdfMesaji = "Teklif #" + teklifId + " için üretim PDF'i oluşturulamadı: " + sonuc.hata
+            root.pdfMesajiHata = true
+        }
+    }
+
+    // Aciklamalar sutunu: yalnizca gocten gelen sevk aciklamasi. Notlar burada metin
+    // olarak yer kaplamaz; Teklif No hucresindeki not ikonuyla gosterilir.
+    function aciklamaMetni(kayit) {
+        return (kayit.aciklamalar || "").trim()
+    }
+
+    // Satirda gosterilecek not, sekmeye gore tek bir tanedir.
+    // Giden Tekliflerim satis tarafinin listesidir -> teklif notu.
+    // Alınan/Biten Tekliflerim uretime giden siparislerdir -> YALNIZCA uretim notu;
+    // teklif notu burada (ve uretim PDF'inde) uretimciye gorunmez.
+    readonly property bool teklifNotuSekmesi: root.durumFiltresi === ""
+
+    function satirNotu(kayit) {
+        return ((root.teklifNotuSekmesi ? kayit.musteriNotu : kayit.uretimNotu) || "").trim()
+    }
+
+    function notuGoster(kayit) {
+        notGoruntuleDialogu.baslik = "Teklif #" + kayit.teklifId + " — "
+                                     + (root.teklifNotuSekmesi ? "Teklif Notu" : "Üretim Notu")
+        notGoruntuleDialogu.metin = root.satirNotu(kayit)
+        notGoruntuleDialogu.open()
+    }
+
+    // Kabul edilmis / tamamlanmis teklif kilitlidir: silinemez (bkz. Database::teklifKilitliMi).
+    function teklifKilitliMi(durum) {
+        return durum === "Kabul Edildi" || durum === "Tamamlandı"
     }
 
     function sayfayiYukle(sayfaNo) {
@@ -391,7 +481,8 @@ Item {
         // Tablo basligi
         Rectangle {
             Layout.fillWidth: true
-            height: 40
+            // "PLANLANAN TESLİM" gibi uzun tarih basliklari dar sutunda iki satira sarilir.
+            height: 44
             color: Theme.panel
             radius: Theme.radiusKucuk
             border.width: 1
@@ -408,10 +499,15 @@ Item {
                 // uzun bir baslik metni kendi dogal genisligiyle sutunu sisirip veri
                 // satirlariyla arasinda kayma olusturabiliyor.
                 Label { text: "TEKLİF NO"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunTeklifNo; Layout.maximumWidth: root.sutunTeklifNo }
-                Label { text: "FİRMA ADI"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.fillWidth: true; Layout.preferredWidth: 0 }
-                Label { text: "TEKLİF TARİHİ"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunTarih; Layout.maximumWidth: root.sutunTarih }
+                Label { text: "FİRMA ADI"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.fillWidth: true; Layout.horizontalStretchFactor: 2; Layout.preferredWidth: 0 }
+                TarihBasligi { text: "TEKLİF TARİHİ" }
+                TarihBasligi { text: "KABUL TARİHİ" }
+                TarihBasligi { text: "PLANLANAN TESLİM" }
+                TarihBasligi { text: "TESLİM TARİHİ" }
+                TarihBasligi { text: "ÜRETİM PDF" }
                 Label { text: "TEKLİFİ YAPAN"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunPersonel; Layout.maximumWidth: root.sutunPersonel }
                 Label { text: "DURUM"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunDurum; Layout.maximumWidth: root.sutunDurum }
+                Label { visible: root.aciklamaSutunuGoster; text: "AÇIKLAMALAR"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.fillWidth: true; Layout.horizontalStretchFactor: 1; Layout.preferredWidth: 0 }
                 Label { text: "İŞLEMLER"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunIslemler; Layout.maximumWidth: root.sutunIslemler }
             }
         }
@@ -518,6 +614,31 @@ Item {
                             }
                         }
 
+                        // Not varsa kucuk ikon: uzerine gelince not ipucunda
+                        // gorunur, tiklaninca not penceresinde tam metin okunur.
+                        Text {
+                            visible: root.satirNotu(satir.modelData).length > 0
+                            text: root.teklifNotuSekmesi ? "📝" : "🔧"
+                            font.pixelSize: Theme.fontBoyutKucuk + 1
+                            verticalAlignment: Text.AlignVCenter
+                            Layout.fillHeight: true
+
+                            ToolTip.visible: notIkonuAlani.containsMouse
+                            ToolTip.delay: 300
+                            ToolTip.text: {
+                                const not = root.satirNotu(satir.modelData)
+                                return (root.teklifNotuSekmesi ? "Teklif notu: " : "Üretim notu: ")
+                                       + (not.length > 300 ? not.substring(0, 300) + "…" : not)
+                            }
+                            MouseArea {
+                                id: notIkonuAlani
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.notuGoster(satir.modelData)
+                            }
+                        }
+
                         // Artan alani yutar; boylece teklif no + rozet sola yaslanir.
                         Item { Layout.fillWidth: true }
                     }
@@ -535,21 +656,18 @@ Item {
                         // preferredWidth: 0 RowLayout'a bu ogeyi kalan alana KISALTMASINI
                         // soyler, boylece elide gercekten calisir ve sutunlar hizali kalir.
                         Layout.preferredWidth: 0
+                        Layout.horizontalStretchFactor: 2
                         Layout.fillHeight: true
                         verticalAlignment: Text.AlignVCenter
                         elide: Text.ElideRight
                     }
-                    Text {
-                        text: satir.modelData.teklifTarihi
-                        color: Theme.metinIkincil
-                        font.family: Theme.fontAilesi
-                        font.pixelSize: Theme.fontBoyutNormal
-                        Layout.preferredWidth: root.sutunTarih
-                        Layout.maximumWidth: root.sutunTarih
-                        verticalAlignment: Text.AlignVCenter
-                        Layout.fillHeight: true
-                        elide: Text.ElideRight
-                    }
+                    // Teklif -> kabul -> planlanan teslim -> gercek teslim -> uretim PDF.
+                    // Bos tarihler "—" ile gosterilir.
+                    TarihHucresi { deger: satir.modelData.teklifTarihi }
+                    TarihHucresi { deger: satir.modelData.kabulTarihi }
+                    TarihHucresi { deger: satir.modelData.teslimatTarihi }
+                    TarihHucresi { deger: satir.modelData.teslimTarihi }
+                    TarihHucresi { deger: satir.modelData.uretimPdfTarihi }
                     Text {
                         text: satir.modelData.personelKullaniciAdi
                         color: Theme.metinIkincil
@@ -715,6 +833,32 @@ Item {
                         }
                     }
 
+                    // Aciklamalar (sevk aciklamasi). Tam metin tooltip'te.
+                    Text {
+                        id: aciklamaHucresi
+                        visible: root.aciklamaSutunuGoster
+                        text: root.aciklamaMetni(satir.modelData)
+                        color: Theme.metinIkincil
+                        font.family: Theme.fontAilesi
+                        font.pixelSize: Theme.fontBoyutKucuk + 1
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 0
+                        Layout.horizontalStretchFactor: 1
+                        Layout.fillHeight: true
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+
+                        ToolTip.visible: aciklamaAlani.containsMouse && aciklamaHucresi.truncated
+                        ToolTip.text: aciklamaHucresi.text
+                        ToolTip.delay: 400
+                        MouseArea {
+                            id: aciklamaAlani
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            acceptedButtons: Qt.NoButton
+                        }
+                    }
+
                     RowLayout {
                         // fillWidth ACIKCA kapatilir. Daha once bu satirda yoktu ve
                         // asagidaki butonlarin bulundugu layout kendini "genisleyebilir"
@@ -793,8 +937,40 @@ Item {
                             }
                         }
 
+                        // Teknik ekip icin fiyatsiz uretim PDF'i (Alınan/Biten Tekliflerim).
+                        Button {
+                            id: uretimButonu
+                            visible: root.uretimButonuGoster
+                            text: "Üretim"
+                            Layout.preferredWidth: Math.max(64, Math.ceil(uretimMetni.implicitWidth) + 20)
+                            Layout.preferredHeight: root.hizalanmisYukseklik(Math.max(28, uretimMetni.implicitHeight + 10))
+                            onClicked: root.uretimPdfOlusturVeAc(satir.modelData.teklifId)
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            ToolTip.text: satir.modelData.uretimPdfTarihi.length > 0
+                                          ? "Üretim PDF'i " + satir.modelData.uretimPdfTarihi + " tarihinde alındı; tekrar oluştur"
+                                          : "Fiyatsız üretim PDF'i oluştur"
+                            background: Rectangle {
+                                radius: 5
+                                color: uretimButonu.hovered ? Theme.panelHover : "transparent"
+                                border.color: Theme.basari
+                                border.width: 1
+                            }
+                            contentItem: Text {
+                                id: uretimMetni
+                                text: "Üretim"
+                                color: Theme.basariAcik
+                                font.family: Theme.fontAilesi
+                                font.pixelSize: Theme.fontBoyutKucuk
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+
+                        // Kabul edilmis / tamamlanmis teklifte gizli: kilitli teklif silinemez.
                         Button {
                             id: silButonu
+                            visible: !root.teklifKilitliMi(satir.modelData.durum)
                             text: "Sil"
                             Layout.preferredWidth: Math.max(50, Math.ceil(silMetni.implicitWidth) + 20)
                             Layout.preferredHeight: root.hizalanmisYukseklik(Math.max(28, silMetni.implicitHeight + 10))
@@ -879,6 +1055,17 @@ Item {
         }
     }
 
+    // Satirdaki not ikonuna tiklaninca notun tam metnini salt okunur gosterir.
+    // Not duzenleme "Detay" ekranindaki not butonlarindan yapilir.
+    NotDuzenleDialog {
+        id: notGoruntuleDialogu
+        saltOkunur: true
+        renk: root.teklifNotuSekmesi ? Theme.vurgu : Theme.basari
+        bilgi: root.teklifNotuSekmesi
+               ? "Büro ve satış personeli için iç not. PDF'lere basılmaz."
+               : "Üretim personeli için not. Üretim PDF'ine basılır."
+    }
+
     // Silme onayi (WPF'teki sifre dogrulamali onay penceresinin basitlestirilmis hali;
     // sifre onayi bir sonraki adimda eklenecek).
     Dialog {
@@ -908,7 +1095,10 @@ Item {
         }
 
         onAccepted: {
-            database.teklifSil(acilacakTeklifId)
+            if (!database.teklifSil(acilacakTeklifId)) {
+                root.pdfMesaji = "Teklif #" + acilacakTeklifId + " silinemedi."
+                root.pdfMesajiHata = true
+            }
             acilacakTeklifId = -1
             root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
         }

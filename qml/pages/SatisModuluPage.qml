@@ -52,8 +52,16 @@ Item {
         revizyonPage.duzenlemeyeBasla(teklifId)
     }
 
-    function revizyondanDon() {
+    // listeyiYenile: Detay ekraninda teklif uzerinde yerinde degisiklik yapilmis
+    // olabilir (planlanan teslim tarihi, teklif/uretim notu, sozlesme metni); listeye
+    // donulurken kaldigi sayfa yeniden yuklenir ki guncel degerler hemen gorunsun.
+    // Revizyon kaydinda cagiran taraf zaten 1. sayfayi yukledigi icin false gecer.
+    function revizyondanDon(listeyiYenile) {
         icerikYiginlar.currentIndex = root.revizyonKaynakSekme
+        if (listeyiYenile === false)
+            return
+        const sayfa = root.revizyonKaynakSayfasi()
+        sayfa.sayfayiYukle(sayfa.sayfaSonucu.mevcutSayfa)
     }
 
     Rectangle {
@@ -234,8 +242,8 @@ Item {
             // revizyon ALT SAYFASINI acar (bkz. root.revizyonuAc). Teklif Ver
             // sekmesine dokunulmaz. Giden Tekliflerim'den acildiginda kaydedilince
             // orijinal teklife dokunulmadan yeni bir revizyon eklenir ve otomatik
-            // olarak bu listeye donulur; Alınan/Biten Tekliflerim'den acildiginda
-            // revize yapilamaz -- detay salt goruntulemedir (kaydetmeIzinli: false).
+            // olarak bu listeye donulur. Alınan/Biten Tekliflerim'den acildiginda
+            // kabul edilmis/tamamlanmis teklif kilitlidir -- detay salt goruntulemedir.
             GecmisTekliflerPage {
                 id: gidenTekliflerPage
                 durumFiltresi: ""
@@ -290,15 +298,16 @@ Item {
                                 : root.revizyonKaynakSekme === 3 ? "Biten Tekliflerim"
                                 : "Giden Tekliflerim"
 
-                // Revize islemi yalnizca Giden Tekliflerim uzerinden yapilir;
-                // Alınan (2) / Biten (3) listelerinden acilan detay salt
-                // goruntuleme oldugu icin "Teklifi Kaydet" butonu gizlenir.
-                kaydetmeIzinli: root.revizyonKaynakSekme === 1
+                // Kabul edilmis / tamamlanmis teklifin kendisi hic degismez. Giden
+                // Tekliflerim'den (1) acildiginda yine de revize edilebilir (yeni
+                // revizyon olusur); Alınan (2) / Biten (3) listelerinden acilan
+                // detay salt goruntulemedir (bkz. TeklifVerPage.revizyonIzinli).
+                revizyonIzinli: root.revizyonKaynakSekme === 1
 
                 onGeriDonuldu: root.revizyondanDon()
 
                 onRevizyonKaydedildi: (yeniTeklifId, kaynakTeklifId) => {
-                    root.revizyondanDon()
+                    root.revizyondanDon(false)
                     // Yeni revizyon en yeni kayit oldugu icin listenin ILK sayfasinda
                     // gorunur; kullanici sonucu ("R1" rozetli yeni satir) hemen gorsun
                     // diye kaldigi sayfa yerine 1. sayfaya donuyoruz.

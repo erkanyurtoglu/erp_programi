@@ -25,6 +25,10 @@ Dialog {
     // "Varsayılana Dön" butonunun yazacagi fabrika metni (dile gore degisir).
     property string varsayilanMetin: ""
 
+    // Kabul edilmis / tamamlanmis teklifte sozlesme yalnizca okunur: metin
+    // degistirilemez, "Varsayılana Dön" ve "Kaydet" gizlenir.
+    property bool saltOkunur: false
+
     // Kullanici "Kaydet"e bastiginda, duzenlenmis metinle yayinlanir.
     signal kaydedildi(string yeniMetin)
 
@@ -46,7 +50,8 @@ Dialog {
     // onceki oturumdan kalan yarim duzenleme tasinmasin.
     onOpened: {
         metinAlani.text = kok.metin
-        metinAlani.forceActiveFocus()
+        if (!kok.saltOkunur)
+            metinAlani.forceActiveFocus()
     }
 
     header: Label {
@@ -76,6 +81,7 @@ Dialog {
 
                 TextArea {
                     id: metinAlani
+                    readOnly: kok.saltOkunur
                     background: null
                     color: Theme.metinBirincil
                     placeholderTextColor: Theme.metinCokSoluk
@@ -115,6 +121,7 @@ Dialog {
 
             Button {
                 id: varsayilanButonu
+                visible: !kok.saltOkunur
                 Layout.preferredWidth: 150
                 Layout.preferredHeight: Theme.girdiYuksekligi
                 text: "Varsayılana Dön"
@@ -143,7 +150,7 @@ Dialog {
                 id: iptalButonu
                 Layout.preferredWidth: 110
                 Layout.preferredHeight: Theme.girdiYuksekligi
-                text: "İptal"
+                text: kok.saltOkunur ? "Kapat" : "İptal"
                 onClicked: kok.close()
                 background: Rectangle {
                     radius: Theme.radiusKucuk
@@ -162,6 +169,7 @@ Dialog {
 
             Button {
                 id: kaydetButonu
+                visible: !kok.saltOkunur
                 Layout.preferredWidth: 150
                 Layout.preferredHeight: Theme.girdiYuksekligi
                 text: "Sözleşmeyi Kaydet"

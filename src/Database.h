@@ -80,6 +80,9 @@ public:
     //   paketlemeUcreti, tasimaUcreti (double), paraBirimi (string: TL/USD/EUR),
     //   dil (string: TR/EN), ilgiliKisi, ilgiliKisiTelefonu, ilgiliKisiEposta,
     //   teslimatSekli, teslimatYeri, musteriNotu (string),
+    //   teslimatTarihi (string, "yyyy-MM-dd" veya bos): PLANLANAN teslim tarihi,
+    //             TeslimatTarihi sutununa yazilir (gercek teslim tarihi olan
+    //             TeslimTarihi ise "Tamamlandı" durumunda otomatik dolar),
     //   sozlesmeMetni (string, OPSIYONEL): "Satış Sözleşmesi" penceresinde
     //             duzenlenmis sozlesme maddeleri. Bos gelirse SatisSozlesmesiMetni
     //             NULL kaydedilir ve PDF'te dilin varsayilan metni kullanilir.
@@ -110,8 +113,28 @@ public:
     //   "paketlemeUcretiTl", "tasimaUcretiTl", "kur" (double, TL'ye cevirmek icin),
     //   "kalemler" (QVariantList<QVariantMap{urunId (0 ise manuel), urunKodu,
     //             aciklama, adet (int), birimFiyatTl, maliyet (double)}>),
-    //   "sozlesmeMetni" (string; teklife ozel bir sozlesme metni kaydedilmemisse bos).
+    //   "sozlesmeMetni" (string; teklife ozel bir sozlesme metni kaydedilmemisse bos),
+    //   "musteriNotu" (string, teklif notu), "uretimNotu" (string),
+    //   "teslimatTarihi" (string, "yyyy-MM-dd" veya bos), "durum" (string).
     Q_INVOKABLE QVariantMap teklifDuzenlemeVerisiGetir(int teklifId);
+
+    // KILIT KURALI: "Kabul Edildi" ve "Tamamlandı" durumundaki teklifler
+    // kilitlidir -- kabul edilmis bir teklifin icerigi (teklif notu, sozlesme
+    // metni) degistirilemez, teklif silinemez. Durum degisikligi (teklifDurumGuncelle)
+    // bu kuralin disindadir; gerekirse teklif once "Beklemede"ye alinir.
+    //
+    // Istisna: planlanan teslim tarihi ve uretim notu teklifin ticari icerigi
+    // degil, uretim planlamasidir ve genelde kabulden SONRA belli olur -- bu yuzden
+    // "Kabul Edildi"de de yazilabilir, yalnizca "Tamamlandı"da kilitlenir.
+    //
+    // Asagidaki uc metot kayitli teklifi YERINDE gunceller (revizyon olusturmaz);
+    // kilitli teklifte false doner.
+    // teslimatTarihi: "yyyy-MM-dd" veya bos (bos -> NULL). Basariliysa true.
+    Q_INVOKABLE bool teklifTeslimatTarihiGuncelle(int teklifId, const QString &teslimatTarihi);
+    // Teklif notu (MusteriNotu): yalnizca satis tarafinda gorunur, uretim PDF'ine basilmaz.
+    Q_INVOKABLE bool teklifMusteriNotuGuncelle(int teklifId, const QString &musteriNotu);
+    // Uretim notu (UretimNotu): uretim PDF'ine basilir.
+    Q_INVOKABLE bool teklifUretimNotuGuncelle(int teklifId, const QString &uretimNotu);
 
     // Teklifin durumunu degistirir. Gecerli durumlar: "Beklemede", "Kabul Edildi",
     // "Reddedildi", "Tamamlandı" (bkz. gecerliDurumlar()).
@@ -199,6 +222,14 @@ public:
     // Donen: {basarili, dosyaYolu, hata}.
     Q_INVOKABLE QVariantMap teklifPdfOlustur(int teklifId);
 
+    // Alınan/Biten Tekliflerim'deki "Üretim" butonu: teknik ekibe verilecek
+    // FIYATSIZ PDF (kapak ve sozlesme sayfasi yok; firma/teslimat/tarih bilgileri,
+    // urun kodu/aciklama/adet ve uretim notu var; teklif notu YOK). Basariliysa teklifin
+    // UretimPdfTarihi alani simdiki zamanla doldurulur -- bu alan SADECE burada
+    // yazilir (normal teklif PDF'i ona dokunmaz).
+    // Donen: {basarili, dosyaYolu, hata}.
+    Q_INVOKABLE QVariantMap uretimPdfOlustur(int teklifId);
+
     // Teklif Ver ekranindaki "Satış Sözleşmesi" butonu icin: HENUZ KAYDEDILMEMIS
     // (formda doldurulmus) teklif verisinden basit bir satis sozlesmesi PDF'i
     // uretir -- teklifin veritabaninda var olmasini gerektirmez. "teklif" ayni
@@ -269,10 +300,21 @@ private:
     // Kullanicinin gorebildigi modul listesini (roller birlesik) getirir.
     QVariantList kullaniciModulleriniGetir(int kullaniciId);
 
+    // teklifPdfOlustur ve uretimPdfOlustur'un ortak kismi: teklifin baslik +
+    // kalem verisini TeklifPdfOlusturucu'nun bekledigi "veri" haritasina okur.
+    // Basarisizsa false doner ve hataOut doldurulur.
+    bool pdfVerisiniOku(int teklifId, QString &firmaAdiOut, QVariantMap &veriOut, QString &hataOut);
+
     // teklifDurumGuncelle'nin gecmis kaydi; hata durumunda sadece uyari basar
     // (bkz. .cpp icindeki "best effort" notu).
     void durumDegisiminiLogla(int teklifId, const QString &eskiDurum, const QString &yeniDurum,
                               const QString &aciklama, int kullaniciId);
+
+    // Kilit kurali (bkz. teklifTeslimatTarihiGuncelle ustundeki not): "Kabul Edildi"
+    // ve "Tamamlandı" teklifler kilitlidir.
+    static bool teklifKilitliMi(const QString &durum);
+    // Teklifin guncel durumu; teklif bulunamazsa bos string.
+    QString teklifDurumuGetir(int teklifId);
 
     QSqlDatabase m_db;
     bool m_baglantiHazir = false;

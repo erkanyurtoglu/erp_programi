@@ -25,6 +25,8 @@ public:
     //   dil (TR/EN), paraBirimi (string: TL/USD/EUR), olusturmaTarihi (string, dd.MM.yyyy),
     //   genelIndirimOrani, kdvOrani, indirimliToplam, kdvTutari, genelToplam,
     //   paketlemeUcreti, tasimaUcreti (double),
+    //   teslimatTarihi (string, dd.MM.yyyy, OPSIYONEL): planlanan teslim tarihi;
+    //             doluysa teslimat blogunda gosterilir,
     //   kalemler (QVariantList<QVariantMap{adet, birimFiyat, indirimliBirimFiyat,
     //             toplamTutar, urunKodu, urunAciklamasi}>),
     //   sozlesmeMetni (string, OPSIYONEL): teklifin son sayfasindaki satis
@@ -73,6 +75,18 @@ public:
     //   kalemler (QVariantList<QVariantMap{aciklama, adet, indirimliBirimFiyat, toplamTutar}>)
     // Donen: {basarili (bool), dosyaYolu (string), hata (string)}.
     QVariantMap satisSozlesmesiUret(const QVariantMap &veri);
+
+    // Teknik ekibe verilecek URETIM PDF'i. teklifPdfUret ile ayni "veri"
+    // haritasini ve ayni antetli sablonu (teklif.html) kullanir, ancak:
+    //   - kapak sayfasi ve satis sozlesmesi sayfasi cikarilir,
+    //   - hicbir fiyat/toplam basilmaz (sadece No, Urun Kodu, Aciklama, Adet),
+    //   - teklifin diline bakilmaksizin HER ZAMAN Turkce basilir (EN teklifte
+    //     kalem aciklamasi icin katalogdaki TR metin -- "urunAciklamasiTr" -- kullanilir),
+    //   - bilgi blogunda kabul tarihi, planlanan teslim tarihi, teslimat
+    //     sekli/yeri; tablonun altinda uretim notu (varsa) yer alir. Teklif notu basilmaz.
+    // Ek "veri" anahtarlari: uretimNotu, teslimatTarihi, kabulTarihi (string, dd.MM.yyyy).
+    // Donen: {basarili (bool), dosyaYolu (string), hata (string)}.
+    QVariantMap uretimPdfUret(int teklifId, const QString &firmaAdi, const QVariantMap &veri);
 
 private:
     // HTML sablon dosyasini diskten okur. Debug derlemede once proje kaynak

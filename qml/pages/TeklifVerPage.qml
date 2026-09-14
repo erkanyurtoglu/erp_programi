@@ -19,12 +19,30 @@ Item {
     // gosterilen kaynak liste adi: "Giden Tekliflerim" vb.
     property string geriDonusEtiketi: "Giden Tekliflerim"
 
-    // "Teklifi Kaydet" butonunun gorunurlugu. Revize (yeni revizyon olusturma)
-    // islemi SADECE Giden Tekliflerim'den yapilabildigi icin, Alınan/Biten
-    // Tekliflerim'den acilan detay sayfasinda bu buton gizlenir (bkz.
-    // SatisModuluPage.qml -> revizyonPage). Normal "Teklif Ver" sekmesinde ve
-    // Giden Tekliflerim detayinda varsayilan true kalir.
-    property bool kaydetmeIzinli: true
+    // Detay ekraninda acik teklifin durumu (yeni teklifte bos).
+    property string teklifDurumu: ""
+
+    // Kabul edilmis / tamamlanmis bir teklif KILITLIDIR: musteri, sepet, ticari
+    // sartlar, teslimat, dil/para birimi, teklif notu ve sozlesme metni
+    // degistirilemez, revize edilemez (bkz. Database::teklifKilitliMi -- ayni kural
+    // C++ tarafinda da uygulanir). Normal "Teklif Ver" ekraninda hep false.
+    readonly property bool teklifKilitli: root.duzenlenenKaynakTeklifId > 0
+                                          && (root.teklifDurumu === "Kabul Edildi" || root.teklifDurumu === "Tamamlandı")
+
+    // Planlanan teslim tarihi ve uretim notu uretim planlamasidir; kabulden sonra
+    // da yazilabilir, yalnizca tamamlanmis teklifte kilitlenir.
+    readonly property bool uretimBilgisiKilitli: root.teklifDurumu === "Tamamlandı"
+
+    // Giden Tekliflerim'den acilan detayda (bkz. SatisModuluPage) kilitli teklif de
+    // REVIZE edilebilir: form duzenlenir, "Teklifi Kaydet" orijinale dokunmadan yeni
+    // bir revizyon olusturur. Kilitli teklifin KENDISINE yerinde yazma (teklif notu,
+    // sozlesme; tamamlanmissa teslim tarihi/uretim notu) yine yapilmaz -- bu
+    // degisiklikler yalnizca kaydedilecek revizyona gider.
+    property bool revizyonIzinli: false
+
+    // Ekrandaki alanlarin salt okunur olup olmadigi.
+    readonly property bool formKilitli: root.teklifKilitli && !root.revizyonIzinli
+    readonly property bool uretimAlaniKilitli: root.uretimBilgisiKilitli && !root.revizyonIzinli
 
     // Revizyon modunda geri butonuna basilinca; SatisModuluPage bunu dinleyip
     // gelinen listeye geri doner.
@@ -123,6 +141,57 @@ Item {
         }
     }
 
+    // Baslik satirindaki "Teklif Notu" / "Üretim Notu" butonu. Not doluysa kenarlik
+    // notun renginde olur ve sagda kucuk bir nokta yanar; boylece pencereyi acmadan
+    // not olup olmadigi anlasilir. Uzerine gelince notun kendisi (bossa ne ise
+    // yaradigi) ipucunda gorunur.
+    component NotButonu: Button {
+        id: notButonu
+        property string ikon: ""
+        property string etiket: ""
+        property string notMetni: ""
+        property string ipucu: ""
+        property color renk: Theme.vurgu
+        readonly property bool dolu: notMetni.trim().length > 0
+
+        Layout.preferredHeight: 38
+        leftPadding: 12
+        rightPadding: 12
+        ToolTip.visible: hovered
+        ToolTip.delay: 400
+        ToolTip.text: dolu
+            ? (notMetni.length > 300 ? notMetni.substring(0, 300) + "…" : notMetni)
+            : ipucu
+
+        background: Rectangle {
+            radius: Theme.radiusKucuk
+            color: notButonu.hovered ? Theme.panelHover : Theme.panel
+            border.width: 1
+            border.color: notButonu.dolu || notButonu.hovered ? notButonu.renk : Theme.kenarlik
+        }
+        contentItem: RowLayout {
+            spacing: 6
+            Text {
+                text: notButonu.ikon
+                font.pixelSize: Theme.fontBoyutNormal
+            }
+            Text {
+                text: notButonu.etiket
+                color: notButonu.dolu ? Theme.metinBirincil : Theme.metinIkincil
+                font.family: Theme.fontAilesi
+                font.pixelSize: Theme.fontBoyutKucuk
+                font.bold: notButonu.dolu
+            }
+            Rectangle {
+                visible: notButonu.dolu
+                Layout.preferredWidth: 7
+                Layout.preferredHeight: 7
+                radius: 3.5
+                color: notButonu.renk
+            }
+        }
+    }
+
     component Ozet: ColumnLayout {
         property string baslik: ""
         property string deger: ""
@@ -189,6 +258,94 @@ Item {
     // kaydederse buraya yazilir ve teklifle birlikte saklanir.
     property string sozlesmeMetni: ""
 
+    // --- Planlanan teslim tarihi, teklif notu ve uretim notu ---
+    // teslimatTarihi "yyyy-MM-dd" (TarihTakvimi ciktisi) veya bos. Veritabaninda
+    // TeslimatTarihi sutununa yazilir; GERCEK teslim tarihi (TeslimTarihi) ise
+    // teklif "Tamamlandı" yapilinca otomatik dolar.
+    //
+    // Iki ayri not vardir:
+    //   Teklif notu (MusteriNotu): buro/satis personelinin ic notu; teklif PDF'ine
+    //                              de uretim PDF'ine de BASILMAZ. Kabul edilince kilitlenir.
+    //   Uretim notu (UretimNotu):  uretim personeli icindir; uretim PDF'ine basilir.
+    //
+    // Notlar ekranda yer kaplamasin diye baslik satirindaki "Teklif Notu" /
+    // "Üretim Notu" butonlariyla acilan pencerede (NotDuzenleDialog) yazilir.
+    // Yeni teklifte not ekranda bekler ve "Teklifi Kaydet" ile kaydedilir. Kayitli
+    // bir teklif acikken (Detay) pencerede "Kaydet"e basilinca REVIZYON
+    // OLUSTURMADAN aninda o teklife yazilir. Teslim tarihi ve uretim notu genelde
+    // teklif kabul edildikten sonra belli oldugu icin kilitli (Alınan Tekliflerim)
+    // teklifte de guncellenebilir; teklif notu ise kilitli teklifte salt okunurdur.
+    property string teslimatTarihi: ""
+    property string musteriNotu: ""
+    property string uretimNotu: ""
+
+    function tarihGoster(yyyyAaGg) {
+        if (!yyyyAaGg || yyyyAaGg.length !== 10)
+            return ""
+        const p = yyyyAaGg.split("-")
+        return p[2] + "." + p[1] + "." + p[0]
+    }
+
+    function teslimatTarihiniAyarla(yeniTarih) {
+        if (root.uretimAlaniKilitli)
+            return
+        root.teslimatTarihi = yeniTarih
+        // Tamamlanmis teklifte (Giden'den revize) tarih yalnizca revizyona gider.
+        if (root.duzenlenenKaynakTeklifId <= 0 || root.uretimBilgisiKilitli)
+            return
+        if (database.teklifTeslimatTarihiGuncelle(root.duzenlenenKaynakTeklifId, yeniTarih)) {
+            bilgiMesaji.color = Theme.basariAcik
+            bilgiMesaji.text = "Teklif #" + root.duzenlenenKaynakTeklifId + " planlanan teslim tarihi "
+                               + (yeniTarih.length > 0 ? root.tarihGoster(yeniTarih) + " olarak kaydedildi." : "kaldırıldı.")
+        } else {
+            bilgiMesaji.color = Theme.tehlikeAcik
+            bilgiMesaji.text = "Planlanan teslim tarihi kaydedilemedi."
+        }
+    }
+
+    // Not penceresinden "Kaydet" ile cagrilir.
+    function musteriNotunuKaydet(yeniNot) {
+        if (root.formKilitli || yeniNot === root.musteriNotu)
+            return
+        root.musteriNotu = yeniNot
+        // Kilitli teklifin kendisine yazilmaz; not yalnizca revizyona gider.
+        if (root.duzenlenenKaynakTeklifId <= 0 || root.teklifKilitli) {
+            bilgiMesaji.color = Theme.basariAcik
+            bilgiMesaji.text = root.teklifKilitli
+                ? "Teklif notu \"Teklifi Kaydet\" ile yeni revizyona yazılacak."
+                : "Teklif notu, teklif kaydedilince birlikte kaydedilecek."
+            return
+        }
+        if (database.teklifMusteriNotuGuncelle(root.duzenlenenKaynakTeklifId, yeniNot)) {
+            bilgiMesaji.color = Theme.basariAcik
+            bilgiMesaji.text = "Teklif #" + root.duzenlenenKaynakTeklifId + " teklif notu kaydedildi."
+        } else {
+            bilgiMesaji.color = Theme.tehlikeAcik
+            bilgiMesaji.text = "Teklif notu kaydedilemedi."
+        }
+    }
+
+    function uretimNotunuKaydet(yeniNot) {
+        if (root.uretimAlaniKilitli || yeniNot === root.uretimNotu)
+            return
+        root.uretimNotu = yeniNot
+        // Tamamlanmis teklifte (Giden'den revize) not yalnizca revizyona gider.
+        if (root.duzenlenenKaynakTeklifId <= 0 || root.uretimBilgisiKilitli) {
+            bilgiMesaji.color = Theme.basariAcik
+            bilgiMesaji.text = root.uretimBilgisiKilitli
+                ? "Üretim notu \"Teklifi Kaydet\" ile yeni revizyona yazılacak."
+                : "Üretim notu, teklif kaydedilince birlikte kaydedilecek."
+            return
+        }
+        if (database.teklifUretimNotuGuncelle(root.duzenlenenKaynakTeklifId, yeniNot)) {
+            bilgiMesaji.color = Theme.basariAcik
+            bilgiMesaji.text = "Teklif #" + root.duzenlenenKaynakTeklifId + " üretim notu kaydedildi."
+        } else {
+            bilgiMesaji.color = Theme.tehlikeAcik
+            bilgiMesaji.text = "Üretim notu kaydedilemedi."
+        }
+    }
+
     // Giden Tekliflerim'deki "Detay" butonundan cagrilir (bkz. SatisModuluPage.qml).
     // Ilgili teklifin kayitli TUM verisini ceker ve formu/sepeti onunla doldurur.
     function duzenlemeyeBasla(teklifId) {
@@ -208,6 +365,12 @@ Item {
         ilgiliKisiEpostaAlani.text = veri.ilgiliKisiEposta
         teslimatSekliAlani.text = veri.teslimatSekli
         teslimatYeriAlani.text = veri.teslimatYeri
+        // Dogrudan property'e yazilir (teslimatTarihiniAyarla DEGIL): yukleme
+        // sirasinda veritabanina geri yazma yapilmasin.
+        root.teslimatTarihi = veri.teslimatTarihi || ""
+        root.musteriNotu = veri.musteriNotu || ""
+        root.uretimNotu = veri.uretimNotu || ""
+        root.teklifDurumu = veri.durum || ""
 
         // ONEMLI: Bu dort deger, GORUNEN UcretAlani ("...Wrap") kutularina yazilir --
         // gizli hesap TextField'larina (indirimAlani vb.) DEGIL. Cunku gizli alanlarin
@@ -266,6 +429,10 @@ Item {
         ilgiliKisiEpostaAlani.text = ""
         teslimatSekliAlani.text = ""
         teslimatYeriAlani.text = ""
+        root.teslimatTarihi = ""
+        root.musteriNotu = ""
+        root.uretimNotu = ""
+        root.teklifDurumu = ""
 
         // Ticari sartlar da ekranin acilistaki varsayilanlarina doner.
         indirimAlaniWrap.metin = "0"
@@ -446,6 +613,9 @@ Item {
             ilgiliKisiEposta: ilgiliKisiEpostaAlani.text,
             teslimatSekli: teslimatSekliAlani.text,
             teslimatYeri: teslimatYeriAlani.text,
+            teslimatTarihi: root.teslimatTarihi,
+            musteriNotu: root.musteriNotu.trim(),
+            uretimNotu: root.uretimNotu.trim(),
             indirimliToplam: root.tlDenCevir(root.indirimliToplamTl),
             kdvTutari: root.tlDenCevir(root.kdvTutariTl),
             genelToplam: root.tlDenCevir(root.genelToplamTl),
@@ -603,6 +773,18 @@ Item {
                     font.pixelSize: Theme.fontBoyutKucuk
                     color: Theme.metinSoluk
                 }
+                // Kilitli teklifte formun neden degistirilemedigini acikca soyler.
+                Label {
+                    visible: root.teklifKilitli
+                    text: root.revizyonIzinli
+                          ? "🔒  " + root.teklifDurumu + " — bu teklifin kendisi değişmez; yaptığınız değişiklikler \"Teklifi Kaydet\" ile yeni revizyon olarak kaydedilir."
+                          : root.uretimBilgisiKilitli
+                          ? "🔒  " + root.teklifDurumu + " — bu teklif değiştirilemez."
+                          : "🔒  " + root.teklifDurumu + " — teklif değiştirilemez; yalnızca teslim tarihi ve üretim notu güncellenebilir."
+                    font.family: Theme.fontAilesi
+                    font.pixelSize: Theme.fontBoyutKucuk
+                    color: Theme.metinSoluk
+                }
             }
 
             Item { Layout.fillWidth: true }
@@ -645,6 +827,26 @@ Item {
                             bilgiMesajiZamanlayici.stop()
                     }
                 }
+            }
+
+            // Notlar: formda kalici metin kutusu yerine baslikta iki kucuk buton;
+            // tiklaninca not penceresi acilir (bkz. musteriNotuDialogu/uretimNotuDialogu).
+            NotButonu {
+                ikon: "📝"
+                etiket: "Teklif Notu"
+                notMetni: root.musteriNotu
+                renk: Theme.vurgu
+                ipucu: "Büro ve satış personeli için iç not. Teklif ve üretim PDF'ine basılmaz."
+                onClicked: musteriNotuDialogu.open()
+            }
+
+            NotButonu {
+                ikon: "🔧"
+                etiket: "Üretim Notu"
+                notMetni: root.uretimNotu
+                renk: Theme.basari
+                ipucu: "Üretim personeli için not. Üretim PDF'ine basılır."
+                onClicked: uretimNotuDialogu.open()
             }
         }
 
@@ -702,6 +904,7 @@ Item {
 
                                         TextField {
                                             id: firmaAramaKutusu
+                                            enabled: !root.formKilitli
                                             Layout.fillWidth: true
                                             background: null
                                             color: Theme.metinBirincil
@@ -849,6 +1052,7 @@ Item {
                                     border.color: ilgiliKisiTelAlani.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
                                     TextField {
                                         id: ilgiliKisiTelAlani
+                                        readOnly: root.formKilitli
                                         onTextChanged: if (!activeFocus) cursorPosition = 0
                                         onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
                                         anchors.fill: parent
@@ -879,6 +1083,7 @@ Item {
                                     border.color: ilgiliKisiAlani.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
                                     TextField {
                                         id: ilgiliKisiAlani
+                                        readOnly: root.formKilitli
                                         onTextChanged: if (!activeFocus) cursorPosition = 0
                                         onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
                                         anchors.fill: parent
@@ -907,6 +1112,7 @@ Item {
                                     border.color: ilgiliKisiEpostaAlani.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
                                     TextField {
                                         id: ilgiliKisiEpostaAlani
+                                        readOnly: root.formKilitli
                                         onTextChanged: if (!activeFocus) cursorPosition = 0
                                         onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
                                         anchors.fill: parent
@@ -932,6 +1138,7 @@ Item {
                     // grubu istenenden cok daha genis gosterebiliyor -- ucu ucuna
                     // sabitlemek genislik farkinin gercekten gorunur olmasini saglar.
                     ColumnLayout {
+                        enabled: !root.formKilitli
                         Layout.preferredWidth: 210
                         Layout.minimumWidth: 210
                         Layout.maximumWidth: 210
@@ -990,12 +1197,17 @@ Item {
 
                     Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; Layout.leftMargin: 16; Layout.rightMargin: 16; color: Theme.kenarlik }
 
-                    // --- Grup 3: TESLIMAT (sekli/yeri) -- tek sutun, orta genislik ---
+                    // --- Grup 3: TESLIMAT (sekli / yeri; Detay ekraninda + planlanan tarih) ---
+                    // Normal Teklif Ver ekraninda eski 240px genislik aynen korunur.
                     ColumnLayout {
-                        Layout.preferredWidth: 240
-                        Layout.minimumWidth: 240
-                        Layout.maximumWidth: 240
+                        Layout.preferredWidth: root.duzenlenenAnaTeklifId > 0 ? 340 : 240
+                        Layout.minimumWidth: root.duzenlenenAnaTeklifId > 0 ? 340 : 240
+                        Layout.maximumWidth: root.duzenlenenAnaTeklifId > 0 ? 340 : 240
                         spacing: 8
+
+                        RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
 
                         ColumnLayout {
                             Layout.fillWidth: true
@@ -1010,6 +1222,7 @@ Item {
                                 border.color: teslimatSekliAlani.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
                                 TextField {
                                     id: teslimatSekliAlani
+                                    readOnly: root.formKilitli
                                     onTextChanged: if (!activeFocus) cursorPosition = 0
                                     onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
                                     anchors.fill: parent
@@ -1022,6 +1235,69 @@ Item {
                                     verticalAlignment: TextInput.AlignVCenter
                                 }
                             }
+                        }
+
+                        // Planlanan teslim tarihi: takvimden secilir, "✕" ile temizlenir.
+                        // SADECE Detay ekraninda gorunur.
+                        ColumnLayout {
+                            visible: root.duzenlenenAnaTeklifId > 0
+                            Layout.preferredWidth: 130
+                            Layout.minimumWidth: 130
+                            Layout.maximumWidth: 130
+                            spacing: 4
+                            Label { text: "TESLİM TARİHİ"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: Theme.girdiYuksekligi
+                                radius: Theme.radiusKucuk
+                                color: Theme.arkaplan
+                                border.width: 1
+                                border.color: teslimTakvimi.visible ? Theme.kenarlikVurgu : Theme.kenarlik
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: !root.uretimAlaniKilitli
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: teslimTakvimi.open()
+                                }
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 10
+                                    anchors.rightMargin: 6
+                                    spacing: 4
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: root.teslimatTarihi.length > 0 ? root.tarihGoster(root.teslimatTarihi) : "Tarih seçin"
+                                        color: root.teslimatTarihi.length > 0 ? Theme.metinBirincil : Theme.metinCokSoluk
+                                        font.family: Theme.fontAilesi
+                                        font.pixelSize: Theme.fontBoyutNormal
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
+                                    }
+                                    Text {
+                                        visible: root.teslimatTarihi.length > 0 && !root.uretimAlaniKilitli
+                                        text: "✕"
+                                        color: temizleAlani.containsMouse ? Theme.tehlikeAcik : Theme.metinSoluk
+                                        font.pixelSize: Theme.fontBoyutKucuk
+                                        MouseArea {
+                                            id: temizleAlani
+                                            anchors.fill: parent
+                                            anchors.margins: -6
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.teslimatTarihiniAyarla("")
+                                        }
+                                    }
+                                }
+
+                                TarihTakvimi {
+                                    id: teslimTakvimi
+                                    y: parent.height + 4
+                                    onTarihSecildi: (tarih) => root.teslimatTarihiniAyarla(tarih)
+                                }
+                            }
+                        }
                         }
 
                         ColumnLayout {
@@ -1037,6 +1313,7 @@ Item {
                                 border.color: teslimatYeriAlani.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
                                 TextField {
                                     id: teslimatYeriAlani
+                                    readOnly: root.formKilitli
                                     onTextChanged: if (!activeFocus) cursorPosition = 0
                                     onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
                                     anchors.fill: parent
@@ -1056,6 +1333,7 @@ Item {
 
                     // --- Grup 4: DIL & PARA BIRIMI -- kisa secim kutulari, en dar ---
                     ColumnLayout {
+                        enabled: !root.formKilitli
                         Layout.preferredWidth: 150
                         Layout.minimumWidth: 150
                         Layout.maximumWidth: 150
@@ -1271,6 +1549,8 @@ Item {
 
                                 Button {
                                     text: "Seç"
+                                    enabled: !root.formKilitli
+                                    opacity: enabled ? 1.0 : 0.4
                                     Layout.preferredWidth: 60
                                     Layout.preferredHeight: 30
                                     onClicked: root.sepeteEkle({
@@ -1332,6 +1612,7 @@ Item {
                         // "+ Manuel Ürün Ekle" butonu yerine az yer kaplayan bir kisayol.
                         Rectangle {
                             id: manuelEkleButonu
+                            visible: !root.formKilitli
                             Layout.preferredWidth: 28
                             Layout.preferredHeight: 28
                             radius: Theme.radiusKucuk
@@ -1430,6 +1711,9 @@ Item {
                             }
 
                             RowLayout {
+                                // Kilitli teklifte adet/maliyet/fiyat degistirilemez,
+                                // kalem silinemez (liste yine kaydirilabilir).
+                                enabled: !root.formKilitli
                                 anchors.fill: parent
                                 anchors.leftMargin: 12
                                 anchors.rightMargin: 8
@@ -1534,6 +1818,7 @@ Item {
 
                                 Rectangle {
                                     id: silButonu
+                                    opacity: root.formKilitli ? 0 : 1
                                     Layout.preferredWidth: 24
                                     Layout.preferredHeight: 24
                                     radius: Theme.radiusKucuk
@@ -1573,6 +1858,8 @@ Item {
             color: Theme.panel
             border.width: 1
             border.color: Theme.kenarlik
+            // Kilitli teklifte kur, teklifin kaydedildigi andaki degerdir; guncellenemez.
+            enabled: !root.formKilitli
             visible: paraBirimiCombo.currentText !== "TL"
 
             ColumnLayout {
@@ -1873,8 +2160,8 @@ Item {
                     Button {
                         id: kaydetButonu
                         text: "Teklifi Kaydet"
-                        // Alınan/Biten Tekliflerim detayinda revize yapilamaz.
-                        visible: root.kaydetmeIzinli
+                        // Kabul edilmis / tamamlanmis teklif yalnizca Giden Tekliflerim'den revize edilebilir.
+                        visible: !root.formKilitli
                         Layout.preferredWidth: 138
                         Layout.preferredHeight: 40
                         onClicked: {
@@ -1926,6 +2213,10 @@ Item {
                                     ilgiliKisiAlani.text = ""
                                     ilgiliKisiTelAlani.text = ""
                                     ilgiliKisiEpostaAlani.text = ""
+                                    // Tarih ve not teklife ozeldir; sonraki teklife tasinmaz.
+                                    root.teslimatTarihi = ""
+                                    root.musteriNotu = ""
+                                    root.uretimNotu = ""
                                 }
                             } else {
                                 bilgiMesaji.color = Theme.tehlikeAcik
@@ -1955,8 +2246,11 @@ Item {
     // burada goruntulenip degistirilir (bkz. components/SozlesmeDuzenleDialog.qml).
     SozlesmeDuzenleDialog {
         id: sozlesmeDialogu
+        saltOkunur: root.formKilitli
 
         onKaydedildi: function(yeniMetin) {
+            if (root.formKilitli)
+                return
             // Varsayilanla ayni metni "ozel metin" olarak saklamanin anlami yok:
             // bos birakirsak teklif, varsayilan metne bagli kalir (varsayilan
             // ileride degisirse bu teklif de guncel metni alir).
@@ -1967,7 +2261,7 @@ Item {
             // o teklife yaziyoruz; boylece listedeki "PDF" butonu da degisen
             // sozlesmeyi basar. Kaydedilmemis yeni teklifte ise metin ekranda
             // bekler ve "Teklifi Kaydet" ile teklifle birlikte kaydedilir.
-            if (root.duzenlenenKaynakTeklifId > 0) {
+            if (root.duzenlenenKaynakTeklifId > 0 && !root.teklifKilitli) {
                 const yazildi = database.teklifSozlesmeMetniKaydet(root.duzenlenenKaynakTeklifId,
                                                                     root.sozlesmeMetni)
                 if (yazildi) {
@@ -1982,8 +2276,34 @@ Item {
             }
 
             bilgiMesaji.color = Theme.basariAcik
-            bilgiMesaji.text = "Satış sözleşmesi bu teklif için güncellendi; teklifi kaydedince PDF'e yazılacak."
+            bilgiMesaji.text = root.teklifKilitli
+                ? "Satış sözleşmesi güncellendi; \"Teklifi Kaydet\" ile yeni revizyona yazılacak."
+                : "Satış sözleşmesi bu teklif için güncellendi; teklifi kaydedince PDF'e yazılacak."
         }
+    }
+
+    // ---- Teklif notu / uretim notu pencereleri ----
+    // Baslik satirindaki not butonlari bunlari acar (bkz. components/NotDuzenleDialog.qml).
+    NotDuzenleDialog {
+        id: musteriNotuDialogu
+        baslik: (root.duzenlenenKaynakTeklifId > 0 ? "Teklif #" + root.duzenlenenKaynakTeklifId + " — " : "") + "Teklif Notu"
+        bilgi: "Büro ve satış personeli için iç not. Teklif PDF'ine ve üretim PDF'ine basılmaz."
+        yerTutucu: "Müşteriyle görüşme, fiyat, takip vb. iç notlar..."
+        renk: Theme.vurgu
+        metin: root.musteriNotu
+        saltOkunur: root.formKilitli
+        onKaydedildi: function(yeniMetin) { root.musteriNotunuKaydet(yeniMetin) }
+    }
+
+    NotDuzenleDialog {
+        id: uretimNotuDialogu
+        baslik: (root.duzenlenenKaynakTeklifId > 0 ? "Teklif #" + root.duzenlenenKaynakTeklifId + " — " : "") + "Üretim Notu"
+        bilgi: "Üretim personeli için not. Üretim PDF'ine basılır."
+        yerTutucu: "Ölçü, malzeme, paketleme, öncelik vb. üretime iletilecek notlar..."
+        renk: Theme.basari
+        metin: root.uretimNotu
+        saltOkunur: root.uretimAlaniKilitli
+        onKaydedildi: function(yeniMetin) { root.uretimNotunuKaydet(yeniMetin) }
     }
 
     // ---- Manuel urun ekleme dialogu ----
