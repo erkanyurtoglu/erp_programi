@@ -78,6 +78,8 @@ Item {
                 font.pixelSize: Theme.fontBoyutNormal
                 validator: DoubleValidator { bottom: 0; decimals: 2 }
                 verticalAlignment: TextInput.AlignVCenter
+                onTextChanged: if (!activeFocus) cursorPosition = 0
+                onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
             }
             Label { text: parent.parent.birim; color: Theme.metinSoluk; font.pixelSize: Theme.fontBoyutKucuk }
         }
@@ -88,27 +90,36 @@ Item {
     component SepetSayiAlani: Rectangle {
         property alias metin: sayiGirdisi.text
         signal degisti(real yeniDeger)
-        Layout.preferredWidth: 78
+        Layout.preferredWidth: 80
         Layout.preferredHeight: 30
         radius: Theme.radiusKucuk
         color: Theme.arkaplan
         border.width: 1
         border.color: sayiGirdisi.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
 
+        // Basic stilin varsayilan ic boslugu (~10px) dar kutuda metin alanini
+        // yarisina dusuruyordu; bosluk sadece anchor margin'lerle veriliyor.
+        // Metin soldan baslar ve odak disindayken imlec basa alinir -- aksi
+        // halde sigmayan degerin sadece SONU gorunuyordu ("100000.00" -> "0000.00").
         TextField {
             id: sayiGirdisi
             anchors.fill: parent
             anchors.leftMargin: 8
             anchors.rightMargin: 8
+            leftPadding: 0
+            rightPadding: 0
             background: null
             color: Theme.metinBirincil
             font.family: "Consolas"
             font.pixelSize: 11
-            horizontalAlignment: Text.AlignRight
+            horizontalAlignment: Text.AlignLeft
             verticalAlignment: TextInput.AlignVCenter
             validator: DoubleValidator { bottom: 0; decimals: 2 }
             selectByMouse: true
             onEditingFinished: parent.degisti(parseFloat(text) || 0)
+            onTextChanged: if (!activeFocus) cursorPosition = 0
+            onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
+            Component.onCompleted: cursorPosition = 0
         }
     }
 
@@ -838,6 +849,8 @@ Item {
                                     border.color: ilgiliKisiTelAlani.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
                                     TextField {
                                         id: ilgiliKisiTelAlani
+                                        onTextChanged: if (!activeFocus) cursorPosition = 0
+                                        onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
                                         anchors.fill: parent
                                         anchors.leftMargin: 12
                                         anchors.rightMargin: 12
@@ -866,6 +879,8 @@ Item {
                                     border.color: ilgiliKisiAlani.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
                                     TextField {
                                         id: ilgiliKisiAlani
+                                        onTextChanged: if (!activeFocus) cursorPosition = 0
+                                        onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
                                         anchors.fill: parent
                                         anchors.leftMargin: 12
                                         anchors.rightMargin: 12
@@ -892,6 +907,8 @@ Item {
                                     border.color: ilgiliKisiEpostaAlani.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
                                     TextField {
                                         id: ilgiliKisiEpostaAlani
+                                        onTextChanged: if (!activeFocus) cursorPosition = 0
+                                        onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
                                         anchors.fill: parent
                                         anchors.leftMargin: 12
                                         anchors.rightMargin: 12
@@ -993,6 +1010,8 @@ Item {
                                 border.color: teslimatSekliAlani.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
                                 TextField {
                                     id: teslimatSekliAlani
+                                    onTextChanged: if (!activeFocus) cursorPosition = 0
+                                    onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
                                     anchors.fill: parent
                                     anchors.leftMargin: 12
                                     anchors.rightMargin: 12
@@ -1018,6 +1037,8 @@ Item {
                                 border.color: teslimatYeriAlani.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
                                 TextField {
                                     id: teslimatYeriAlani
+                                    onTextChanged: if (!activeFocus) cursorPosition = 0
+                                    onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
                                     anchors.fill: parent
                                     anchors.leftMargin: 12
                                     anchors.rightMargin: 12
@@ -1352,10 +1373,10 @@ Item {
                             Label { text: "KOD"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 60 }
                             Label { text: "AÇIKLAMA"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.fillWidth: true; Layout.preferredWidth: 0; Layout.minimumWidth: 0 }
                             Label { text: "ADET"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 58; horizontalAlignment: Text.AlignHCenter }
-                            Label { text: "MALİYET " + root.paraBirimiSembol(paraBirimiCombo.currentText); color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 72; horizontalAlignment: Text.AlignHCenter }
-                            Label { text: "FİYAT " + root.paraBirimiSembol(paraBirimiCombo.currentText); color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 72; horizontalAlignment: Text.AlignHCenter }
-                            Label { text: "İNDİRİMLİ"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 76; horizontalAlignment: Text.AlignRight }
-                            Label { text: "TOPLAM"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 82; horizontalAlignment: Text.AlignRight }
+                            Label { text: "MALİYET " + root.paraBirimiSembol(paraBirimiCombo.currentText); color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignLeft }
+                            Label { text: "FİYAT " + root.paraBirimiSembol(paraBirimiCombo.currentText); color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignLeft }
+                            Label { text: "İNDİRİMLİ"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 96; horizontalAlignment: Text.AlignLeft }
+                            Label { text: "TOPLAM"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 112; horizontalAlignment: Text.AlignLeft }
                             Label { text: ""; Layout.preferredWidth: 24 }
                         }
 
@@ -1479,13 +1500,13 @@ Item {
                                 }
 
                                 SepetSayiAlani {
-                                    Layout.preferredWidth: 72
+                                    Layout.preferredWidth: 80
                                     metin: root.tlDenCevir(sepetSatiri.modelData.maliyet).toFixed(2)
                                     onDegisti: (yeniDeger) => root.sepetTutarGuncelle(sepetSatiri.index, "maliyet", yeniDeger)
                                 }
 
                                 SepetSayiAlani {
-                                    Layout.preferredWidth: 72
+                                    Layout.preferredWidth: 80
                                     metin: root.tlDenCevir(sepetSatiri.modelData.birimFiyatTl).toFixed(2)
                                     onDegisti: (yeniDeger) => root.sepetTutarGuncelle(sepetSatiri.index, "birimFiyatTl", yeniDeger)
                                 }
@@ -1495,9 +1516,9 @@ Item {
                                     color: Theme.metinIkincil
                                     font.family: "Consolas"
                                     font.pixelSize: 11
-                                    horizontalAlignment: Text.AlignRight
+                                    horizontalAlignment: Text.AlignLeft
                                     elide: Text.ElideRight
-                                    Layout.preferredWidth: 76
+                                    Layout.preferredWidth: 96
                                 }
 
                                 Label {
@@ -1506,9 +1527,9 @@ Item {
                                     font.family: "Consolas"
                                     font.bold: true
                                     font.pixelSize: 11
-                                    horizontalAlignment: Text.AlignRight
+                                    horizontalAlignment: Text.AlignLeft
                                     elide: Text.ElideRight
-                                    Layout.preferredWidth: 82
+                                    Layout.preferredWidth: 112
                                 }
 
                                 Rectangle {
@@ -1659,7 +1680,11 @@ Item {
                                     font.pixelSize: Theme.fontBoyutKucuk
                                     validator: DoubleValidator { bottom: 0; decimals: 4 }
                                     verticalAlignment: TextInput.AlignVCenter
-                                    onTextChanged: root.usdKur = parseFloat(text) || 0
+                                    onTextChanged: {
+                                        root.usdKur = parseFloat(text) || 0
+                                        if (!activeFocus) cursorPosition = 0
+                                    }
+                                    onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
                                 }
                             }
                         }
@@ -1684,7 +1709,11 @@ Item {
                                     font.pixelSize: Theme.fontBoyutKucuk
                                     validator: DoubleValidator { bottom: 0; decimals: 4 }
                                     verticalAlignment: TextInput.AlignVCenter
-                                    onTextChanged: root.eurKur = parseFloat(text) || 0
+                                    onTextChanged: {
+                                        root.eurKur = parseFloat(text) || 0
+                                        if (!activeFocus) cursorPosition = 0
+                                    }
+                                    onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
                                 }
                             }
                         }
