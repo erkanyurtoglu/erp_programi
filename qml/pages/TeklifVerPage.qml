@@ -1918,6 +1918,7 @@ Item {
     // USD/EUR alanlari sadece kayit/gorsel amacli tutulur -- sepet hesaplari
     // (bkz. teklifVerisiOlustur) hala tek para biriminde (TL) calisir, WPF'ten
     // gocte alinan karar bu (UrunlerimPage.qml'deki ayni not).
+    // "Kaydet" urunu kalici olarak urunler tablosuna ekler (bkz. kaydet()).
     Dialog {
         id: manuelUrunDialogu
         modal: true
@@ -1958,17 +1959,35 @@ Item {
                 manuelHataMesaji.text = "Ürün açıklaması zorunludur."
                 return
             }
+            // Manuel urun once urunler tablosuna normal bir urun olarak kaydedilir
+            // (UrunlerimPage ile ayni urunEkle) -- boylece katalogda kaydi kalir,
+            // aramalarda bulunur ve sepete gercek UrunId'si ile eklenir.
+            const urunKodu = manuelKod.text.trim()
+            const birimFiyatTl = parseFloat(manuelFiyat.text) || 0
+            const maliyet = parseFloat(manuelMaliyet.text) || 0
+            const sonuc = database.urunEkle({
+                urunKodu: urunKodu,
+                kategori: manuelKategori.text.trim(),
+                urunAciklamasi: manuelAciklama.text.trim(),
+                urunAciklamasiEn: manuelAciklamaEn.text.trim(),
+                birimFiyat: birimFiyatTl,
+                maliyet: maliyet
+            })
+            if (!sonuc.basarili) {
+                manuelHataMesaji.text = sonuc.hata
+                return
+            }
             root.sepeteEkle({
-                urunId: 0,
-                urunKodu: manuelKod.text.trim().length > 0 ? manuelKod.text.trim() : "MANUEL",
+                urunId: sonuc.urunId,
+                urunKodu: urunKodu,
                 kategori: manuelKategori.text,
                 aciklama: manuelAciklama.text,
                 aciklamaEn: manuelAciklamaEn.text,
                 adet: 1,
-                birimFiyatTl: parseFloat(manuelFiyat.text) || 0,
+                birimFiyatTl: birimFiyatTl,
                 birimFiyatUsd: parseFloat(manuelFiyatUsd.text) || 0,
                 birimFiyatEur: parseFloat(manuelFiyatEur.text) || 0,
-                maliyet: parseFloat(manuelMaliyet.text) || 0
+                maliyet: maliyet
             })
             manuelUrunDialogu.close()
         }
