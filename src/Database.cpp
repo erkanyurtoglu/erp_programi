@@ -805,7 +805,8 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
     QSqlQuery kalemQuery(m_db);
     kalemQuery.prepare(
         "SELECT tk.UrunId, tk.Adet, tk.BirimFiyat, tk.MaliyetFiyati, tk.Kur, "
-        "       u.UrunKodu, tk.UrunAciklamasi "
+        "       u.UrunKodu, tk.UrunAciklamasi, "
+        "       u.UrunAciklamasi AS KatalogAciklamaTr, u.UrunAciklamasiEn AS KatalogAciklamaEn "
         "FROM dbo.teklif_kalemleri tk "
         "LEFT JOIN dbo.urunler u ON u.UrunId = tk.UrunId "
         "WHERE tk.TeklifId = :teklifId "
@@ -845,7 +846,19 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
         QVariantMap kalem;
         kalem["urunId"] = manuelMi ? 0 : kalemQuery.value("UrunId").toInt();
         kalem["urunKodu"] = manuelMi ? QStringLiteral("MANUEL") : urunKodu;
-        kalem["aciklama"] = kalemQuery.value("UrunAciklamasi").toString();
+        // Kayitli aciklama teklifin kaydedildigi dildedir; o dilde onu koruyoruz,
+        // diger dil icin katalogdaki karsiligini (yoksa kayitli metni) veriyoruz --
+        // boylece revizyonda dil degistirilince sepet aciklamalari da degisir.
+        const QString kayitliAciklama = kalemQuery.value("UrunAciklamasi").toString();
+        const QString katalogTr = kalemQuery.value("KatalogAciklamaTr").toString();
+        const QString katalogEn = kalemQuery.value("KatalogAciklamaEn").toString();
+        const bool kayitIngilizce = dilDeger.compare("EN", Qt::CaseInsensitive) == 0;
+        kalem["aciklama"] = kayitliAciklama;
+        kalem["aciklamaTr"] = (kayitIngilizce && !manuelMi && !katalogTr.trimmed().isEmpty())
+            ? katalogTr : kayitliAciklama;
+        kalem["aciklamaEn"] = kayitIngilizce
+            ? kayitliAciklama
+            : ((!manuelMi && !katalogEn.trimmed().isEmpty()) ? katalogEn : kayitliAciklama);
         kalem["adet"] = kalemQuery.value("Adet").toInt();
         kalem["birimFiyatTl"] = birimFiyat * kur;
         kalem["maliyet"] = maliyetFiyati * kur;

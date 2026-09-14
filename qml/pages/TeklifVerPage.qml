@@ -347,6 +347,42 @@ Item {
         return tlTutar
     }
 
+    // tlDenCevir'in tersi: secili para biriminde girilen tutari TL'ye cevirir.
+    function tlYeCevir(tutar) {
+        if (paraBirimiCombo.currentText === "USD" && root.usdKur > 0)
+            return tutar * root.usdKur
+        if (paraBirimiCombo.currentText === "EUR" && root.eurKur > 0)
+            return tutar * root.eurKur
+        return tutar
+    }
+
+    // TL disi para birimi secili ama kur henuz yok (cekilemedi/girilmedi):
+    // bu durumda tutarlar cevrilemez, teklif kaydedilmemeli.
+    readonly property bool kurEksik: (paraBirimiCombo.currentText === "USD" && root.usdKur <= 0)
+                                     || (paraBirimiCombo.currentText === "EUR" && root.eurKur <= 0)
+
+    // Sepet kaleminin secili teklif dilindeki aciklamasi. Kalem her iki dili de
+    // tasir (aciklamaTr/aciklamaEn); EN cevirisi yoksa TR'ye duser. Eski yapidaki
+    // tek "aciklama" alani da geriye donuk olarak desteklenir.
+    function kalemAciklamasi(k) {
+        const tr = (k.aciklamaTr !== undefined && k.aciklamaTr.length > 0) ? k.aciklamaTr : (k.aciklama || "")
+        if (dilCombo.currentText === "EN" && k.aciklamaEn && k.aciklamaEn.trim().length > 0)
+            return k.aciklamaEn
+        return tr
+    }
+
+    // Sepetteki Maliyet/Fiyat kutulari secili para biriminde gosterilir, ama
+    // deger her zaman TL olarak saklanir. Kullanici kutuya dokunup degistirmeden
+    // ciktiginda (editingFinished yine tetiklenir) yuvarlanmis gorunen deger
+    // TL'ye geri cevrilip elle girilmis fiyati kaydirmasin diye, sadece gercekten
+    // degisen deger yazilir.
+    function sepetTutarGuncelle(dizinIndex, alanAdi, yeniDeger) {
+        const mevcutTl = root.sepet[dizinIndex][alanAdi]
+        if (yeniDeger.toFixed(2) === root.tlDenCevir(mevcutTl).toFixed(2))
+            return
+        root.sepetAlaniGuncelle(dizinIndex, alanAdi, root.tlYeCevir(yeniDeger))
+    }
+
     // Sepet + form alanlarindan teklifKaydet()/satisSozlesmesiOlustur() icin
     // ortak QVariantMap'i uretir. "Teklifi Kaydet" ve "Satış Sözleşmesi"
     // butonlari AYNI veriyi kullanir; sozlesme butonu teklif henuz
@@ -373,7 +409,7 @@ Item {
             return {
                 urunId: k.urunId || 0,
                 urunKodu: k.urunKodu || "MANUEL",
-                aciklama: k.aciklama,
+                aciklama: root.kalemAciklamasi(k),
                 adet: k.adet,
                 birimFiyat: root.tlDenCevir(k.birimFiyatTl),
                 indirimliBirimFiyat: root.tlDenCevir(indirimliBirim),
@@ -1220,6 +1256,8 @@ Item {
                                         urunId: urunSatiri.modelData.urunId,
                                         urunKodu: urunSatiri.modelData.urunKodu,
                                         aciklama: urunSatiri.modelData.urunAciklamasi,
+                                        aciklamaTr: urunSatiri.modelData.urunAciklamasiTr,
+                                        aciklamaEn: urunSatiri.modelData.urunAciklamasiEn,
                                         adet: 1,
                                         birimFiyatTl: urunSatiri.modelData.birimFiyat,
                                         maliyet: urunSatiri.modelData.maliyet
@@ -1314,8 +1352,8 @@ Item {
                             Label { text: "KOD"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 60 }
                             Label { text: "AÇIKLAMA"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.fillWidth: true; Layout.preferredWidth: 0; Layout.minimumWidth: 0 }
                             Label { text: "ADET"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 58; horizontalAlignment: Text.AlignHCenter }
-                            Label { text: "MALİYET"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 72; horizontalAlignment: Text.AlignHCenter }
-                            Label { text: "FİYAT"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 72; horizontalAlignment: Text.AlignHCenter }
+                            Label { text: "MALİYET " + root.paraBirimiSembol(paraBirimiCombo.currentText); color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 72; horizontalAlignment: Text.AlignHCenter }
+                            Label { text: "FİYAT " + root.paraBirimiSembol(paraBirimiCombo.currentText); color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 72; horizontalAlignment: Text.AlignHCenter }
                             Label { text: "İNDİRİMLİ"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 76; horizontalAlignment: Text.AlignRight }
                             Label { text: "TOPLAM"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 82; horizontalAlignment: Text.AlignRight }
                             Label { text: ""; Layout.preferredWidth: 24 }
@@ -1397,7 +1435,7 @@ Item {
                                 }
 
                                 Label {
-                                    text: sepetSatiri.modelData.aciklama
+                                    text: root.kalemAciklamasi(sepetSatiri.modelData)
                                     color: Theme.metinBirincil
                                     font.family: Theme.fontAilesi
                                     font.pixelSize: Theme.fontBoyutKucuk
@@ -1442,14 +1480,14 @@ Item {
 
                                 SepetSayiAlani {
                                     Layout.preferredWidth: 72
-                                    metin: sepetSatiri.modelData.maliyet.toFixed(2)
-                                    onDegisti: (yeniDeger) => root.sepetAlaniGuncelle(sepetSatiri.index, "maliyet", yeniDeger)
+                                    metin: root.tlDenCevir(sepetSatiri.modelData.maliyet).toFixed(2)
+                                    onDegisti: (yeniDeger) => root.sepetTutarGuncelle(sepetSatiri.index, "maliyet", yeniDeger)
                                 }
 
                                 SepetSayiAlani {
                                     Layout.preferredWidth: 72
-                                    metin: sepetSatiri.modelData.birimFiyatTl.toFixed(2)
-                                    onDegisti: (yeniDeger) => root.sepetAlaniGuncelle(sepetSatiri.index, "birimFiyatTl", yeniDeger)
+                                    metin: root.tlDenCevir(sepetSatiri.modelData.birimFiyatTl).toFixed(2)
+                                    onDegisti: (yeniDeger) => root.sepetTutarGuncelle(sepetSatiri.index, "birimFiyatTl", yeniDeger)
                                 }
 
                                 Label {
@@ -1821,6 +1859,13 @@ Item {
                                 bilgiMesaji.text = "Sepette en az bir ürün olmalı."
                                 return
                             }
+                            // Kur yokken kaydedilirse TL tutarlar USD/EUR etiketiyle
+                            // (kur=1) yazilirdi -- teklif tamamen yanlis olurdu.
+                            if (root.kurEksik) {
+                                bilgiMesaji.color = Theme.tehlikeAcik
+                                bilgiMesaji.text = paraBirimiCombo.currentText + " kuru alınamadı. Kuru güncelleyin veya elle girin."
+                                return
+                            }
 
                             const revizyonMuydu = root.duzenlenenAnaTeklifId > 0
                             const sonuc = database.teklifKaydet(root.teklifVerisiOlustur())
@@ -1982,6 +2027,7 @@ Item {
                 urunKodu: urunKodu,
                 kategori: manuelKategori.text,
                 aciklama: manuelAciklama.text,
+                aciklamaTr: manuelAciklama.text,
                 aciklamaEn: manuelAciklamaEn.text,
                 adet: 1,
                 birimFiyatTl: birimFiyatTl,

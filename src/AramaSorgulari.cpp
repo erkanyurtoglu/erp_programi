@@ -100,6 +100,10 @@ QVariantList urunAraSorgusu(QSqlDatabase &db, const QString &arama, int limit, c
         const QString aciklamaEn = query.value("UrunAciklamasiEn").toString();
         // EN seciliyse ve EN cevirisi girilmisse onu, yoksa TR'ye geri duserek gosterir.
         u["urunAciklamasi"] = (ingilizce && !aciklamaEn.trimmed().isEmpty()) ? aciklamaEn : aciklamaTr;
+        // Sepete eklenen kalem her iki dili de tasir; teklif dili sonradan
+        // degistirilse bile sepetteki aciklama secili dile gore gosterilir.
+        u["urunAciklamasiTr"] = aciklamaTr;
+        u["urunAciklamasiEn"] = aciklamaEn;
         u["birimFiyat"] = query.value("BirimFiyat").toDouble();
         u["paraBirimi"] = query.value("ParaBirimi").toString();
         u["maliyet"] = query.value("GuncelMaliyetTL").isNull() ? 0.0 : query.value("GuncelMaliyetTL").toDouble();
