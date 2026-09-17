@@ -430,6 +430,20 @@ QString TeklifPdfOlusturucu::dosyaAdiTemizle(const QString &ad)
     return temiz;
 }
 
+QString TeklifPdfOlusturucu::teklifNoMetni(int teklifId, const QVariantMap &veri, bool dosyaAdiIcin)
+{
+    // kokTeklifNo bilgisi yoksa (eski cagrilar) davranis eskisi gibi: duz TeklifId.
+    const int kokTeklifNo = veri.value("kokTeklifNo", teklifId).toInt();
+    const int revizyonNo = veri.value("revizyonNo", 0).toInt();
+    if (revizyonNo <= 0)
+        return QString::number(kokTeklifNo);
+
+    // Belgede "1203/Rev.2", dosya adinda "1203-Rev2" (yasak "/" ve gereksiz nokta yok).
+    return (dosyaAdiIcin ? QStringLiteral("%1-Rev%2") : QStringLiteral("%1/Rev.%2"))
+        .arg(kokTeklifNo)
+        .arg(revizyonNo);
+}
+
 QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firmaAdi, const QVariantMap &veri)
 {
     QVariantMap sonuc;
@@ -549,7 +563,7 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
     teslimatSatiriEkle(etkTeslimatTarihi, ingilizce ? QString(teslimatTarihi).replace('.', '/') : teslimatTarihi);
 
     QString sagBlokHtml = QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkTeklifTarihi, olusturmaTarihi);
-    sagBlokHtml += QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkTeklifNo, QString::number(teklifId));
+    sagBlokHtml += QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkTeklifNo, teklifNoMetni(teklifId, veri));
     if (!personelAdSoyad.trimmed().isEmpty())
         sagBlokHtml += QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkTeklifiYapan, personelAdSoyad.toHtmlEscaped());
     if (!personelTelefon.trimmed().isEmpty())
@@ -566,8 +580,34 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
     for (int i = 0; i < sutunSayisi; ++i)
         kolonGrubu += QStringLiteral("<col/>");
 
+    // --- "Bu teklif revize edilmistir" bandi ---------------------------------
+    // Teklif revize edildiyse (yerine yeni bir revizyon gectiyse) durumu
+    // "Revize Edildi"dir. Boyle bir teklifin PDF'i yine de uretilebilir (arsiv /
+    // yanlislikla), ama belgenin kendisi gecersiz oldugunu soylemelidir -- yoksa
+    // musterinin elinde ayni teklifin iki gecerli surumu varmis gibi gorunur.
+    QString revizyonUyarisiHtml;
+    if (veri.value("durum").toString() == QStringLiteral("Revize Edildi"))
+    {
+        const int guncelRevizyonNo = veri.value("guncelRevizyonNo", 0).toInt();
+        const int kokTeklifNo = veri.value("kokTeklifNo", teklifId).toInt();
+        const QString guncelNo = guncelRevizyonNo > 0
+            ? QStringLiteral("%1/Rev.%2").arg(kokTeklifNo).arg(guncelRevizyonNo)
+            : QString();
+
+        QString uyari = ingilizce
+            ? QStringLiteral("THIS QUOTATION HAS BEEN REVISED — IT IS NO LONGER VALID.")
+            : QString::fromUtf8("BU TEKLİF REVİZE EDİLMİŞTİR — GEÇERLİ DEĞİLDİR.");
+        if (!guncelNo.isEmpty())
+            uyari += ingilizce
+                ? QStringLiteral(" Valid quotation: %1").arg(guncelNo)
+                : QString::fromUtf8(" Geçerli teklif: %1").arg(guncelNo);
+
+        revizyonUyarisiHtml = QStringLiteral("<div class='revize-uyari'>%1</div>").arg(uyari.toHtmlEscaped());
+    }
+
     QVariantMap degerler;
     degerler["BASLIK"] = etkBaslik;
+    degerler["REVIZYON_UYARISI"] = revizyonUyarisiHtml;
     degerler["SOL_BLOK"] = solBlokHtml;
     degerler["SAG_BLOK"] = sagBlokHtml;
     degerler["URUNLER_BASLIK"] = etkUrunlerBaslik;
@@ -591,7 +631,8 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
 
     const QString klasor = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/Liya ERP Teklifler";
     QDir().mkpath(klasor);
-    const QString dosyaYolu = QStringLiteral("%1/Teklif_%2_%3.pdf").arg(klasor, QString::number(teklifId), dosyaAdiTemizle(firmaAdi));
+    const QString dosyaYolu = QStringLiteral("%1/Teklif_%2_%3.pdf")
+        .arg(klasor, teklifNoMetni(teklifId, veri, true), dosyaAdiTemizle(firmaAdi));
 
     // Kenar bosluklari 0: sablonun kendi CSS padding'i (25mm ust/alt, 15mm sol/sag)
     // gercek bosluk gorevi goruyor, boylece antetli kagit (teklifSayfa.pdf) bantlari
@@ -702,7 +743,12 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
     solBlokHtml += satir(QStringLiteral("Teslimat Şekli"), veri.value("teslimatSekli").toString());
     solBlokHtml += satir(QStringLiteral("Teslimat Yeri"), veri.value("teslimatYeri").toString());
 
-    QString sagBlokHtml = satir(QStringLiteral("Teklif No"), QString::number(teklifId));
+    // Teklif No, musteriye giden teklif PDF'iyle AYNI numarayi tasir ("1203/Rev.2");
+    // revizyonlarda ayrica sistemdeki kayit numarasi da yazilir, cunku uretim
+    // ekibi teklifi programda bu id ile bulur.
+    QString sagBlokHtml = satir(QStringLiteral("Teklif No"), teklifNoMetni(teklifId, veri));
+    if (veri.value("revizyonNo", 0).toInt() > 0)
+        sagBlokHtml += satir(QStringLiteral("Sistem Kaydı"), QStringLiteral("#%1").arg(teklifId));
     sagBlokHtml += satir(QStringLiteral("Teklif Tarihi"), veri.value("olusturmaTarihi").toString());
     sagBlokHtml += satir(QStringLiteral("Kabul Tarihi"), veri.value("kabulTarihi").toString());
     // Planlanan teslim tarihi uretimin en kritik bilgisi: girilmemisse de
@@ -730,6 +776,13 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
 
     QVariantMap degerler;
     degerler["BASLIK"] = QStringLiteral("ÜRETİM FORMU");
+    // Revize edilmis bir teklifin uretim formu -- normalde olusmaz (kilitli
+    // teklifler otomatik revize isaretlenmez) ama kullanici durumu elle
+    // degistirmisse, uretime gecersiz bir form gitmemesi icin bant basilir.
+    degerler["REVIZYON_UYARISI"] = veri.value("durum").toString() == QStringLiteral("Revize Edildi")
+        ? QString::fromUtf8("<div class='revize-uyari'>BU TEKLİF REVİZE EDİLMİŞTİR — "
+                            "ÜRETİME BAŞLAMADAN ÖNCE GÜNCEL REVİZYONU KONTROL EDİN.</div>")
+        : QString();
     degerler["SOL_BLOK"] = solBlokHtml;
     degerler["SAG_BLOK"] = sagBlokHtml;
     degerler["URUNLER_BASLIK"] = QStringLiteral("Üretilecek Ürünler");
@@ -745,7 +798,8 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
 
     const QString klasor = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/Liya ERP Teklifler";
     QDir().mkpath(klasor);
-    const QString dosyaYolu = QStringLiteral("%1/Uretim_%2_%3.pdf").arg(klasor, QString::number(teklifId), dosyaAdiTemizle(firmaAdi));
+    const QString dosyaYolu = QStringLiteral("%1/Uretim_%2_%3.pdf")
+        .arg(klasor, teklifNoMetni(teklifId, veri, true), dosyaAdiTemizle(firmaAdi));
 
     QString basHata;
     if (!htmlyiPdfeBas(html, dosyaYolu, basHata, QMarginsF(0, 0, 0, 0)))

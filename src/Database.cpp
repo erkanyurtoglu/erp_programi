@@ -12,6 +12,7 @@
 #include <QHash>
 #include <cmath>
 #include <algorithm>
+#include <utility>
 
 namespace
 {
@@ -19,6 +20,12 @@ namespace
     // eski LiyaTeklifVeriTabani'nden bagimsiz, yeniden tasarlanmis veritabani.
     const QString SUNUCU = R"(EXCALIBUR\SQLEXPRESS)";
     const QString VERITABANI = "LiyaErpVeriTabani";
+
+    // Revize edilmis -- yani yerine yeni bir revizyon gecmis, artik gecerli
+    // olmayan -- teklifin durumu. Bu deger gecerliDurumlar() listesinde YOKTUR:
+    // kullanici durum menusunden secemez, yalnizca teklifKaydet bir revizyon
+    // olustururken sistem tarafindan yazilir (bkz. Database.h'deki revizyon notu).
+    const QString DURUM_REVIZE_EDILDI = QString::fromUtf8("Revize Edildi");
 
     const int LOGIN_ZAMAN_ASIMI_SN = 5;
     const int ISTEK_ZAMAN_ASIMI_SN = 30;
@@ -452,7 +459,8 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
         "SELECT t.TeklifId, m.FirmaAdi, t.OlusturmaTarihi, t.KabulTarihi, "
         "       t.TeslimatTarihi, t.TeslimTarihi, t.UretimPdfTarihi, "
         "       p.KullaniciAdi AS PersonelKullaniciAdi, t.Durum, t.RedSebebi, sb.Aciklamalar, "
-        "       t.MusteriNotu, t.UretimNotu, t.AnaTeklifId, t.RevizyonNo "
+        "       t.MusteriNotu, t.UretimNotu, t.AnaTeklifId, t.RevizyonNo, "
+        "       son.TeklifId AS GuncelTeklifId, son.RevizyonNo AS GuncelRevizyonNo "
         "FROM dbo.teklifler t "
         "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
         "LEFT JOIN dbo.kullanicilar p ON p.KullaniciId = t.KullaniciId "
@@ -462,6 +470,16 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
         "    WHERE sbi.TeklifId = t.TeklifId "
         "    ORDER BY sbi.SevkBilgileriId DESC"
         ") sb "
+        // Bu satirin ait oldugu revizyon zincirinin EN SON kaydi. "Revize Edildi"
+        // durumundaki satirlarda "yerine gecen teklif" olarak gosterilir; diger
+        // satirlarda (zincirin sonu zaten kendisidir) UI tarafinda kullanilmaz.
+        "OUTER APPLY ("
+        "    SELECT TOP 1 g.TeklifId, g.RevizyonNo "
+        "    FROM dbo.teklifler g "
+        "    WHERE g.TeklifId = ISNULL(t.AnaTeklifId, t.TeklifId) "
+        "       OR g.AnaTeklifId = ISNULL(t.AnaTeklifId, t.TeklifId) "
+        "    ORDER BY g.RevizyonNo DESC"
+        ") son "
         "%1 "
         "ORDER BY t.OlusturmaTarihi DESC "
         "OFFSET :offset ROWS FETCH NEXT :sayfaBoyutu ROWS ONLY").arg(whereClause);
@@ -502,6 +520,10 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
         // tasir (bu satirin kendisi orijinalse anaTeklifId 0'dir).
         kayit["anaTeklifId"] = veriQuery.value("AnaTeklifId").isNull() ? 0 : veriQuery.value("AnaTeklifId").toInt();
         kayit["revizyonNo"] = veriQuery.value("RevizyonNo").toInt();
+        // Zincirin en son (gecerli) kaydi: durum "Revize Edildi" ise bu teklifin
+        // YERINE GECEN teklif budur ve rozet ipucunda gosterilir.
+        kayit["guncelTeklifId"] = veriQuery.value("GuncelTeklifId").toInt();
+        kayit["guncelRevizyonNo"] = veriQuery.value("GuncelRevizyonNo").toInt();
         kayitlar << kayit;
     }
 
@@ -754,6 +776,52 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
         return sonuc;
     }
 
+    // --- Eski teklifleri "Revize Edildi" olarak isaretle ---------------------
+    // Ayni koke bagli ONCEKI kayitlar (kok teklif + eski revizyonlar) artik
+    // gecerli degildir: yerlerine bu yeni revizyon gecti. Musteriye ayni teklifin
+    // iki surumu de gecerliymis gibi gorunmesin diye bunlari "Revize Edildi"
+    // durumuna aliyoruz; boylece listede ayirt edilirler ve PDF'leri yeniden
+    // uretilirse ustune uyari bandi basilir (bkz. pdfVerisiniOku).
+    //
+    // KILITLI teklifler (Kabul Edildi / Tamamlandı) bilincli olarak DISARIDA
+    // birakilir: kabul edilmis bir teklif hala yururlukteki bir taahhut olabilir,
+    // onun gecersiz sayilmasina sistem degil kullanici karar verir (durum rozeti).
+    QVariantList revizeEdilenler;
+    if (anaTeklifId > 0)
+    {
+        QSqlQuery eskiQuery(m_db);
+        eskiQuery.prepare(
+            "SELECT TeklifId FROM dbo.teklifler "
+            "WHERE (TeklifId = :ana OR AnaTeklifId = :ana) "
+            "  AND TeklifId <> :yeni AND Durum = N'Beklemede'");
+        eskiQuery.bindValue(":ana", anaTeklifId);
+        eskiQuery.bindValue(":yeni", teklifId);
+        if (eskiQuery.exec())
+        {
+            while (eskiQuery.next())
+                revizeEdilenler << eskiQuery.value(0).toInt();
+        }
+
+        if (!revizeEdilenler.isEmpty())
+        {
+            QSqlQuery isaretle(m_db);
+            isaretle.prepare(
+                "UPDATE dbo.teklifler SET Durum = :durum "
+                "WHERE (TeklifId = :ana OR AnaTeklifId = :ana) "
+                "  AND TeklifId <> :yeni AND Durum = N'Beklemede'");
+            isaretle.bindValue(":durum", DURUM_REVIZE_EDILDI);
+            isaretle.bindValue(":ana", anaTeklifId);
+            isaretle.bindValue(":yeni", teklifId);
+            if (!isaretle.exec())
+            {
+                qWarning() << "teklifKaydet (revize isaretleme) basarisiz:" << isaretle.lastError().text();
+                m_db.rollback();
+                sonuc["hata"] = "Eski teklif revize edilmiş olarak işaretlenemedi: " + isaretle.lastError().text();
+                return sonuc;
+            }
+        }
+    }
+
     if (!m_db.commit())
     {
         qWarning() << "teklifKaydet commit basarisiz:" << m_db.lastError().text();
@@ -762,8 +830,17 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
         return sonuc;
     }
 
+    // Durum gecmisi loglari bilincli olarak COMMIT SONRASI yazilir: loglama
+    // "best effort"tur (tablo yoksa hata verir) ve bunun teklif kaydini goturmesi
+    // istenmez (bkz. durumDegisiminiLogla).
+    for (const QVariant &eskiId : std::as_const(revizeEdilenler))
+        durumDegisiminiLogla(eskiId.toInt(), "Beklemede", DURUM_REVIZE_EDILDI,
+                             QString("Teklif #%1 olarak revize edildi.").arg(teklifId), kullaniciId);
+
     sonuc["basarili"] = true;
     sonuc["teklifId"] = teklifId;
+    // QML kullaniciya "hangi eski teklif(ler) gecersizlesti" bilgisini gosterir.
+    sonuc["revizeEdilenTeklifIdler"] = revizeEdilenler;
     return sonuc;
 }
 
@@ -1027,7 +1104,10 @@ bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QSt
     if (!baglantiHazir())
         return false;
 
-    if (!gecerliDurumlar().contains(durum))
+    // "Revize Edildi" menude yer almaz (kullanici elle secmez) ama gecerli bir
+    // durumdur: sistem revizyon kaydederken yazar, kullanici da rozet menusunden
+    // "Beklemede"ye alarak geri dondurebilir.
+    if (!gecerliDurumlar().contains(durum) && durum != DURUM_REVIZE_EDILDI)
     {
         qWarning() << "teklifDurumGuncelle: gecersiz durum:" << durum;
         return false;
@@ -1067,7 +1147,9 @@ bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QSt
     // UretimPdfTarihi hicbir gecişte silinmez: uretim PDF'inin teknik ekibe
     // verilmis olmasi, durum sonradan degisse de gecmiste yasanmis bir olaydir.
     QString sql = "UPDATE dbo.teklifler SET Durum = :durum";
-    if (durum == "Beklemede")
+    // "Revize Edildi" de "Beklemede" gibi davranir: revize edilmis teklif ne kabul
+    // edilmis ne reddedilmistir, dolayisiyla tum durum tarihleri temizlenir.
+    if (durum == "Beklemede" || durum == DURUM_REVIZE_EDILDI)
         sql += ", KabulTarihi = NULL, RedTarihi = NULL, RedSebebi = NULL, TeslimTarihi = NULL";
     else if (durum == "Kabul Edildi")
         sql += QString(", KabulTarihi = %1, RedTarihi = NULL, RedSebebi = NULL, TeslimTarihi = NULL")
@@ -1877,6 +1959,7 @@ bool Database::pdfVerisiniOku(int teklifId, QString &firmaAdiOut, QVariantMap &v
         "       t.IlgiliKisi, t.IlgiliKisiTelefonu, t.IlgiliKisiEposta, "
         "       t.TeslimatSekli, t.TeslimatYeri, t.GenelIndirimOrani, t.KdvOrani, "
         "       t.SatisSozlesmesiMetni, t.UretimNotu, t.TeslimatTarihi, t.KabulTarihi, "
+        "       t.AnaTeklifId, t.RevizyonNo, "
         "       m.FirmaAdi, m.FirmaAdresi, "
         "       k.AdSoyad AS PersonelAdSoyad, k.Telefon AS PersonelTelefon, "
         "       tt.IndirimliToplam, tt.KdvTutari, tt.GenelToplam, tt.PaketlemeUcreti, tt.TasimaUcreti "
@@ -1926,6 +2009,31 @@ bool Database::pdfVerisiniOku(int teklifId, QString &firmaAdiOut, QVariantMap &v
     veri["teslimatTarihi"] = tarihStr(basQuery.value("TeslimatTarihi"));
     veri["kabulTarihi"] = tarihStr(basQuery.value("KabulTarihi"));
     veri["durum"] = basQuery.value("Durum").toString();
+
+    // --- PDF'teki teklif numarasi ve revizyon uyarisi ------------------------
+    // Bir revizyon, veritabaninda yeni bir TeklifId ile durur; ama PDF'te KOK
+    // teklifin numarasi "1203/Rev.2" seklinde basilir. Aksi halde musteri ayni
+    // teklifin revizyonunu (1487) bagimsiz, ikinci bir teklif sanirdi.
+    const int kokTeklifNo = basQuery.value("AnaTeklifId").isNull()
+        ? teklifId
+        : basQuery.value("AnaTeklifId").toInt();
+    veri["kokTeklifNo"] = kokTeklifNo;
+    veri["revizyonNo"] = basQuery.value("RevizyonNo").toInt();
+
+    // Bu teklif revize edilmisse (yerine yeni bir revizyon gecmisse), PDF'in
+    // ustune "gecerli degildir" bandi basilir; bandda gecerli olan revizyonun
+    // numarasi da yazsin diye zincirin EN SON kaydini okuyoruz.
+    if (veri["durum"].toString() == DURUM_REVIZE_EDILDI)
+    {
+        QSqlQuery sonQuery(m_db);
+        sonQuery.prepare(
+            "SELECT TOP 1 RevizyonNo FROM dbo.teklifler "
+            "WHERE TeklifId = :kok OR AnaTeklifId = :kok "
+            "ORDER BY RevizyonNo DESC");
+        sonQuery.bindValue(":kok", kokTeklifNo);
+        if (sonQuery.exec() && sonQuery.next())
+            veri["guncelRevizyonNo"] = sonQuery.value(0).toInt();
+    }
 
     QSqlQuery kalemQuery(m_db);
     kalemQuery.prepare(

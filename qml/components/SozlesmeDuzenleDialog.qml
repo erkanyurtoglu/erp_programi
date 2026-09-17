@@ -99,21 +99,6 @@ Dialog {
             }
         }
 
-        // PDF basilirken teklifin secimleriyle doldurulan isaretler
-        // (bkz. TeklifPdfOlusturucu::sozlesmeDegiskenleriniUygula).
-        Label {
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            color: Theme.metinSoluk
-            font.family: Theme.fontAilesi
-            font.pixelSize: Theme.fontBoyutKucuk
-            text: "Otomatik alanlar: {{PARA_BIRIMI}}, {{PARA_KODU}}, {{KDV_DURUMU}}, {{KDV_ORANI}}, "
-                + "{{TARIH}}, {{GECERLILIK_TARIHI}} (bugün + 3 gün; {{GECERLILIK_TARIHI+30}} gibi gün verilebilir), "
-                + "{{TESLIMAT_SEKLI}}, {{TESLIMAT_YERI}}.\n"
-                + "Satır başı koşullar (sağlanmazsa satır PDF'e basılmaz): [DOVIZ] [TL] [KDV_DAHIL] [KDV_HARIC] "
-                + "[NAKLIYE_DAHIL] [NAKLIYE_HARIC]"
-        }
-
         RowLayout {
             Layout.fillWidth: true
             Layout.topMargin: 2

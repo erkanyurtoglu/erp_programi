@@ -605,7 +605,12 @@ Item {
                             }
 
                             ToolTip.visible: revRozetAlani.containsMouse
+                            // Musteriye giden PDF'te bu teklif, kok teklifin numarasi
+                            // uzerinden "1203/Rev.2" olarak gorunur (bkz. C++
+                            // TeklifPdfOlusturucu::teklifNoMetni).
                             ToolTip.text: "Ana teklif: #" + satir.modelData.anaTeklifId
+                                          + "\nPDF'teki teklif no: " + satir.modelData.anaTeklifId
+                                          + "/Rev." + satir.modelData.revizyonNo
                             MouseArea {
                                 id: revRozetAlani
                                 anchors.fill: parent
@@ -712,6 +717,7 @@ Item {
                                 if (d === "Tamamlandı" || d === "Kabul Edildi") return "#0f2417"
                                 if (d === "Beklemede") return "#1e2a3f"
                                 if (d === "Reddedildi") return "#3f1620"
+                                if (d === "Revize Edildi") return "#2e2310"
                                 return Theme.panel
                             }
                             border.width: 1
@@ -720,6 +726,7 @@ Item {
                                 if (d === "Tamamlandı" || d === "Kabul Edildi") return Theme.basari
                                 if (d === "Beklemede") return Theme.vurgu
                                 if (d === "Reddedildi") return Theme.tehlike
+                                if (d === "Revize Edildi") return Theme.uyari
                                 return Theme.kenarlik
                             }
 
@@ -728,6 +735,7 @@ Item {
                                 if (d === "Tamamlandı" || d === "Kabul Edildi") return Theme.basariAcik
                                 if (d === "Beklemede") return Theme.vurguAcik
                                 if (d === "Reddedildi") return Theme.tehlikeAcik
+                                if (d === "Revize Edildi") return Theme.uyariAcik
                                 return Theme.metinIkincil
                             }
 
@@ -757,9 +765,19 @@ Item {
                             }
 
                             ToolTip.visible: durumAlani.containsMouse
-                            ToolTip.text: satir.modelData.durum === "Reddedildi" && satir.modelData.redSebebi.length > 0
-                                          ? "Red sebebi: " + satir.modelData.redSebebi + "\nDurumu değiştirmek için tıklayın"
-                                          : "Durumu değiştirmek için tıklayın"
+                            ToolTip.text: {
+                                const d = satir.modelData.durum
+                                if (d === "Reddedildi" && satir.modelData.redSebebi.length > 0)
+                                    return "Red sebebi: " + satir.modelData.redSebebi + "\nDurumu değiştirmek için tıklayın"
+                                // Revize edilmis teklif artik gecerli degildir; yerine gecen
+                                // (zincirin en son) teklifin numarasi C++ tarafindan gelir.
+                                if (d === "Revize Edildi")
+                                    return "Bu teklif revize edildi, artık geçerli değil.\n"
+                                         + "Yerine geçen teklif: #" + satir.modelData.guncelTeklifId
+                                         + " (Rev." + satir.modelData.guncelRevizyonNo + ")\n"
+                                         + "PDF'i yeniden üretilirse üstüne \"geçerli değildir\" bandı basılır."
+                                return "Durumu değiştirmek için tıklayın"
+                            }
                             MouseArea {
                                 id: durumAlani
                                 anchors.fill: parent

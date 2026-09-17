@@ -64,6 +64,21 @@
         letter-spacing: 1px;
     }
 
+    /* Revize edilmis (artik gecerli olmayan) teklifin belgesine basilan uyari
+       bandi. Yalnizca {{REVIZYON_UYARISI}} dolu geldiginde gorunur. */
+    .revize-uyari {
+        text-align: center;
+        font-size: 12px;
+        font-weight: bold;
+        letter-spacing: 0.5px;
+        color: #8a1220;
+        background: #fdeaec;
+        border: 1.5px solid #8a1220;
+        border-radius: 3px;
+        padding: 6px 8px;
+        margin-bottom: 12px;
+    }
+
     .bilgi-blok {
         display: flex;
         width: 100%;
@@ -243,6 +258,10 @@
     <tbody><tr><td class="icerik-hucre">
 
     <div class="baslik"><span>{{BASLIK}}</span></div>
+
+    <!-- Teklif revize edildiyse (yerine yeni bir revizyon gectiyse) buraya
+         "gecerli degildir" bandi girer; aksi halde tamamen bos kalir. -->
+    {{REVIZYON_UYARISI}}
 
     <div class="bilgi-blok">
         <div class="sol">{{SOL_BLOK}}</div>

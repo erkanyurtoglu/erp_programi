@@ -306,7 +306,7 @@ Item {
 
                 onGeriDonuldu: root.revizyondanDon()
 
-                onRevizyonKaydedildi: (yeniTeklifId, kaynakTeklifId) => {
+                onRevizyonKaydedildi: (yeniTeklifId, kaynakTeklifId, revizeEdilenIdler) => {
                     root.revizyondanDon(false)
                     // Yeni revizyon en yeni kayit oldugu icin listenin ILK sayfasinda
                     // gorunur; kullanici sonucu ("R1" rozetli yeni satir) hemen gorsun
@@ -316,9 +316,15 @@ Item {
                     // Yeni revizyon her zaman "Beklemede" durumunda olusur; bu yuzden
                     // Alınan/Biten listelerinde gorunmez -- kullaniciyi sasirtmamak
                     // icin nerede bulacagini soyluyoruz.
-                    sayfa.durumMesajiGoster(
-                        "Teklif #" + kaynakTeklifId + " revize edildi → yeni teklif #" + yeniTeklifId
-                        + (root.revizyonKaynakSekme === 1 ? "" : " (Giden Tekliflerim'de)"))
+                    var mesaj = "Teklif #" + kaynakTeklifId + " revize edildi → yeni teklif #" + yeniTeklifId
+                              + (root.revizyonKaynakSekme === 1 ? "" : " (Giden Tekliflerim'de)")
+                    // Eski teklif(ler) artik gecerli degil: ayni teklifin iki surumu
+                    // birden gecerli sanilmasin diye durumlari "Revize Edildi" yapildi.
+                    // Kilitli (Kabul Edildi/Tamamlandı) teklifler isaretlenmez -- o
+                    // durumda liste bos gelir ve bu ek hic yazilmaz.
+                    if (revizeEdilenIdler && revizeEdilenIdler.length > 0)
+                        mesaj += "  •  #" + revizeEdilenIdler.join(", #") + " artık \"Revize Edildi\""
+                    sayfa.durumMesajiGoster(mesaj)
                 }
             }
         }

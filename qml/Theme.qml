@@ -43,6 +43,7 @@ QtObject {
     readonly property color tehlikeHover: "#ef4444"
     readonly property color tehlikeAcik: "#f87171"
     readonly property color uyari: "#f59e0b"
+    readonly property color uyariAcik: "#fbbf24"
 
     // --- Tipografi ---
     readonly property string fontAilesi: "Segoe UI"

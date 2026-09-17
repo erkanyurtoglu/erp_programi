@@ -29,6 +29,11 @@ public:
     //             doluysa teslimat blogunda gosterilir,
     //   kalemler (QVariantList<QVariantMap{adet, birimFiyat, indirimliBirimFiyat,
     //             toplamTutar, urunKodu, urunAciklamasi}>),
+    //   kokTeklifNo (int) + revizyonNo (int): belgeye basilacak teklif numarasi
+    //             (bkz. teklifNoMetni -- revizyonlarda "1203/Rev.2"),
+    //   durum (string) + guncelRevizyonNo (int, OPSIYONEL): durum "Revize Edildi"
+    //             ise belgenin ustune "gecerli degildir" bandi basilir ve bandda
+    //             yerine gecen revizyonun numarasi yazilir,
     //   sozlesmeMetni (string, OPSIYONEL): teklifin son sayfasindaki satis
     //             sozlesmesi maddeleri (duz metin, bkz. varsayilanSozlesmeMetni).
     //             Bos birakilirsa dilin varsayilan metni kullanilir.
@@ -130,4 +135,14 @@ private:
 
     // Dosya adindaki yasak karakterleri "_" yapar.
     static QString dosyaAdiTemizle(const QString &ad);
+
+    // PDF'e basilacak TEKLIF NUMARASI. Bir revizyon veritabaninda yeni bir
+    // TeklifId ile durur, ama belgede musterinin bildigi KOK numara uzerinden
+    // "1203/Rev.2" seklinde gosterilir -- aksi halde revizyon, musteriye ayri
+    // bir teklif gibi gorunur ve ikisi ayni anda gecerli sanilirdi. Revizyon
+    // olmayan tekliflerde eskisi gibi sadece "1203" yazilir.
+    // dosyaAdiIcin=true, dosya adinda kullanilamayan "/" yerine "-" koyar
+    // ("Teklif_1203-Rev2_Firma.pdf").
+    // veri anahtarlari: kokTeklifNo (int), revizyonNo (int) -- bkz. Database::pdfVerisiniOku.
+    static QString teklifNoMetni(int teklifId, const QVariantMap &veri, bool dosyaAdiIcin = false);
 };

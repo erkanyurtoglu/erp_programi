@@ -49,8 +49,10 @@ Item {
     signal geriDonuldu()
 
     // Revizyon basariyla kaydedilince yayinlanir; SatisModuluPage listeye donup
-    // tazeler ve kullaniciya sonucu gosterir.
-    signal revizyonKaydedildi(int yeniTeklifId, int kaynakTeklifId)
+    // tazeler ve kullaniciya sonucu gosterir. revizeEdilenIdler: bu revizyon
+    // yuzunden "Revize Edildi" durumuna alinan ESKI tekliflerin id listesi
+    // (kilitli teklifler isaretlenmedigi icin bos da olabilir).
+    signal revizyonKaydedildi(int yeniTeklifId, int kaynakTeklifId, var revizeEdilenIdler)
 
     // Kucuk yardimci bilesenler: dosya icinde birden fazla yerde kullanildigi
     // icin inline "component" olarak (dosyanin en ustunde, root'un dogrudan
@@ -766,13 +768,6 @@ Item {
                     font.bold: true
                     color: Theme.metinBirincil
                 }
-                Label {
-                    visible: root.duzenlenenAnaTeklifId === 0
-                    text: "Müşteri, ürün ve şartları belirleyip yeni bir satış teklifi hazırlayın"
-                    font.family: Theme.fontAilesi
-                    font.pixelSize: Theme.fontBoyutKucuk
-                    color: Theme.metinSoluk
-                }
                 // Kilitli teklifte formun neden degistirilemedigini acikca soyler.
                 Label {
                     visible: root.teklifKilitli
@@ -784,6 +779,16 @@ Item {
                     font.family: Theme.fontAilesi
                     font.pixelSize: Theme.fontBoyutKucuk
                     color: Theme.metinSoluk
+                }
+                // Revize edilmis teklif kilitli DEGILDIR (tekrar revize edilebilir),
+                // ama artik gecerli degildir: yerine daha yeni bir revizyon gecmistir.
+                // Kullanici eski bir surumu actigini bilmeli.
+                Label {
+                    visible: root.teklifDurumu === "Revize Edildi"
+                    text: "⟳  Bu teklif revize edildi — artık geçerli değil; PDF'i yeniden üretilirse üstüne \"geçerli değildir\" bandı basılır."
+                    font.family: Theme.fontAilesi
+                    font.pixelSize: Theme.fontBoyutKucuk
+                    color: Theme.uyariAcik
                 }
             }
 
@@ -2205,7 +2210,8 @@ Item {
                                     // listeye geri don (SatisModuluPage dinliyor).
                                     const kaynakTeklifId = root.duzenlenenKaynakTeklifId
                                     root.duzenlemeyiIptalEt()
-                                    root.revizyonKaydedildi(sonuc.teklifId, kaynakTeklifId)
+                                    root.revizyonKaydedildi(sonuc.teklifId, kaynakTeklifId,
+                                                            sonuc.revizeEdilenTeklifIdler || [])
                                 } else {
                                     root.sepet = []
                                     root.secilenMusteriId = 0

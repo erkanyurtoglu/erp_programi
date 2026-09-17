@@ -46,8 +46,11 @@ public:
     // Tekliflerim" / "Biten Tekliflerim" sekmeleri ayni metodu durumFiltresi ile cagirir
     // ("Kabul Edildi" / "Tamamlandi").
     // Donen QVariantMap anahtarlari: "kayitlar" (QVariantList<QVariantMap>,
-    // her kayitta ayrica "anaTeklifId" (int, 0 ise orijinal teklif) ve
-    // "revizyonNo" (int, 0 ise orijinal) da bulunur -- bkz. teklifKaydet),
+    // her kayitta ayrica "anaTeklifId" (int, 0 ise orijinal teklif),
+    // "revizyonNo" (int, 0 ise orijinal) ve revizyon zincirinin EN SON kaydini
+    // gosteren "guncelTeklifId"/"guncelRevizyonNo" (int) da bulunur; durumu
+    // "Revize Edildi" olan satirda bu ikisi o teklifin YERINE GECEN teklifi
+    // isaret eder -- bkz. teklifKaydet),
     // "toplamKayit" (int), "toplamSayfa" (int), "mevcutSayfa" (int).
     Q_INVOKABLE QVariantMap gecmisTekliflerGetir(const QString &arama,
                                                   const QString &tarihFiltresi,
@@ -97,7 +100,16 @@ public:
     //             ayri bir kayit eklenir. Bos/0 birakilirsa (normal "Teklif Ver"
     //             akisi) eskisi gibi tamamen bagimsiz, AnaTeklifId'si NULL bir
     //             teklif olusur -- davranis degismez.
-    // Donen QVariantMap: "basarili" (bool), "teklifId" (int), "hata" (string).
+    //
+    // REVIZYON = ESKISINI GECERSIZ KILAR: bir revizyon kaydedildiginde ayni koke
+    // bagli ONCEKI teklifler (kok + eski revizyonlar) "Revize Edildi" durumuna
+    // alinir. Boylece musteriye gonderilmis eski teklif ile yeni revizyon ayni
+    // anda gecerliymis gibi gorunmez; eski kayit listede ayirt edilir ve PDF'i
+    // yeniden uretilirse ustune "gecerli degildir" bandi basilir. Kilitli
+    // (Kabul Edildi / Tamamlandı) teklifler bu isaretlemenin DISINDADIR.
+    // Donen QVariantMap: "basarili" (bool), "teklifId" (int), "hata" (string),
+    //   "revizeEdilenTeklifIdler" (QVariantList<int>, bu kayit yuzunden
+    //   "Revize Edildi" durumuna alinan eski tekliflerin id'leri; bos olabilir).
     Q_INVOKABLE QVariantMap teklifKaydet(const QVariantMap &teklif);
 
     // Giden/Alınan/Biten Tekliflerim'deki "Detay" butonu icin: bir teklifin
@@ -164,6 +176,11 @@ public:
 
     // QML'deki durum menusunun beslendigi tek kaynak; boylece gecerli durum
     // listesi C++ ile QML arasinda ikiye bolunmez.
+    //
+    // NOT: "Revize Edildi" bu listede YOKTUR -- elle secilen bir durum degildir,
+    // yalnizca teklifKaydet bir revizyon olustururken sistem tarafindan yazilir.
+    // teklifDurumGuncelle yine de bu degeri gecerli sayar; boylece kullanici
+    // rozet menusunden teklifi "Beklemede"ye geri alabilir.
     Q_INVOKABLE QStringList gecerliDurumlar() const;
 
     // ------------------------------------------------------------------
