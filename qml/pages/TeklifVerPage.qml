@@ -73,8 +73,14 @@ Item {
     }
 
     component UcretAlani: Rectangle {
-        property alias metin: girdi.text
+        id: ucretAlani
         property string birim: "%"
+        // Kutunun sayisal degeri -- metin artik "15.200,50" gibi bicimli oldugu
+        // icin disaridan okurken/yazarken hep bu ikisi kullanilir.
+        readonly property real deger: ucretBicimi.deger
+        property real baslangicDegeri: 0
+        function ayarla(sayi) { ucretBicimi.ayarla(sayi) }
+
         Layout.fillWidth: true
         Layout.preferredHeight: Theme.girdiYuksekligi
         radius: Theme.radiusKucuk
@@ -96,20 +102,29 @@ Item {
                 color: Theme.metinBirincil
                 font.family: Theme.fontAilesi
                 font.pixelSize: Theme.fontBoyutNormal
-                validator: DoubleValidator { bottom: 0; decimals: 2 }
                 verticalAlignment: TextInput.AlignVCenter
-                onTextChanged: if (!activeFocus) cursorPosition = 0
-                onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
+                // Binlik ayraci/ondalik virgul yonetimi (validator dahil) buna ait.
+                SayiBicimlendirici { id: ucretBicimi; ondalik: 2 }
             }
             Label { text: parent.parent.birim; color: Theme.metinSoluk; font.pixelSize: Theme.fontBoyutKucuk }
         }
+
+        Component.onCompleted: ucretBicimi.ayarla(ucretAlani.baslangicDegeri)
     }
 
     // Sepet satirlarindaki elle degistirilebilir Maliyet/Birim Fiyat hucreleri
     // icin kompakt sayisal girdi kutusu.
     component SepetSayiAlani: Rectangle {
-        property alias metin: sayiGirdisi.text
+        id: sepetSayiAlani
+        // Gosterilecek deger. Metin kutusuna BINDING ile degil, degistikce
+        // sayiBicimi.ayarla() ile yazilir -- canli bicimlendirme metne elle
+        // atama yaptigi icin binding ilk duzenlemede kopardi.
+        property real deger: 0
+        property int ondalik: 2
         signal degisti(real yeniDeger)
+
+        onDegerChanged: if (!sayiGirdisi.activeFocus) sayiBicimi.ayarla(deger)
+        Component.onCompleted: sayiBicimi.ayarla(deger)
         Layout.preferredWidth: 80
         Layout.preferredHeight: 30
         radius: Theme.radiusKucuk
@@ -134,12 +149,10 @@ Item {
             font.pixelSize: 11
             horizontalAlignment: Text.AlignLeft
             verticalAlignment: TextInput.AlignVCenter
-            validator: DoubleValidator { bottom: 0; decimals: 2 }
             selectByMouse: true
-            onEditingFinished: parent.degisti(parseFloat(text) || 0)
-            onTextChanged: if (!activeFocus) cursorPosition = 0
-            onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
-            Component.onCompleted: cursorPosition = 0
+            onEditingFinished: sepetSayiAlani.degisti(sayiBicimi.deger)
+
+            SayiBicimlendirici { id: sayiBicimi; ondalik: sepetSayiAlani.ondalik }
         }
     }
 
@@ -374,16 +387,13 @@ Item {
         root.uretimNotu = veri.uretimNotu || ""
         root.teklifDurumu = veri.durum || ""
 
-        // ONEMLI: Bu dort deger, GORUNEN UcretAlani ("...Wrap") kutularina yazilir --
-        // gizli hesap TextField'larina (indirimAlani vb.) DEGIL. Cunku gizli alanlarin
-        // text'i "text: indirimAlaniWrap.metin" seklinde bir BINDING ile gorunen
-        // kutuya bagli; oraya elle deger atamak bu binding'i kalici olarak koparir ve
-        // kullanici indirim/KDV kutusuna yazdiginda hesaplar bir daha guncellenmez
-        // (hem revizyonda hem de sonraki yeni tekliflerde).
-        indirimAlaniWrap.metin = String(veri.genelIndirimOrani)
-        kdvAlaniWrap.metin = String(veri.kdvOrani)
-        paketlemeAlaniWrap.metin = veri.paketlemeUcretiTl.toFixed(2)
-        tasimaAlaniWrap.metin = veri.tasimaUcretiTl.toFixed(2)
+        // Ticari sartlar gorunen UcretAlani kutularina ayarla() ile yazilir --
+        // kutudaki metin Turkce bicimde ("1.500,00") tutuldugu icin dogrudan
+        // "text = ..." atamasi yapilmamali.
+        indirimAlaniWrap.ayarla(veri.genelIndirimOrani)
+        kdvAlaniWrap.ayarla(veri.kdvOrani)
+        paketlemeAlaniWrap.ayarla(veri.paketlemeUcretiTl)
+        tasimaAlaniWrap.ayarla(veri.tasimaUcretiTl)
 
         dilCombo.currentIndex = Math.max(0, dilCombo.model.indexOf(veri.dil))
 
@@ -393,10 +403,10 @@ Item {
         // calisir ve teklifin kaydedildigi andaki ORIJINAL kuru ezer.
         if (veri.paraBirimi === "USD") {
             root.usdKur = veri.kur
-            usdKurAlani.text = veri.kur.toFixed(4)
+            usdKurBicimi.ayarla(veri.kur)
         } else if (veri.paraBirimi === "EUR") {
             root.eurKur = veri.kur
-            eurKurAlani.text = veri.kur.toFixed(4)
+            eurKurBicimi.ayarla(veri.kur)
         }
         paraBirimiCombo.currentIndex = Math.max(0, paraBirimiCombo.model.indexOf(veri.paraBirimi))
 
@@ -437,10 +447,10 @@ Item {
         root.teklifDurumu = ""
 
         // Ticari sartlar da ekranin acilistaki varsayilanlarina doner.
-        indirimAlaniWrap.metin = "0"
-        kdvAlaniWrap.metin = "20"
-        paketlemeAlaniWrap.metin = "0"
-        tasimaAlaniWrap.metin = "0"
+        indirimAlaniWrap.ayarla(0)
+        kdvAlaniWrap.ayarla(20)
+        paketlemeAlaniWrap.ayarla(0)
+        tasimaAlaniWrap.ayarla(0)
 
         bilgiMesaji.text = ""
     }
@@ -560,7 +570,41 @@ Item {
         const mevcutTl = root.sepet[dizinIndex][alanAdi]
         if (yeniDeger.toFixed(2) === root.tlDenCevir(mevcutTl).toFixed(2))
             return
-        root.sepetAlaniGuncelle(dizinIndex, alanAdi, root.tlYeCevir(yeniDeger))
+        const yeniTl = root.tlYeCevir(yeniDeger)
+        root.sepetAlaniGuncelle(dizinIndex, alanAdi, yeniTl)
+        // Maliyet, bu teklife ozel bir dokunus degil urunun GUNCEL maliyetidir:
+        // elle duzeltildiginde katalogdaki deger de (dbo.urunler.GuncelMaliyetTL)
+        // ayni anda guncellenir. Birim fiyat bunun DISINDADIR -- o teklifin
+        // pazarligina gore degisir, katalog fiyatini baglamaz.
+        if (alanAdi === "maliyet")
+            root.urunMaliyetiniKatalogaYaz(dizinIndex, yeniTl)
+    }
+
+    // Sepetteki bir kalemin yeni maliyetini urun kataloguna isler. Manuel
+    // kalemlerin (urunId yok) katalogda karsiligi olmadigi icin atlanir.
+    function urunMaliyetiniKatalogaYaz(dizinIndex, maliyetTl) {
+        const kalem = root.sepet[dizinIndex]
+        const urunId = kalem.urunId || 0
+        if (urunId <= 0)
+            return
+
+        if (database.urunMaliyetiGuncelle(urunId, maliyetTl)) {
+            bilgiMesaji.color = Theme.basariAcik
+            bilgiMesaji.text = (kalem.urunKodu || "Ürün") + " maliyeti güncellendi: "
+                               + root.paraFormat(maliyetTl) + " ₺"
+            // Soldaki arama sonuclari maliyeti kendi icinde tasir; tazelenmezse
+            // ayni urun sepetten cikarilip yeniden eklendiginde ESKI maliyetiyle
+            // gelirdi.
+            database.urunAraBaslat(urunAramaKutusu.text, 40, dilCombo.currentText)
+        } else {
+            // Urun bulunamadiysa/manuel satirsa hata mesaji bos gelir -- bu
+            // durumda kullaniciyi bosuna uyarmayiz, sepetteki deger yine gecerli.
+            const hata = database.sonHataMesaji()
+            if (hata.length > 0) {
+                bilgiMesaji.color = Theme.tehlikeAcik
+                bilgiMesaji.text = "Maliyet kataloğa kaydedilemedi: " + hata
+            }
+        }
     }
 
     // Sepet + form alanlarindan teklifKaydet()/satisSozlesmesiOlustur() icin
@@ -682,10 +726,10 @@ Item {
     }
 
     // --- Canli hesaplamalar ---
-    readonly property real indirimOrani: parseFloat(indirimAlani.text) || 0
-    readonly property real kdvOrani: parseFloat(kdvAlani.text) || 0
-    readonly property real paketlemeUcretiTl: parseFloat(paketlemeAlani.text) || 0
-    readonly property real tasimaUcretiTl: parseFloat(tasimaAlani.text) || 0
+    readonly property real indirimOrani: indirimAlaniWrap.deger
+    readonly property real kdvOrani: kdvAlaniWrap.deger
+    readonly property real paketlemeUcretiTl: paketlemeAlaniWrap.deger
+    readonly property real tasimaUcretiTl: tasimaAlaniWrap.deger
 
     readonly property real toplamMaliyetTl: sepet.reduce((acc, k) => acc + (k.maliyet * k.adet), 0)
     readonly property real indirimsizToplamTl: sepet.reduce((acc, k) => acc + (k.birimFiyatTl * k.adet), 0)
@@ -1158,7 +1202,7 @@ Item {
                                 Layout.maximumWidth: 100
                                 spacing: 4
                                 Label { text: "💳  İNDİRİM %"; color: Theme.metinIkincil; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; elide: Text.ElideRight; Layout.maximumWidth: 100 }
-                                UcretAlani { id: indirimAlaniWrap; metin: "0"; birim: "%" }
+                                UcretAlani { id: indirimAlaniWrap; baslangicDegeri: 0; birim: "%" }
                             }
                             ColumnLayout {
                                 Layout.preferredWidth: 100
@@ -1166,7 +1210,7 @@ Item {
                                 Layout.maximumWidth: 100
                                 spacing: 4
                                 Label { text: "KDV %"; color: Theme.metinIkincil; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                                UcretAlani { id: kdvAlaniWrap; metin: "20"; birim: "%" }
+                                UcretAlani { id: kdvAlaniWrap; baslangicDegeri: 20; birim: "%" }
                             }
                         }
                         RowLayout {
@@ -1178,7 +1222,7 @@ Item {
                                 Layout.maximumWidth: 100
                                 spacing: 4
                                 Label { text: "PAKETLEME"; color: Theme.metinIkincil; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; elide: Text.ElideRight; Layout.maximumWidth: 100 }
-                                UcretAlani { id: paketlemeAlaniWrap; metin: "0"; birim: "TL" }
+                                UcretAlani { id: paketlemeAlaniWrap; baslangicDegeri: 0; birim: "TL" }
                             }
                             ColumnLayout {
                                 Layout.preferredWidth: 100
@@ -1186,18 +1230,14 @@ Item {
                                 Layout.maximumWidth: 100
                                 spacing: 4
                                 Label { text: "TAŞIMA"; color: Theme.metinIkincil; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                                UcretAlani { id: tasimaAlaniWrap; metin: "0"; birim: "TL" }
+                                UcretAlani { id: tasimaAlaniWrap; baslangicDegeri: 0; birim: "TL" }
                             }
                         }
 
-                        // NOT: yukaridaki UcretAlani bileseninin ic TextField'ina disaridan
-                        // dogrudan id ile erisemedigimiz icin (component-local scope), gercek
-                        // hesaplama TextField'larini burada ayri, gizli tutuyoruz ve UcretAlani
-                        // alanlariyla iki yonlu baglantiliyoruz.
-                        TextField { id: indirimAlani; visible: false; text: indirimAlaniWrap.metin }
-                        TextField { id: kdvAlani; visible: false; text: kdvAlaniWrap.metin }
-                        TextField { id: paketlemeAlani; visible: false; text: paketlemeAlaniWrap.metin }
-                        TextField { id: tasimaAlani; visible: false; text: tasimaAlaniWrap.metin }
+                        // NOT: Eskiden burada, UcretAlani kutularinin metnini yansitan gizli
+                        // hesap TextField'lari vardi. Artik UcretAlani sayisal degerini
+                        // dogrudan "deger" property'si ile veriyor (bkz. indirimOrani vb.),
+                        // bu yuzden gizli alanlara gerek kalmadi.
                     }
 
                     Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; Layout.leftMargin: 16; Layout.rightMargin: 16; color: Theme.kenarlik }
@@ -1790,13 +1830,13 @@ Item {
 
                                 SepetSayiAlani {
                                     Layout.preferredWidth: 80
-                                    metin: root.tlDenCevir(sepetSatiri.modelData.maliyet).toFixed(2)
+                                    deger: root.tlDenCevir(sepetSatiri.modelData.maliyet)
                                     onDegisti: (yeniDeger) => root.sepetTutarGuncelle(sepetSatiri.index, "maliyet", yeniDeger)
                                 }
 
                                 SepetSayiAlani {
                                     Layout.preferredWidth: 80
-                                    metin: root.tlDenCevir(sepetSatiri.modelData.birimFiyatTl).toFixed(2)
+                                    deger: root.tlDenCevir(sepetSatiri.modelData.birimFiyatTl)
                                     onDegisti: (yeniDeger) => root.sepetTutarGuncelle(sepetSatiri.index, "birimFiyatTl", yeniDeger)
                                 }
 
@@ -1934,8 +1974,8 @@ Item {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
-                                usdKurAlani.text = root.usdKur > 0 ? root.usdKur.toFixed(4) : ""
-                                eurKurAlani.text = root.eurKur > 0 ? root.eurKur.toFixed(4) : ""
+                                if (root.usdKur > 0) usdKurBicimi.ayarla(root.usdKur); else usdKurBicimi.temizle()
+                                if (root.eurKur > 0) eurKurBicimi.ayarla(root.eurKur); else eurKurBicimi.temizle()
                                 root.kurElleDuzenleModu = true
                             }
                         }
@@ -1970,13 +2010,13 @@ Item {
                                     color: Theme.metinBirincil
                                     font.family: Theme.fontAilesi
                                     font.pixelSize: Theme.fontBoyutKucuk
-                                    validator: DoubleValidator { bottom: 0; decimals: 4 }
                                     verticalAlignment: TextInput.AlignVCenter
-                                    onTextChanged: {
-                                        root.usdKur = parseFloat(text) || 0
-                                        if (!activeFocus) cursorPosition = 0
+
+                                    SayiBicimlendirici {
+                                        id: usdKurBicimi
+                                        ondalik: 4
+                                        onDegerChanged: root.usdKur = deger
                                     }
-                                    onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
                                 }
                             }
                         }
@@ -1999,13 +2039,13 @@ Item {
                                     color: Theme.metinBirincil
                                     font.family: Theme.fontAilesi
                                     font.pixelSize: Theme.fontBoyutKucuk
-                                    validator: DoubleValidator { bottom: 0; decimals: 4 }
                                     verticalAlignment: TextInput.AlignVCenter
-                                    onTextChanged: {
-                                        root.eurKur = parseFloat(text) || 0
-                                        if (!activeFocus) cursorPosition = 0
+
+                                    SayiBicimlendirici {
+                                        id: eurKurBicimi
+                                        ondalik: 4
+                                        onDegerChanged: root.eurKur = deger
                                     }
-                                    onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
                                 }
                             }
                         }
@@ -2347,10 +2387,10 @@ Item {
             manuelKategori.text = ""
             manuelAciklama.text = ""
             manuelAciklamaEn.text = ""
-            manuelFiyat.text = ""
-            manuelFiyatUsd.text = ""
-            manuelFiyatEur.text = ""
-            manuelMaliyet.text = ""
+            manuelFiyatBicimi.temizle()
+            manuelFiyatUsdBicimi.temizle()
+            manuelFiyatEurBicimi.temizle()
+            manuelMaliyetBicimi.temizle()
             manuelHataMesaji.text = ""
         }
 
@@ -2363,8 +2403,8 @@ Item {
             // (UrunlerimPage ile ayni urunEkle) -- boylece katalogda kaydi kalir,
             // aramalarda bulunur ve sepete gercek UrunId'si ile eklenir.
             const urunKodu = manuelKod.text.trim()
-            const birimFiyatTl = parseFloat(manuelFiyat.text) || 0
-            const maliyet = parseFloat(manuelMaliyet.text) || 0
+            const birimFiyatTl = manuelFiyatBicimi.deger
+            const maliyet = manuelMaliyetBicimi.deger
             const sonuc = database.urunEkle({
                 urunKodu: urunKodu,
                 kategori: manuelKategori.text.trim(),
@@ -2386,8 +2426,8 @@ Item {
                 aciklamaEn: manuelAciklamaEn.text,
                 adet: 1,
                 birimFiyatTl: birimFiyatTl,
-                birimFiyatUsd: parseFloat(manuelFiyatUsd.text) || 0,
-                birimFiyatEur: parseFloat(manuelFiyatEur.text) || 0,
+                birimFiyatUsd: manuelFiyatUsdBicimi.deger,
+                birimFiyatEur: manuelFiyatEurBicimi.deger,
                 maliyet: maliyet
             })
             manuelUrunDialogu.close()
@@ -2444,19 +2484,19 @@ Item {
                     spacing: 3
                     Layout.fillWidth: true
                     Label { text: "BİRİM SATIŞ FİYATI (TL)"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                    ManuelUrunAlani { id: manuelFiyat; placeholderText: "0.00"; validator: DoubleValidator { bottom: 0; decimals: 2 } }
+                    ManuelUrunAlani { id: manuelFiyat; placeholderText: "0,00"; SayiBicimlendirici { id: manuelFiyatBicimi } }
                 }
                 ColumnLayout {
                     spacing: 3
                     Layout.fillWidth: true
                     Label { text: "DOLAR BİRİM FİYATI (USD)"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                    ManuelUrunAlani { id: manuelFiyatUsd; placeholderText: "0.00"; validator: DoubleValidator { bottom: 0; decimals: 2 } }
+                    ManuelUrunAlani { id: manuelFiyatUsd; placeholderText: "0,00"; SayiBicimlendirici { id: manuelFiyatUsdBicimi } }
                 }
                 ColumnLayout {
                     spacing: 3
                     Layout.fillWidth: true
                     Label { text: "EURO BİRİM FİYATI (EUR)"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                    ManuelUrunAlani { id: manuelFiyatEur; placeholderText: "0.00"; validator: DoubleValidator { bottom: 0; decimals: 2 } }
+                    ManuelUrunAlani { id: manuelFiyatEur; placeholderText: "0,00"; SayiBicimlendirici { id: manuelFiyatEurBicimi } }
                 }
             }
 
@@ -2464,7 +2504,7 @@ Item {
                 spacing: 3
                 Layout.fillWidth: true
                 Label { text: "YURTİÇİ MALİYET BİRİM FİYATI (TL)"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                ManuelUrunAlani { id: manuelMaliyet; placeholderText: "0.00"; validator: DoubleValidator { bottom: 0; decimals: 2 } }
+                ManuelUrunAlani { id: manuelMaliyet; placeholderText: "0,00"; SayiBicimlendirici { id: manuelMaliyetBicimi } }
             }
 
             RowLayout {

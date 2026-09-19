@@ -30,7 +30,9 @@ public:
     ~Database() override;
 
     bool baglantiHazirMi() const { return m_baglantiHazir; }
-    QString sonHataMesaji() const { return m_sonHataMesaji; }
+    // Q_INVOKABLE: false donen islemlerin (ornegin revize edilmis teklifin durumunu
+    // degistirmeye calismak) sebebini QML kullaniciya aynen gosterebilsin diye.
+    Q_INVOKABLE QString sonHataMesaji() const { return m_sonHataMesaji; }
 
     // Giris ekrani icin kimlik dogrulama.
     // Donen QVariantMap anahtarlari:
@@ -165,6 +167,13 @@ public:
     //
     // redSebebi yalnizca "Reddedildi" gecisinde kullanilir; kullaniciId 0 ise log
     // satirina NULL yazilir.
+    //
+    // REVIZE EDILMIS TEKLIF DEGISTIRILEMEZ: durumu "Revize Edildi" olan ve zincirde
+    // kendisinden daha yeni bir revizyonu BULUNAN teklif icin bu metot false doner
+    // (sebep sonHataMesaji()'nda). Aksi halde teklifin eski surumu "Kabul Edildi"
+    // olurken guncel surumu "Beklemede" kalabilir, yani ayni teklifin iki fiyatli
+    // surumu ayni anda gecerli gorunurdu. Yeni revizyon silinmisse kayit yeniden
+    // zincirin sonu olur ve normal sekilde islenebilir.
     Q_INVOKABLE bool teklifDurumGuncelle(int teklifId, const QString &durum,
                                          const QString &redSebebi = QString(),
                                          int kullaniciId = 0);
@@ -179,8 +188,8 @@ public:
     //
     // NOT: "Revize Edildi" bu listede YOKTUR -- elle secilen bir durum degildir,
     // yalnizca teklifKaydet bir revizyon olustururken sistem tarafindan yazilir.
-    // teklifDurumGuncelle yine de bu degeri gecerli sayar; boylece kullanici
-    // rozet menusunden teklifi "Beklemede"ye geri alabilir.
+    // Bu durumdaki bir teklifin durumu elle DEGISTIRILEMEZ de (bkz.
+    // teklifDurumGuncelle notu); islem her zaman guncel revizyon uzerinden yapilir.
     Q_INVOKABLE QStringList gecerliDurumlar() const;
 
     // ------------------------------------------------------------------
@@ -213,6 +222,23 @@ public:
     // kisitlamasi nedeniyle basarisiz olur -- hata alaninda kullaniciya
     // anlasilir mesaj doner.
     Q_INVOKABLE QVariantMap urunSil(int urunId);
+
+    // Teklif Ver ekranindaki sepet satirinda maliyet elle degistirildiginde
+    // cagrilir: girilen maliyet yalnizca o teklifin kalemine yazilmaz, urunun
+    // KATALOGDAKI guncel maliyeti de (dbo.urunler.GuncelMaliyetTL) ayni degere
+    // cekilir -- boylece ayni urun bir sonraki teklife de guncel maliyetiyle
+    // gelir. Urunun diger alanlarina (kod, aciklama, birim fiyat) dokunmaz.
+    //
+    // maliyetTl TL olmalidir: katalog maliyeti her zaman TL tutulur (bkz.
+    // urunEkle notu), teklif ekrani ise tutarlari secili para biriminde
+    // gosterir -- cagiran taraf degeri TL'ye cevirip gonderir.
+    //
+    // Manuel kalemler icin olusturulan "MANUEL-<teklifId>" kodlu gecici satirlar
+    // katalog urunu degildir; bu metot onlari bilincli olarak disarida birakir
+    // (urunId <= 0 olan manuel kalemler zaten buraya hic gelmez).
+    // Guncelleme yapildiysa true; urun bulunamazsa/manuelse veya SQL hatasi
+    // olursa false doner (hata varsa sebebi sonHataMesaji()'nda).
+    Q_INVOKABLE bool urunMaliyetiGuncelle(int urunId, double maliyetTl);
 
     // ------------------------------------------------------------------
     // Personellerim (WPF'teki Personellerim + PersonelEkle/PersonelDetayWindow
@@ -332,6 +358,10 @@ private:
     static bool teklifKilitliMi(const QString &durum);
     // Teklifin guncel durumu; teklif bulunamazsa bos string.
     QString teklifDurumuGetir(int teklifId);
+    // Bu teklifin YERINE GECEN (ayni revizyon zincirinde daha yeni) teklifin
+    // TeklifId'si; zincirin en son uyesi buysa 0. Revize edilmis bir teklif
+    // uzerinde islem yapilip yapilamayacagi buna gore belirlenir.
+    int teklifYerineGecenIdGetir(int teklifId);
 
     QSqlDatabase m_db;
     bool m_baglantiHazir = false;

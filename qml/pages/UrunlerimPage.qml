@@ -108,8 +108,8 @@ Item {
                     kategoriAlani.text = ""
                     aciklamaAlani.text = ""
                     aciklamaEnAlani.text = ""
-                    birimFiyatAlani.text = "0"
-                    maliyetAlani.text = "0"
+                    birimFiyatBicimi.ayarla(0)
+                    maliyetBicimi.ayarla(0)
                     duzenlemeDialogu.open()
                 }
                 background: Rectangle { radius: Theme.radiusKucuk; color: Theme.vurgu }
@@ -278,8 +278,8 @@ Item {
                                 kategoriAlani.text = satir.modelData.kategori
                                 aciklamaAlani.text = satir.modelData.urunAciklamasi
                                 aciklamaEnAlani.text = satir.modelData.urunAciklamasiEn
-                                birimFiyatAlani.text = String(satir.modelData.birimFiyat)
-                                maliyetAlani.text = String(satir.modelData.maliyet)
+                                birimFiyatBicimi.ayarla(satir.modelData.birimFiyat)
+                                maliyetBicimi.ayarla(satir.modelData.maliyet)
                                 duzenlemeDialogu.open()
                             }
                             background: Rectangle { radius: 5; color: "transparent"; border.width: 1; border.color: Theme.kenarlikVurgu }
@@ -364,8 +364,8 @@ Item {
                 kategori: kategoriAlani.text,
                 urunAciklamasi: aciklamaAlani.text,
                 urunAciklamasiEn: aciklamaEnAlani.text,
-                birimFiyat: parseFloat(birimFiyatAlani.text) || 0,
-                maliyet: parseFloat(maliyetAlani.text) || 0
+                birimFiyat: birimFiyatBicimi.deger,
+                maliyet: maliyetBicimi.deger
             }
         }
 
@@ -399,8 +399,8 @@ Item {
             FormAlani { id: aciklamaEnAlani; placeholderText: "Ürün Açıklaması (İngilizce)" }
             RowLayout {
                 Layout.fillWidth: true
-                FormAlani { id: birimFiyatAlani; placeholderText: "Birim Satış Fiyatı (TL)"; validator: DoubleValidator { bottom: 0; decimals: 2 } }
-                FormAlani { id: maliyetAlani; placeholderText: "Maliyet (TL)"; validator: DoubleValidator { bottom: 0; decimals: 2 } }
+                FormAlani { id: birimFiyatAlani; placeholderText: "Birim Satış Fiyatı (TL)"; SayiBicimlendirici { id: birimFiyatBicimi } }
+                FormAlani { id: maliyetAlani; placeholderText: "Maliyet (TL)"; SayiBicimlendirici { id: maliyetBicimi } }
             }
         }
     }

@@ -1003,6 +1003,33 @@ bool Database::teklifKilitliMi(const QString &durum)
     return durum == "Kabul Edildi" || durum == "Tamamlandı";
 }
 
+int Database::teklifYerineGecenIdGetir(int teklifId)
+{
+    // Bu teklifin ait oldugu revizyon zincirinde DAHA YENI (RevizyonNo'su buyuk)
+    // bir kayit varsa onun TeklifId'sini doner; yoksa 0.
+    //
+    // "Revize Edildi" durumu icin tek dogru kaynak budur: durum sutunu tek basina
+    // yeterli degil, cunku yeni revizyon SILINMIS olabilir -- o zaman eski kayit
+    // zincirin yeniden en son (yani gecerli) uyesi olur ve uzerinde tekrar islem
+    // yapilabilmesi gerekir (bkz. teklifDurumGuncelle).
+    QSqlQuery query(m_db);
+    query.prepare(
+        "SELECT TOP 1 g.TeklifId "
+        "FROM dbo.teklifler g "
+        "INNER JOIN dbo.teklifler t ON t.TeklifId = :id "
+        "WHERE (g.TeklifId = ISNULL(t.AnaTeklifId, t.TeklifId) "
+        "       OR g.AnaTeklifId = ISNULL(t.AnaTeklifId, t.TeklifId)) "
+        "  AND g.RevizyonNo > t.RevizyonNo "
+        "ORDER BY g.RevizyonNo DESC");
+    query.bindValue(":id", teklifId);
+    if (!query.exec())
+    {
+        qWarning() << "teklifYerineGecenIdGetir basarisiz:" << teklifId << query.lastError().text();
+        return 0;
+    }
+    return query.next() ? query.value(0).toInt() : 0;
+}
+
 QString Database::teklifDurumuGetir(int teklifId)
 {
     QSqlQuery query(m_db);
@@ -1104,9 +1131,12 @@ bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QSt
     if (!baglantiHazir())
         return false;
 
+    // QML, false donusunde sebebi sonHataMesaji()'ndan okuyor; onceki bir islemden
+    // kalan mesaji yanlislikla bu cagriya ait sanmasin diye basta temizliyoruz.
+    m_sonHataMesaji.clear();
+
     // "Revize Edildi" menude yer almaz (kullanici elle secmez) ama gecerli bir
-    // durumdur: sistem revizyon kaydederken yazar, kullanici da rozet menusunden
-    // "Beklemede"ye alarak geri dondurebilir.
+    // durumdur: sistem revizyon kaydederken yazar.
     if (!gecerliDurumlar().contains(durum) && durum != DURUM_REVIZE_EDILDI)
     {
         qWarning() << "teklifDurumGuncelle: gecersiz durum:" << durum;
@@ -1131,6 +1161,33 @@ bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QSt
 
     if (eskiDurum == durum)
         return true;
+
+    // --- GECERSIZ KILINMIS REVIZYON UZERINDE ISLEM YAPILAMAZ -----------------
+    // Revize edilmis bir teklif artik musteriye verilmis GECERLI teklif degildir;
+    // yerine zincirin yeni bir uyesi gecmistir. Bu satirin durumu elle
+    // degistirilebilse, teklifin ESKI surumu "Kabul Edildi" olurken YENI surumu
+    // "Beklemede" kalabilir ve ayni teklifin iki farkli fiyatli surumu ayni anda
+    // "yururlukte" gorunur -- kabul edilen tutarin hangisi oldugu belirsizlesir.
+    // "Beklemede"ye cevirmek de ayni kapiyi acar (oradan Kabul Edildi bir adim),
+    // bu yuzden geri dondurme dahil TUM elle gecisler engellenir.
+    //
+    // Kural zincirin GERCEK durumuna bakar, durum sutununa degil: yeni revizyon
+    // silinmisse bu kayit tekrar zincirin sonudur ve normal sekilde islenebilir.
+    if (eskiDurum == DURUM_REVIZE_EDILDI)
+    {
+        const int yerineGecen = teklifYerineGecenIdGetir(teklifId);
+        if (yerineGecen > 0)
+        {
+            qWarning() << "teklifDurumGuncelle: revize edilmis teklifin durumu degistirilemez:"
+                       << teklifId << "-> yerine gecen:" << yerineGecen;
+            m_sonHataMesaji = QString::fromUtf8(
+                                  "Teklif #%1 revize edildi; yerine #%2 geçti. Bu eski sürümün durumu "
+                                  "değiştirilemez — işlemi güncel teklif üzerinden yapın.")
+                                  .arg(teklifId)
+                                  .arg(yerineGecen);
+            return false;
+        }
+    }
 
     // Durum ileri geri degisebildigi icin, HER gecis tum durum alanlarini yeniden
     // yazar: yeni duruma ait tarih doldurulur, artik gecerli olmayanlar NULL'lanir.
@@ -1624,6 +1681,42 @@ QVariantMap Database::urunSil(int urunId)
     }
     sonuc["basarili"] = true;
     return sonuc;
+}
+
+bool Database::urunMaliyetiGuncelle(int urunId, double maliyetTl)
+{
+    m_sonHataMesaji.clear();
+
+    // Manuel kalemlerin katalogda karsiligi yoktur (urunId = 0) -- sessizce gec.
+    if (urunId <= 0)
+        return false;
+
+    if (!baglantiHazir())
+    {
+        m_sonHataMesaji = "Veritabanına bağlanılamadı.";
+        return false;
+    }
+
+    // UrunKodu NULL olabilir; NULL NOT LIKE ... NULL dondugu icin acikca
+    // "IS NULL" ile birlikte yaziliyor, aksi halde kodu girilmemis normal bir
+    // urunun maliyeti hic guncellenmezdi.
+    QSqlQuery query(m_db);
+    query.prepare(
+        "UPDATE dbo.urunler SET GuncelMaliyetTL = :maliyet "
+        "WHERE UrunId = :urunId AND (UrunKodu IS NULL OR UrunKodu NOT LIKE N'MANUEL%')");
+    query.bindValue(":maliyet", maliyetTl);
+    query.bindValue(":urunId", urunId);
+
+    if (!query.exec())
+    {
+        qWarning() << "urunMaliyetiGuncelle basarisiz:" << query.lastError().text();
+        m_sonHataMesaji = "Ürün maliyeti güncellenemedi: " + query.lastError().text();
+        return false;
+    }
+
+    // Eslesen satir yoksa (urun silinmis veya "MANUEL-..." gecici satir) hata
+    // mesaji birakilmaz: cagiran taraf bunu sessizce yok sayar.
+    return query.numRowsAffected() > 0;
 }
 
 QVariantList Database::rolListesiGetir()

@@ -41,12 +41,19 @@ set_source_files_properties(qml/Theme.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE
 )
 
+# SayiBicimi.qml de ayni sekilde bir singleton'dir (Turkce sayi bicimi
+# yardimcilari: "SayiBicimi.ayikla(...)", "SayiBicimi.bicimle(...)").
+set_source_files_properties(qml/SayiBicimi.qml PROPERTIES
+    QT_QML_SINGLETON_TYPE TRUE
+)
+
 qt_add_qml_module(erp_programi
     URI erp_programi
     VERSION 1.0
     QML_FILES
         qml/Main.qml
         qml/Theme.qml
+        qml/SayiBicimi.qml
         qml/pages/GecmisTekliflerPage.qml
         qml/pages/GirisPage.qml
         qml/pages/AnaMenuPage.qml
@@ -59,6 +66,7 @@ qt_add_qml_module(erp_programi
         qml/components/TarihTakvimi.qml
         qml/components/SozlesmeDuzenleDialog.qml
         qml/components/NotDuzenleDialog.qml
+        qml/components/SayiBicimlendirici.qml
 )
 
 target_link_libraries(erp_programi PRIVATE

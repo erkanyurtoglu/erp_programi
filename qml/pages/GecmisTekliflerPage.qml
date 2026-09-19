@@ -132,6 +132,25 @@ Item {
         return root.durumSecenekleri.filter(d => d !== mevcutDurum)
     }
 
+    // Bu satir GECERSIZ KILINMIS bir revizyon mu? Yani durumu "Revize Edildi" ve
+    // zincirde yerine gecen (daha yeni) bir teklif GERCEKTEN var mi?
+    // guncelTeklifId zincirin en son kaydini gosterir; bu satirin kendisiyse
+    // (yeni revizyon silinmis olabilir) kayit yeniden gecerlidir.
+    function revizeEdilmisMi(kayit) {
+        return kayit.durum === "Revize Edildi"
+               && kayit.guncelTeklifId > 0
+               && kayit.guncelTeklifId !== kayit.teklifId
+    }
+
+    // Rozet menusunde gosterilecek durumlar. Revize edilmis (gecersiz) bir teklifte
+    // HICBIRI gosterilmez: eski surumu "Kabul Edildi" yapmak, guncel revizyon
+    // beklemede dururken ayni teklifin iki fiyatli surumunu birden gecerli
+    // gostermek olurdu. Kural C++ tarafinda da uygulanir (teklifDurumGuncelle),
+    // burasi yalnizca kullaniciya sebebi gosteren yuzu.
+    function durumMenusuSecenekleri(kayit) {
+        return root.revizeEdilmisMi(kayit) ? [] : root.digerDurumlar(kayit.durum)
+    }
+
     // Menuden bir durum secildiginde cagrilir. "Reddedildi" secildiginde once red
     // sebebi sorulur, diger gecislerde kisa bir onay penceresi acilir -- zira bu
     // islem satiri bulundugu sekmeden tamamen dusurebilir (ornegin Alınan
@@ -155,8 +174,16 @@ Item {
     function durumUygula(teklifId, yeniDurum, redSebebi) {
         const basarili = database.teklifDurumGuncelle(teklifId, yeniDurum, redSebebi || "", root.kullaniciId)
         if (!basarili) {
-            root.pdfMesaji = "Teklif #" + teklifId + " durumu güncellenemedi."
+            // C++ tarafi reddin sebebini yaziyorsa (ornegin revize edilmis teklif)
+            // kullaniciya onu gosteriyoruz; yoksa genel mesaja duseriz.
+            const sebep = database.sonHataMesaji()
+            root.pdfMesaji = sebep && sebep.length > 0
+                             ? sebep
+                             : "Teklif #" + teklifId + " durumu güncellenemedi."
             root.pdfMesajiHata = true
+            // Engel bir yarista (baska kullanici bu arada revizyon kaydetmis olabilir)
+            // dogmus olabilir; listeyi yenileyerek satiri guncel haliyle gosteriyoruz.
+            root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
             return
         }
 
@@ -771,11 +798,17 @@ Item {
                                     return "Red sebebi: " + satir.modelData.redSebebi + "\nDurumu değiştirmek için tıklayın"
                                 // Revize edilmis teklif artik gecerli degildir; yerine gecen
                                 // (zincirin en son) teklifin numarasi C++ tarafindan gelir.
-                                if (d === "Revize Edildi")
+                                if (root.revizeEdilmisMi(satir.modelData))
                                     return "Bu teklif revize edildi, artık geçerli değil.\n"
                                          + "Yerine geçen teklif: #" + satir.modelData.guncelTeklifId
                                          + " (Rev." + satir.modelData.guncelRevizyonNo + ")\n"
+                                         + "Durumu değiştirilemez; kabul/red işlemi güncel teklif üzerinden yapılır.\n"
                                          + "PDF'i yeniden üretilirse üstüne \"geçerli değildir\" bandı basılır."
+                                // Durumu "Revize Edildi" ama yerine gecen revizyon silinmis:
+                                // kayit yeniden zincirin sonu, yani tekrar islenebilir.
+                                if (d === "Revize Edildi")
+                                    return "Bu teklifi geçersiz kılan revizyon silinmiş.\n"
+                                         + "Teklif yeniden geçerli; durumu değiştirmek için tıklayın"
                                 return "Durumu değiştirmek için tıklayın"
                             }
                             MouseArea {
@@ -800,8 +833,29 @@ Item {
                                     border.color: Theme.kenarlik
                                 }
 
+                                // Revize edilmis (gecersiz) teklifte durum secenegi yoktur;
+                                // menu yalnizca sebebi ve "Durum Geçmişi..."ni gosterir.
+                                MenuItem {
+                                    id: revizeBilgisi
+                                    visible: root.revizeEdilmisMi(satir.modelData)
+                                    height: revizeBilgisi.visible ? revizeBilgisiMetni.implicitHeight + 12 : 0
+                                    enabled: false
+                                    background: Rectangle { color: "transparent" }
+                                    contentItem: Text {
+                                        id: revizeBilgisiMetni
+                                        text: "Bu teklif revize edildi\n(yerine #" + satir.modelData.guncelTeklifId
+                                              + " geçti).\nDurumu değiştirilemez —\nişlemi güncel teklif\nüzerinden yapın."
+                                        color: Theme.uyariAcik
+                                        font.family: Theme.fontAilesi
+                                        font.pixelSize: Theme.fontBoyutKucuk
+                                        wrapMode: Text.WordWrap
+                                        leftPadding: 8
+                                        rightPadding: 8
+                                    }
+                                }
+
                                 Instantiator {
-                                    model: root.digerDurumlar(satir.modelData.durum)
+                                    model: root.durumMenusuSecenekleri(satir.modelData)
                                     onObjectAdded: (index, object) => durumMenusu.insertItem(index, object)
                                     onObjectRemoved: (index, object) => durumMenusu.removeItem(object)
 
