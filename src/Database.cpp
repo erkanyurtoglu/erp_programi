@@ -2319,3 +2319,236 @@ bool Database::teklifSozlesmeMetniKaydet(int teklifId, const QString &metin)
     }
     return true;
 }
+
+namespace
+{
+    // dbo.sevk_bilgileri'nin METIN sutunlari: {SQL sutun adi, QML anahtari}.
+    // Alan sayisi cok oldugu icin SELECT / INSERT / UPDATE uclusu bu tek
+    // listeden uretilir -- ileride yeni bir alan gerektiginde buraya bir satir
+    // eklemek (ve QML'de bir satir gostermek) yeterli olur.
+    //
+    // SiparisTarihi (DATE) bu listede YOKTUR: string degil tarih oldugu ve
+    // "yyyy-MM-dd" <-> DATE cevrimi gerektirdigi icin ayrica islenir.
+    struct SevkAlani
+    {
+        const char *sutun;
+        const char *anahtar;
+    };
+
+    const SevkAlani SEVK_METIN_ALANLARI[] = {
+        { "FaturaBasligi",        "faturaBasligi" },
+        { "FaturaAdresi",         "faturaAdresi" },
+        { "FaturaVergiDairesi",   "faturaVergiDairesi" },
+        { "FaturaVergiNo",        "faturaVergiNo" },
+        { "FaturaYetkili",        "faturaYetkili" },
+        { "FaturaTelefon",        "faturaTelefon" },
+        { "FaturaFax",            "faturaFax" },
+        { "FaturaEposta",         "faturaEposta" },
+        { "IrsaliyeBasligi",      "irsaliyeBasligi" },
+        { "IrsaliyeAdresi",       "irsaliyeAdresi" },
+        { "IrsaliyeVergiDairesi", "irsaliyeVergiDairesi" },
+        { "IrsaliyeVergiNo",      "irsaliyeVergiNo" },
+        { "IrsaliyeYetkili",      "irsaliyeYetkili" },
+        { "IrsaliyeTelefon",      "irsaliyeTelefon" },
+        { "IrsaliyeEposta",       "irsaliyeEposta" },
+        { "SiparisKdv",           "siparisKdv" },
+        { "FaturaSekli",          "faturaSekli" },
+        { "Garanti",              "garanti" },
+        { "Teslimat",             "teslimat" },
+        { "Odeme",                "odeme" },
+        { "Nakliye",              "nakliye" },
+        { "Kalibrasyon",          "kalibrasyon" },
+        { "Egitim",               "egitim" },
+        { "ReferansNumarasi",     "referansNumarasi" },
+        { "EkFaturaNotu",         "ekFaturaNotu" },
+        { "Aciklamalar",          "aciklamalar" }
+    };
+
+    // Bos birakilan alanlar bos string olarak degil NULL olarak saklanir --
+    // boylece "doldurulmamis" ile "bos birakilmis" ayrimi veritabaninda kalmaz
+    // ve listedeki AÇIKLAMALAR sutunu bos satirlarda gercekten bos gorunur.
+    QVariant sevkMetinParametresi(const QString &deger)
+    {
+        const QString temiz = deger.trimmed();
+        return temiz.isEmpty() ? QVariant(QMetaType(QMetaType::QString)) : QVariant(temiz);
+    }
+}
+
+QVariantMap Database::sevkBilgileriGetir(int teklifId)
+{
+    QVariantMap sonuc;
+    sonuc["basarili"] = false;
+    sonuc["hata"] = QString();
+    sonuc["kayitVarMi"] = false;
+    // Pencere her alani bulmayi bekler; kayit yoksa da haritayi bos degerlerle
+    // eksiksiz dolduruyoruz (QML tarafinda "undefined" kontrolu gerekmesin).
+    for (const SevkAlani &alan : SEVK_METIN_ALANLARI)
+        sonuc[alan.anahtar] = QString();
+    sonuc["siparisTarihi"] = QString();
+
+    if (teklifId <= 0)
+    {
+        sonuc["hata"] = "Geçersiz teklif.";
+        return sonuc;
+    }
+    if (!baglantiHazir())
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+
+    QStringList sutunlar;
+    for (const SevkAlani &alan : SEVK_METIN_ALANLARI)
+        sutunlar << QString::fromLatin1(alan.sutun);
+    sutunlar << "SiparisTarihi";
+
+    QSqlQuery query(m_db);
+    query.prepare("SELECT " + sutunlar.join(", ") + " FROM dbo.sevk_bilgileri WHERE TeklifId = :teklifId");
+    query.bindValue(":teklifId", teklifId);
+
+    if (!query.exec())
+    {
+        qWarning() << "sevkBilgileriGetir basarisiz:" << query.lastError().text();
+        sonuc["hata"] = "Sevk bilgileri okunamadı: " + query.lastError().text();
+        return sonuc;
+    }
+
+    if (query.next())
+    {
+        sonuc["kayitVarMi"] = true;
+        for (const SevkAlani &alan : SEVK_METIN_ALANLARI)
+            sonuc[alan.anahtar] = query.value(QString::fromLatin1(alan.sutun)).toString();
+        const QVariant siparisTarihiHam = query.value("SiparisTarihi");
+        sonuc["siparisTarihi"] = siparisTarihiHam.isNull()
+            ? QString()
+            : siparisTarihiHam.toDateTime().date().toString("yyyy-MM-dd");
+    }
+
+    // ON DOLDURMA (WPF'teki ApplyDefaultBillingInformation ile ayni fikir):
+    // fatura bilgileri neredeyse her zaman musterinin kendi bilgileridir, yetkili
+    // ve iletisim ise teklifteki ilgili kisidir. Kullanici farkli bir fatura
+    // basligi/adresi isterse ustune yazar; bu degerler ancak "Kaydet"e basilinca
+    // veritabanina gider.
+    QSqlQuery onQuery(m_db);
+    onQuery.prepare(
+        "SELECT m.FirmaAdi, m.FirmaAdresi, m.VergiDairesi, m.VergiNumarasi, "
+        "       t.IlgiliKisi, t.IlgiliKisiTelefonu, t.IlgiliKisiEposta, t.KdvOrani "
+        "FROM dbo.teklifler t "
+        "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
+        "WHERE t.TeklifId = :teklifId");
+    onQuery.bindValue(":teklifId", teklifId);
+
+    if (onQuery.exec() && onQuery.next())
+    {
+        auto bosAlaniDoldur = [&sonuc](const char *anahtar, const QString &varsayilan) {
+            if (!sonuc.value(anahtar).toString().trimmed().isEmpty())
+                return;
+            if (varsayilan.trimmed().isEmpty())
+                return;
+            sonuc[anahtar] = varsayilan.trimmed();
+        };
+
+        bosAlaniDoldur("faturaBasligi", onQuery.value("FirmaAdi").toString());
+        bosAlaniDoldur("faturaAdresi", onQuery.value("FirmaAdresi").toString());
+        bosAlaniDoldur("faturaVergiDairesi", onQuery.value("VergiDairesi").toString());
+        bosAlaniDoldur("faturaVergiNo", onQuery.value("VergiNumarasi").toString());
+        bosAlaniDoldur("faturaYetkili", onQuery.value("IlgiliKisi").toString());
+        bosAlaniDoldur("faturaTelefon", onQuery.value("IlgiliKisiTelefonu").toString());
+        bosAlaniDoldur("faturaEposta", onQuery.value("IlgiliKisiEposta").toString());
+
+        // KDV teklifte zaten secilidir; irsaliye formunda "%20" gibi gorunur.
+        const double kdvOrani = onQuery.value("KdvOrani").toDouble();
+        if (kdvOrani > 0)
+            bosAlaniDoldur("siparisKdv", "%" + QString::number(kdvOrani, 'g', 4));
+    }
+    else
+    {
+        // On doldurma yapilamamasi (ornegin teklif silinmis) kayit okumayi
+        // gecersiz kilmaz; form bos/kayitli haliyle acilir.
+        qWarning() << "sevkBilgileriGetir on doldurma basarisiz:" << teklifId << onQuery.lastError().text();
+    }
+
+    sonuc["basarili"] = true;
+    return sonuc;
+}
+
+QVariantMap Database::sevkBilgileriKaydet(int teklifId, const QVariantMap &sevk)
+{
+    QVariantMap sonuc;
+    sonuc["basarili"] = false;
+    sonuc["hata"] = QString();
+
+    if (teklifId <= 0)
+    {
+        sonuc["hata"] = "Geçersiz teklif.";
+        return sonuc;
+    }
+    if (!baglantiHazir())
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+
+    // Kilit kurali: teslim edilmis (Tamamlandı) teklifin sevk/irsaliye bilgileri
+    // artik degistirilemez -- pencere o teklifte zaten salt okunur acilir, bu
+    // kontrol kuralin veritabani tarafindaki karsiligidir.
+    if (teklifDurumuGetir(teklifId) == "Tamamlandı")
+    {
+        sonuc["hata"] = "Tamamlanmış teklifin sevk bilgileri değiştirilemez.";
+        return sonuc;
+    }
+
+    QSqlQuery varMiQuery(m_db);
+    varMiQuery.prepare("SELECT SevkBilgileriId FROM dbo.sevk_bilgileri WHERE TeklifId = :teklifId");
+    varMiQuery.bindValue(":teklifId", teklifId);
+    if (!varMiQuery.exec())
+    {
+        qWarning() << "sevkBilgileriKaydet (kayit kontrolu) basarisiz:" << varMiQuery.lastError().text();
+        sonuc["hata"] = "Sevk bilgileri okunamadı: " + varMiQuery.lastError().text();
+        return sonuc;
+    }
+    const bool kayitVar = varMiQuery.next();
+
+    QStringList atamalar;
+    QStringList sutunlar;
+    QStringList yerTutucular;
+    for (const SevkAlani &alan : SEVK_METIN_ALANLARI)
+    {
+        const QString sutun = QString::fromLatin1(alan.sutun);
+        const QString yerTutucu = ":" + QString::fromLatin1(alan.anahtar);
+        atamalar << sutun + " = " + yerTutucu;
+        sutunlar << sutun;
+        yerTutucular << yerTutucu;
+    }
+
+    QSqlQuery query(m_db);
+    if (kayitVar)
+    {
+        query.prepare("UPDATE dbo.sevk_bilgileri SET " + atamalar.join(", ")
+                      + ", SiparisTarihi = :siparisTarihi WHERE TeklifId = :teklifId");
+    }
+    else
+    {
+        query.prepare("INSERT INTO dbo.sevk_bilgileri (TeklifId, " + sutunlar.join(", ")
+                      + ", SiparisTarihi) VALUES (:teklifId, " + yerTutucular.join(", ")
+                      + ", :siparisTarihi)");
+    }
+
+    for (const SevkAlani &alan : SEVK_METIN_ALANLARI)
+    {
+        query.bindValue(":" + QString::fromLatin1(alan.anahtar),
+                        sevkMetinParametresi(sevk.value(alan.anahtar).toString()));
+    }
+    query.bindValue(":siparisTarihi", tarihParametresi(sevk.value("siparisTarihi").toString()));
+    query.bindValue(":teklifId", teklifId);
+
+    if (!query.exec())
+    {
+        qWarning() << "sevkBilgileriKaydet basarisiz:" << teklifId << query.lastError().text();
+        sonuc["hata"] = "Sevk bilgileri kaydedilemedi: " + query.lastError().text();
+        return sonuc;
+    }
+
+    sonuc["basarili"] = true;
+    return sonuc;
+}

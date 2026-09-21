@@ -305,6 +305,47 @@ public:
     // ise sutun NULL'lanir (varsayilana doner). Basariliysa true.
     Q_INVOKABLE bool teklifSozlesmeMetniKaydet(int teklifId, const QString &metin);
 
+    // ------------------------------------------------------------------
+    // Sevk ve irsaliye bilgileri (Alınan/Biten Tekliflerim'deki "İrsaliye"
+    // butonu; WPF'teki SevkBilgileriWindow'un karsiligi).
+    //
+    // Siparis kesinlestikten SONRA netlesen bilgiler burada tutulur: faturanin
+    // ve irsaliyenin hangi baslik/adres/vergi bilgileriyle kesilecegi, siparis
+    // sartlari (KDV, fatura sekli, garanti, teslimat, odeme, nakliye,
+    // kalibrasyon, egitim, referans no, ek fatura notu, siparis tarihi) ve
+    // sevkiyat aciklamasi. Satis personeli ile buro personeli ayni kaydi
+    // doldurur, sonradan ayni pencereden okur.
+    //
+    // dbo.sevk_bilgileri.TeklifId UNIQUE oldugu icin teklif basina TEK kayit
+    // vardir (bkz. db/01_yeni_veritabani_ve_sema.sql). Aciklamalar alani ayrica
+    // teklif listesindeki "AÇIKLAMALAR" sutununu besler (gecmisTekliflerGetir).
+    // ------------------------------------------------------------------
+
+    // Kayitli sevk bilgilerini doner. Kayit (veya bir alan) yoksa FATURA
+    // bilgileri musteri kartindan ve teklifin ilgili kisisinden, KDV ise
+    // teklifin KDV oranindan ON DOLDURULUR -- bu degerler yalnizca formda
+    // gosterilir, kullanici "Kaydet" demeden veritabanina YAZILMAZ.
+    // Donen QVariantMap: "basarili" (bool), "hata" (string),
+    //   "kayitVarMi" (bool; false ise form tamamen on doldurulmus demektir),
+    //   ve alanlar: faturaBasligi, faturaAdresi, faturaVergiDairesi,
+    //   faturaVergiNo, faturaYetkili, faturaTelefon, faturaFax, faturaEposta,
+    //   irsaliyeBasligi, irsaliyeAdresi, irsaliyeVergiDairesi, irsaliyeVergiNo,
+    //   irsaliyeYetkili, irsaliyeTelefon, irsaliyeEposta, siparisKdv,
+    //   faturaSekli, garanti, teslimat, odeme, nakliye, kalibrasyon, egitim,
+    //   referansNumarasi, ekFaturaNotu, aciklamalar (hepsi string),
+    //   "siparisTarihi" (string, "yyyy-MM-dd" veya bos).
+    Q_INVOKABLE QVariantMap sevkBilgileriGetir(int teklifId);
+
+    // Formdaki alanlari teklifin TEK sevk kaydina yazar (kayit yoksa olusturur,
+    // varsa gunceller). Bos birakilan alanlar NULL kaydedilir.
+    //
+    // KILIT KURALI: bu bilgiler kabulden sonra netlestigi icin "Kabul Edildi"
+    // teklifte serbestce doldurulur; is bitip teklif "Tamamlandı"ya gectikten
+    // sonra degistirilemez (planlanan teslim tarihi / uretim notuyla ayni kural,
+    // bkz. teklifTeslimatTarihiGuncelle ustundeki not).
+    // Donen: {basarili (bool), hata (string)}.
+    Q_INVOKABLE QVariantMap sevkBilgileriKaydet(int teklifId, const QVariantMap &sevk);
+
     // musteriAraBaslat/urunAraBaslat icin sonuc sinyalleri. "arama" (ve urun icin
     // "dil") istegi yapan tarafa aynen geri gonderilir; QML tarafi bunu arama
     // kutusunun O ANKI metniyle karsilastirip eskimis sonuclari gormezden gelir.

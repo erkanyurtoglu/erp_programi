@@ -86,8 +86,8 @@ Item {
     // Durum rozeti artik tiklanabilir bir menu acicisi oldugu icin icinde bir de
     // "▾" isareti tasiyor; sutun ona gore bir miktar genisletildi.
     readonly property int sutunDurum: 126
-    // Detay + PDF (+ Uretim) + Sil butonlari ve aralarindaki 6px bosluklar.
-    readonly property int sutunIslemler: root.uretimButonuGoster ? 262 : 190
+    // Detay + PDF (+ Uretim + İrsaliye) + Sil butonlari ve aralarindaki 6px bosluklar.
+    readonly property int sutunIslemler: root.uretimButonuGoster ? 340 : 190
     // Aciklamalar sutunu yalnizca yer oldugunda gosterilir; dar ekranda Firma Adi
     // sutunu ezilmesin diye gizlenir (icerik yine satirin tooltip'inde okunur).
     readonly property bool aciklamaSutunuGoster: root.width >= 1360
@@ -95,6 +95,11 @@ Item {
     // "Üretim" (uretim PDF'i) butonu: siparis kesinlesmis teklifler icin anlamli
     // oldugundan Alınan ve Biten Tekliflerim'de gosterilir.
     readonly property bool uretimButonuGoster: root.durumFiltresi === "Kabul Edildi" || root.durumFiltresi === "Tamamlandı"
+
+    // "İrsaliye" (sevk ve irsaliye bilgileri) butonu da ayni iki sekmede
+    // gosterilir: fatura/irsaliye basligi ve siparis sartlari ancak siparis
+    // kesinlestikten sonra netlesir (bkz. root.irsaliyeAc).
+    readonly property bool irsaliyeButonuGoster: root.uretimButonuGoster
 
     // --- Yuksekliklerin 4'un katina yuvarlanmasi (piksel hizalamasi) ----------
     // Windows'ta ekran olcegi genelde %125'tir (devicePixelRatio = 1.25). Bu
@@ -278,8 +283,47 @@ Item {
         }
     }
 
-    // Aciklamalar sutunu: yalnizca gocten gelen sevk aciklamasi. Notlar burada metin
-    // olarak yer kaplamaz; Teklif No hucresindeki not ikonuyla gosterilir.
+    // --- Sevk ve irsaliye bilgileri ------------------------------------------
+    // Siparis kesinlestikten sonra faturanin/irsaliyenin hangi baslik, adres ve
+    // vergi bilgileriyle kesilecegi ile siparis sartlari (KDV, garanti, teslimat,
+    // odeme, nakliye...) satis personeli ve buro personeli tarafindan bu
+    // pencerede doldurulur; sonradan ayni butondan okunur. Veri teklif basina
+    // tek kayittir (dbo.sevk_bilgileri).
+    //
+    // Tamamlanmis teklifte pencere SALT OKUNUR acilir -- is bitmis bir siparisin
+    // sevk bilgileri artik degistirilemez (ayni kural C++ tarafinda da uygulanir,
+    // bkz. Database::sevkBilgileriKaydet).
+    function irsaliyeAc(kayit) {
+        const sonuc = database.sevkBilgileriGetir(kayit.teklifId)
+        if (!sonuc.basarili) {
+            root.pdfMesaji = "Teklif #" + kayit.teklifId + " sevk bilgileri açılamadı: " + sonuc.hata
+            root.pdfMesajiHata = true
+            return
+        }
+        sevkDialogu.teklifId = kayit.teklifId
+        sevkDialogu.firmaAdi = kayit.firmaAdi
+        sevkDialogu.saltOkunur = kayit.durum === "Tamamlandı"
+        sevkDialogu.veri = sonuc
+        sevkDialogu.open()
+    }
+
+    function sevkBilgileriniKaydet(teklifId, sevk) {
+        const sonuc = database.sevkBilgileriKaydet(teklifId, sevk)
+        if (!sonuc.basarili) {
+            root.pdfMesaji = "Teklif #" + teklifId + " sevk bilgileri kaydedilemedi: " + sonuc.hata
+            root.pdfMesajiHata = true
+            return
+        }
+        root.pdfMesaji = "Teklif #" + teklifId + " sevk ve irsaliye bilgileri kaydedildi."
+        root.pdfMesajiHata = false
+        // AÇIKLAMALAR sutunu bu kayittan beslendigi icin (bkz. aciklamaMetni)
+        // listeyi yenileyip yeni aciklamayi hemen gosteriyoruz.
+        root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
+    }
+
+    // Aciklamalar sutunu: sevk kaydinin aciklamasi ("İrsaliye" penceresindeki
+    // AÇIKLAMALAR alani; eski programdan gocen kayitlarda da ayni alan). Notlar
+    // burada metin olarak yer kaplamaz; Teklif No hucresindeki not ikonuyla gosterilir.
     function aciklamaMetni(kayit) {
         return (kayit.aciklamalar || "").trim()
     }
@@ -1039,6 +1083,39 @@ Item {
                             }
                         }
 
+                        // Sevk ve irsaliye bilgileri penceresi (Alınan/Biten Tekliflerim).
+                        // Satis + buro personelinin ortak doldurdugu fatura/irsaliye
+                        // basligi, vergi bilgileri ve siparis sartlari buradan girilir
+                        // ve buradan okunur.
+                        Button {
+                            id: irsaliyeButonu
+                            visible: root.irsaliyeButonuGoster
+                            text: "İrsaliye"
+                            Layout.preferredWidth: Math.max(70, Math.ceil(irsaliyeMetni.implicitWidth) + 20)
+                            Layout.preferredHeight: root.hizalanmisYukseklik(Math.max(28, irsaliyeMetni.implicitHeight + 10))
+                            onClicked: root.irsaliyeAc(satir.modelData)
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            ToolTip.text: satir.modelData.durum === "Tamamlandı"
+                                          ? "Sevk ve irsaliye bilgilerini görüntüle (tamamlanmış teklif, değiştirilemez)"
+                                          : "Fatura / irsaliye bilgilerini ve sipariş şartlarını doldur"
+                            background: Rectangle {
+                                radius: 5
+                                color: irsaliyeButonu.hovered ? "#3a2a10" : "transparent"
+                                border.color: Theme.uyari
+                                border.width: 1
+                            }
+                            contentItem: Text {
+                                id: irsaliyeMetni
+                                text: "İrsaliye"
+                                color: Theme.uyariAcik
+                                font.family: Theme.fontAilesi
+                                font.pixelSize: Theme.fontBoyutKucuk
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+
                         // Kabul edilmis / tamamlanmis teklifte gizli: kilitli teklif silinemez.
                         Button {
                             id: silButonu
@@ -1136,6 +1213,13 @@ Item {
         bilgi: root.teklifNotuSekmesi
                ? "Büro ve satış personeli için iç not. PDF'lere basılmaz."
                : "Üretim personeli için not. Üretim PDF'ine basılır."
+    }
+
+    // "İrsaliye" butonunun actigi sevk/irsaliye formu. Pencere kendisi kaydetmez;
+    // "Kaydet"e basilinca alanlari sinyalle geri verir (bkz. irsaliyeAc).
+    SevkBilgileriDialog {
+        id: sevkDialogu
+        onKaydedildi: (sevk) => root.sevkBilgileriniKaydet(sevkDialogu.teklifId, sevk)
     }
 
     // Silme onayi (WPF'teki sifre dogrulamali onay penceresinin basitlestirilmis hali;

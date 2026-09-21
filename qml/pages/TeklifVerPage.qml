@@ -42,6 +42,18 @@ Item {
 
     // Ekrandaki alanlarin salt okunur olup olmadigi.
     readonly property bool formKilitli: root.teklifKilitli && !root.revizyonIzinli
+
+    // Kilitli teklifin detayi (Alınan/Biten Tekliflerim) salt goruntulemedir:
+    // sepete urun eklenemeyecegi icin soldaki "Ürün Ara" paneli hic gosterilmez,
+    // sepet tum genisligi kullanir. Revize moduna gecilirse panel geri gelir.
+    readonly property bool urunAramaGorunur: !root.formKilitli
+
+    // Urun arama sorgusu: panel gizliyken bosuna SQL Server'a gidilmesin.
+    function urunAramaTazele() {
+        if (!root.urunAramaGorunur)
+            return
+        database.urunAraBaslat(urunAramaKutusu.text, 40, dilCombo.currentText)
+    }
     readonly property bool uretimAlaniKilitli: root.uretimBilgisiKilitli && !root.revizyonIzinli
 
     // Revizyon modunda geri butonuna basilinca; SatisModuluPage bunu dinleyip
@@ -595,7 +607,7 @@ Item {
             // Soldaki arama sonuclari maliyeti kendi icinde tasir; tazelenmezse
             // ayni urun sepetten cikarilip yeniden eklendiginde ESKI maliyetiyle
             // gelirdi.
-            database.urunAraBaslat(urunAramaKutusu.text, 40, dilCombo.currentText)
+            root.urunAramaTazele()
         } else {
             // Urun bulunamadiysa/manuel satirsa hata mesaji bos gelir -- bu
             // durumda kullaniciyi bosuna uyarmayiz, sepetteki deger yine gecerli.
@@ -712,6 +724,35 @@ Item {
     function sepettenCikar(dizinIndex) {
         const yeniSepet = root.sepet.slice()
         yeniSepet.splice(dizinIndex, 1)
+        root.sepet = yeniSepet
+    }
+
+    // --- Sepet satirlarini surukleyerek siralama ---
+    // Sepet dizisinin sirasi teklif kalemlerinin kayit sirasi, dolayisiyla
+    // PDF'teki satir sirasidir (bkz. Database::teklifKaydet + ORDER BY
+    // TeklifKalemId); musteri belli bir siralama istediginde kalemler sepette
+    // tutamagindan surukleyerek duzenlenir.
+    //
+    // Surukleme suresince sepet dizisine DOKUNULMAZ: model degisirse ListView
+    // delegate'leri yeniden kurar ve suruklemeyi baslatan MouseArea yok olurdu.
+    // Bunun yerine sadece iki durum degiskeni tutulur, dizi tek seferde birakma
+    // aninda guncellenir.
+    property int suruklenenIndex: -1      // suruklenen satirin dizideki yeri
+    property int suruklemeHedefIndex: -1  // kalemin birakilacagi ARALIK (0..uzunluk)
+
+    // Kaynak satiri, hedef aralik gostergesinin bulundugu yere tasir.
+    function sepetSiraTasi(kaynakIndex, aralikIndex) {
+        if (kaynakIndex < 0 || kaynakIndex >= root.sepet.length)
+            return
+        // Aralik indeksi satir aralarini sayar; kaynak satir listeden cikinca
+        // kendisinden SONRAKI araliklar bir kayar.
+        let hedefIndex = aralikIndex > kaynakIndex ? aralikIndex - 1 : aralikIndex
+        hedefIndex = Math.max(0, Math.min(root.sepet.length - 1, hedefIndex))
+        if (hedefIndex === kaynakIndex)
+            return
+        const yeniSepet = root.sepet.slice()
+        const tasinan = yeniSepet.splice(kaynakIndex, 1)[0]
+        yeniSepet.splice(hedefIndex, 0, tasinan)
         root.sepet = yeniSepet
     }
 
@@ -1403,7 +1444,7 @@ Item {
                                     // Dil degisince urun arama sonuclarini (ve dolayisiyla
                                     // aciklamalari) hemen yeniden cek -- kullanici tekrar
                                     // yazmak zorunda kalmasin.
-                                    onCurrentTextChanged: database.urunAraBaslat(urunAramaKutusu.text, 40, dilCombo.currentText)
+                                    onCurrentTextChanged: root.urunAramaTazele()
                                     contentItem: Text {
                                         text: dilCombo.displayText
                                         color: Theme.metinBirincil
@@ -1468,8 +1509,13 @@ Item {
             Layout.fillHeight: true
             spacing: 14
 
-            // Urun arama
+            // Urun arama -- kilitli (salt goruntulenen) teklifte gizlenir; gizli
+            // oge Layout'ta yer kaplamadigi icin sepet tam genislige yayilir.
             Rectangle {
+                visible: root.urunAramaGorunur
+                // Revize moduna gecilip panel yeniden gorunur oldugunda liste bos
+                // kalmasin diye aramayi tazeliyoruz.
+                onVisibleChanged: if (visible) root.urunAramaTazele()
                 Layout.fillHeight: true
                 Layout.preferredWidth: 360
                 radius: Theme.radiusNormal
@@ -1510,12 +1556,12 @@ Item {
                             // (AramaWorker) yolluyor; sonuc asagidaki Connections uzerinden asenkron
                             // geliyor. Yazarken de her karakterde degil, debounce ile tetikleniyor.
                             onTextChanged: urunAramaTimer.restart()
-                            Component.onCompleted: database.urunAraBaslat("", 40, dilCombo.currentText)
+                            Component.onCompleted: root.urunAramaTazele()
 
                             Timer {
                                 id: urunAramaTimer
                                 interval: 250
-                                onTriggered: database.urunAraBaslat(urunAramaKutusu.text, 40, dilCombo.currentText)
+                                onTriggered: root.urunAramaTazele()
                             }
 
                             Connections {
@@ -1536,18 +1582,32 @@ Item {
                         spacing: 6
                         reuseItems: false
 
-                        delegate: Rectangle {
+                        // ONEMLI: delegate'in KOKU cerceveyi cizen Rectangle OLMAMALI.
+                        // layer.enabled icerigi tam olarak item sinirlarina kirpar;
+                        // radius'lu bir Rectangle'in kenarligi ise antialias icin
+                        // yarim piksel disari tasar. Kenarlik dogrudan layer'in
+                        // kenarinda kalirsa (ozellikle dikey kenarlar) kirpilip
+                        // gorunmez oluyordu. Bu yuzden layer disdaki seffaf Item'da,
+                        // cerceve ise 1px iceri alinmis cocuk Rectangle'da.
+                        delegate: Item {
                             id: urunSatiri
                             required property var modelData
                             required property int index
-                            width: ListView.view.width - 2
+                            width: ListView.view.width
                             height: 54
-                            radius: Theme.radiusKucuk
-                            color: urunSatiriAlani.containsMouse ? Theme.panelHover : (index % 2 === 0 ? Theme.arkaplanIkincil : Theme.panel)
-                            border.width: 1
-                            border.color: urunSatiriAlani.containsMouse ? Theme.kenarlikVurgu : Theme.kenarlik
-                            Behavior on border.color { ColorAnimation { duration: 120 } }
                             layer.enabled: true
+                            layer.smooth: true
+
+                            Rectangle {
+                                id: urunSatiriCerceve
+                                anchors.fill: parent
+                                anchors.margins: 1
+                                radius: Theme.radiusKucuk
+                                color: urunSatiriAlani.containsMouse ? Theme.panelHover : (urunSatiri.index % 2 === 0 ? Theme.arkaplanIkincil : Theme.panel)
+                                border.width: 1
+                                border.color: urunSatiriAlani.containsMouse ? Theme.kenarlikVurgu : Theme.kenarlik
+                                Behavior on border.color { ColorAnimation { duration: 120 } }
+                            }
 
                             MouseArea {
                                 id: urunSatiriAlani
@@ -1557,7 +1617,7 @@ Item {
                             }
 
                             RowLayout {
-                                anchors.fill: parent
+                                anchors.fill: urunSatiriCerceve
                                 anchors.leftMargin: 10
                                 anchors.rightMargin: 10
 
@@ -1696,6 +1756,9 @@ Item {
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 8
+                            // Satir tasima (▲/▼) sutununun basligi -- bos, sadece
+                            // sepet satirlariyla hizayi korumak icin.
+                            Label { text: ""; Layout.preferredWidth: 18 }
                             Label { text: "KOD"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 60 }
                             Label { text: "AÇIKLAMA"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.fillWidth: true; Layout.preferredWidth: 0; Layout.minimumWidth: 0 }
                             Label { text: "ADET"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 58; horizontalAlignment: Text.AlignHCenter }
@@ -1722,6 +1785,52 @@ Item {
                         reuseItems: false
                         model: root.sepet
 
+                        readonly property int satirYuksekligi: 56
+                        readonly property int satirAraligi: satirYuksekligi + spacing
+
+                        // Surukleme sirasinda imlecin liste icindeki dikey konumu
+                        // (gorunum koordinati) ve kenara yaklasinca isleyen otomatik
+                        // kaydirmanin yonu (-1 yukari, +1 asagi, 0 kapali).
+                        property real suruklemeGorunumY: 0
+                        property int suruklemeKaydirmaYonu: 0
+
+                        // Imlecin altinda kalan ARALIGI bulur: 0 = ilk satirin ustu,
+                        // n = n'inci satirin ustu, uzunluk = listenin sonu.
+                        function suruklemeHedefiniGuncelle(gorunumY) {
+                            sepetListesi.suruklemeGorunumY = gorunumY
+                            const icerikY = gorunumY + sepetListesi.contentY
+                            const aralik = Math.round(icerikY / sepetListesi.satirAraligi)
+                            root.suruklemeHedefIndex = Math.max(0, Math.min(root.sepet.length, aralik))
+                            sepetListesi.suruklemeKaydirmaYonu =
+                                gorunumY < 24 ? -1
+                                : (gorunumY > sepetListesi.height - 24 ? 1 : 0)
+                        }
+
+                        function suruklemeyiBitir(uygula) {
+                            if (uygula && root.suruklenenIndex !== -1 && root.suruklemeHedefIndex !== -1)
+                                root.sepetSiraTasi(root.suruklenenIndex, root.suruklemeHedefIndex)
+                            root.suruklenenIndex = -1
+                            root.suruklemeHedefIndex = -1
+                            sepetListesi.suruklemeKaydirmaYonu = 0
+                        }
+
+                        // Uzun sepetlerde satiri listenin gorunmeyen kismina tasiyabilmek
+                        // icin, imlec kenara yaklastiginda liste kendiliginden kayar.
+                        Timer {
+                            interval: 16
+                            repeat: true
+                            running: root.suruklenenIndex !== -1 && sepetListesi.suruklemeKaydirmaYonu !== 0
+                            onTriggered: {
+                                const enFazla = Math.max(0, sepetListesi.contentHeight - sepetListesi.height)
+                                const yeniY = Math.max(0, Math.min(enFazla,
+                                    sepetListesi.contentY + sepetListesi.suruklemeKaydirmaYonu * 8))
+                                if (yeniY === sepetListesi.contentY)
+                                    return
+                                sepetListesi.contentY = yeniY
+                                sepetListesi.suruklemeHedefiniGuncelle(sepetListesi.suruklemeGorunumY)
+                            }
+                        }
+
                         Label {
                             anchors.centerIn: parent
                             visible: root.sepet.length === 0
@@ -1731,18 +1840,59 @@ Item {
                             font.pixelSize: Theme.fontBoyutNormal
                         }
 
-                        delegate: Rectangle {
+                        // Bkz. urun listesi delegate'i: layer icerigi item sinirina
+                        // kirptigi icin cerceve 1px iceri alinmis cocuk Rectangle'da.
+                        delegate: Item {
                             id: sepetSatiri
                             required property int index
                             required property var modelData
-                            width: ListView.view.width - 2
-                            height: 56
-                            radius: Theme.radiusKucuk
-                            color: satirAlani.containsMouse ? Theme.panelHover : (sepetSatiri.index % 2 === 0 ? Theme.arkaplanIkincil : Theme.panel)
-                            border.width: 1
-                            border.color: satirAlani.containsMouse ? Theme.kenarlikVurgu : Theme.kenarlik
-                            Behavior on border.color { ColorAnimation { duration: 120 } }
+                            width: ListView.view.width
+                            height: sepetListesi.satirYuksekligi
                             layer.enabled: true
+                            layer.smooth: true
+
+                            // Suruklenen satir "kalkmis" gorunur; birakilacagi yer
+                            // asagidaki ince cizgi ile gosterilir.
+                            readonly property bool suruklenenSatir: root.suruklenenIndex === sepetSatiri.index
+                            opacity: suruklenenSatir ? 0.4 : 1
+
+                            // Birakma gostergesi: satirin ustunde (hedef aralik bu
+                            // satirsa) veya son satirin altinda (hedef listenin sonu).
+                            // Kalemin zaten bulundugu araliklarda gosterilmez.
+                            readonly property bool hedefGostergesiUstte:
+                                root.suruklenenIndex !== -1
+                                && root.suruklemeHedefIndex === sepetSatiri.index
+                                && root.suruklemeHedefIndex !== root.suruklenenIndex
+                                && root.suruklemeHedefIndex !== root.suruklenenIndex + 1
+                            readonly property bool hedefGostergesiAltta:
+                                root.suruklenenIndex !== -1
+                                && sepetSatiri.index === root.sepet.length - 1
+                                && root.suruklemeHedefIndex === root.sepet.length
+                                && root.suruklenenIndex !== root.sepet.length - 1
+
+                            Rectangle {
+                                width: parent.width
+                                height: 2
+                                radius: 1
+                                color: Theme.vurguAcik
+                                visible: sepetSatiri.hedefGostergesiUstte || sepetSatiri.hedefGostergesiAltta
+                                // layer icerigi item sinirina kirptigi icin gosterge
+                                // satirin disina degil, tam kenarina cizilir.
+                                y: sepetSatiri.hedefGostergesiAltta ? sepetSatiri.height - 2 : 0
+                                z: 5
+                            }
+
+                            Rectangle {
+                                id: sepetSatiriCerceve
+                                anchors.fill: parent
+                                anchors.margins: 1
+                                radius: Theme.radiusKucuk
+                                color: satirAlani.containsMouse ? Theme.panelHover : (sepetSatiri.index % 2 === 0 ? Theme.arkaplanIkincil : Theme.panel)
+                                border.width: 1
+                                border.color: satirAlani.containsMouse ? Theme.kenarlikVurgu : Theme.kenarlik
+                                Behavior on border.color { ColorAnimation { duration: 120 } }
+                                z: -1
+                            }
 
                             readonly property real birimIndirimli: sepetSatiri.modelData.birimFiyatTl * (1 - root.indirimOrani / 100)
                             readonly property real satirToplamTl: birimIndirimli * sepetSatiri.modelData.adet
@@ -1759,10 +1909,72 @@ Item {
                                 // Kilitli teklifte adet/maliyet/fiyat degistirilemez,
                                 // kalem silinemez (liste yine kaydirilabilir).
                                 enabled: !root.formKilitli
-                                anchors.fill: parent
+                                anchors.fill: sepetSatiriCerceve
                                 anchors.leftMargin: 12
                                 anchors.rightMargin: 8
                                 spacing: 8
+
+                                // ---- Siralama tutamagi ----
+                                // Teklif PDF'indeki kalem sirasi sepetteki sira ile
+                                // ayni oldugu icin musterinin istedigi siralama
+                                // burada, satiri tutamagindan surukleyerek ayarlanir.
+                                // Surukleme sadece tutamaktan baslar; satirin geri
+                                // kalani adet/fiyat duzenlemesi icin serbest kalir.
+                                Rectangle {
+                                    id: suruklemeTutamagi
+                                    Layout.preferredWidth: 18
+                                    Layout.preferredHeight: 34
+                                    radius: Theme.radiusKucuk
+                                    opacity: root.formKilitli ? 0 : 1
+                                    color: (tutamakAlani.containsMouse || sepetSatiri.suruklenenSatir)
+                                        ? Theme.panelHover : "transparent"
+
+                                    // Tutamak deseni: iki sutun x uc nokta.
+                                    Grid {
+                                        anchors.centerIn: parent
+                                        columns: 2
+                                        rowSpacing: 3
+                                        columnSpacing: 3
+                                        Repeater {
+                                            model: 6
+                                            Rectangle {
+                                                width: 3
+                                                height: 3
+                                                radius: 1.5
+                                                color: tutamakAlani.containsMouse ? Theme.vurguAcik : Theme.metinCokSoluk
+                                            }
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: tutamakAlani
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: sepetSatiri.suruklenenSatir ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                                        // Liste kaydirmasi (Flickable) suruklemeyi calmasin.
+                                        preventStealing: true
+
+                                        function hedefiGuncelle(fareY) {
+                                            const nokta = tutamakAlani.mapToItem(sepetListesi, 0, fareY)
+                                            sepetListesi.suruklemeHedefiniGuncelle(nokta.y)
+                                        }
+
+                                        onPressed: (fare) => {
+                                            root.suruklenenIndex = sepetSatiri.index
+                                            hedefiGuncelle(fare.y)
+                                        }
+                                        onPositionChanged: (fare) => {
+                                            if (root.suruklenenIndex !== -1)
+                                                hedefiGuncelle(fare.y)
+                                        }
+                                        onReleased: sepetListesi.suruklemeyiBitir(true)
+                                        onCanceled: sepetListesi.suruklemeyiBitir(false)
+                                    }
+
+                                    ToolTip.visible: tutamakAlani.containsMouse && root.suruklenenIndex === -1
+                                    ToolTip.text: "Sürükleyerek sırayı değiştir"
+                                    ToolTip.delay: 400
+                                }
 
                                 Rectangle {
                                     Layout.preferredWidth: 60

@@ -66,6 +66,7 @@ qt_add_qml_module(erp_programi
         qml/components/TarihTakvimi.qml
         qml/components/SozlesmeDuzenleDialog.qml
         qml/components/NotDuzenleDialog.qml
+        qml/components/SevkBilgileriDialog.qml
         qml/components/SayiBicimlendirici.qml
 )
 
