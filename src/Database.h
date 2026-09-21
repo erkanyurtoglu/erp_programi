@@ -53,6 +53,9 @@ public:
     // gosteren "guncelTeklifId"/"guncelRevizyonNo" (int) da bulunur; durumu
     // "Revize Edildi" olan satirda bu ikisi o teklifin YERINE GECEN teklifi
     // isaret eder -- bkz. teklifKaydet),
+    // Her kayitta ayrica "kopyaKaynakTeklifId" (int, 0 ise elle olusturulmus)
+    // bulunur: bu teklif baska bir teklifin KOPYASI olarak olusturulduysa
+    // kaynagin TeklifId'si (bkz. teklifKaydet / db/07_teklif_kopya_kaynagi.sql).
     // "toplamKayit" (int), "toplamSayfa" (int), "mevcutSayfa" (int).
     Q_INVOKABLE QVariantMap gecmisTekliflerGetir(const QString &arama,
                                                   const QString &tarihFiltresi,
@@ -102,6 +105,17 @@ public:
     //             ayri bir kayit eklenir. Bos/0 birakilirsa (normal "Teklif Ver"
     //             akisi) eskisi gibi tamamen bagimsiz, AnaTeklifId'si NULL bir
     //             teklif olusur -- davranis degismez.
+    //   kopyaKaynakTeklifId (int, OPSIYONEL): >0 verilirse bu yeni teklif, o
+    //             teklifin KOPYASI olarak olusturulmus demektir; deger yalnizca
+    //             iz olarak KopyaKaynakTeklifId sutununa yazilir. Revizyondan
+    //             farki: hicbir is kurali tetiklenmez -- kaynak teklife
+    //             DOKUNULMAZ, "Revize Edildi" yapilmaz, zincire baglanmaz; kayit
+    //             her yonuyle bagimsiz yeni bir teklif olur (AnaTeklifId NULL,
+    //             RevizyonNo 0). anaTeklifId ile birlikte gelirse (olmamasi
+    //             gereken bir durum) revizyon kazanir, kopya izi yazilmaz.
+    //             KopyaKaynakTeklifId sutunu veritabaninda yoksa (07 numarali
+    //             script calistirilmamissa) kayit normal sekilde olusur, sadece
+    //             iz tutulmaz.
     //
     // REVIZYON = ESKISINI GECERSIZ KILAR: bir revizyon kaydedildiginde ayni koke
     // bagli ONCEKI teklifler (kok + eski revizyonlar) "Revize Edildi" durumuna
@@ -130,6 +144,12 @@ public:
     //   "sozlesmeMetni" (string; teklife ozel bir sozlesme metni kaydedilmemisse bos),
     //   "musteriNotu" (string, teklif notu), "uretimNotu" (string),
     //   "teslimatTarihi" (string, "yyyy-MM-dd" veya bos), "durum" (string).
+    //
+    // AYNI metot "Kopya" akisinda da kullanilir (bkz. TeklifVerPage.kopyalamayaBasla):
+    // orada donen veri ayni sekilde forma doldurulur, ancak musteriye/teklife ozel
+    // alanlar (musteri, ilgili kisi, notlar, teslim tarihi, durum) QML tarafinda
+    // bosaltilir ve kayit anaTeklifId YERINE kopyaKaynakTeklifId ile gonderilir.
+    // Bu metot hicbir sey YAZMADIGI icin kilitli teklifte de guvenle cagrilabilir.
     Q_INVOKABLE QVariantMap teklifDuzenlemeVerisiGetir(int teklifId);
 
     // KILIT KURALI: "Kabul Edildi" ve "Tamamlandı" durumundaki teklifler
@@ -399,6 +419,13 @@ private:
     static bool teklifKilitliMi(const QString &durum);
     // Teklifin guncel durumu; teklif bulunamazsa bos string.
     QString teklifDurumuGetir(int teklifId);
+    // dbo.teklifler.KopyaKaynakTeklifId sutunu var mi? (db/07_teklif_kopya_kaynagi.sql
+    // calistirilmadiysa yoktur.) Sonuc bir kez sorgulanip saklanir -- script
+    // program acikken calistirilirsa programin yeniden baslatilmasi gerekir. Kolon yoksa
+    // "Kopya" akisi calismaya devam eder, yalnizca kaynak izi yazilmaz/okunmaz --
+    // yani eksik script yuzunden teklif listesi veya kayit akisi BOZULMAZ.
+    bool kopyaKolonuVarMi();
+
     // Bu teklifin YERINE GECEN (ayni revizyon zincirinde daha yeni) teklifin
     // TeklifId'si; zincirin en son uyesi buysa 0. Revize edilmis bir teklif
     // uzerinde islem yapilip yapilamayacagi buna gore belirlenir.
@@ -409,6 +436,9 @@ private:
     QString m_sonHataMesaji;
     QElapsedTimer m_sonKullanim;
     QElapsedTimer m_sonBaglantiDenemesi;
+
+    // kopyaKolonuVarMi() onbellegi: -1 henuz sorgulanmadi, 0 yok, 1 var.
+    int m_kopyaKolonuDurumu = -1;
 
     // Firma/urun canli aramasini UI thread'inden ayirmak icin: worker, kendi
     // QSqlDatabase baglantisiyla bu ayri thread uzerinde yasar (bkz. AramaWorker.h).

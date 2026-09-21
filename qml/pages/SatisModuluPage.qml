@@ -52,6 +52,21 @@ Item {
         revizyonPage.duzenlemeyeBasla(teklifId)
     }
 
+    // "Kopya" butonu: AYNI alt sayfayi kullanir, ama teklifin icerigi BAGIMSIZ bir
+    // yeni teklif olarak acilir (kaynak teklife dokunulmaz, revizyon olusmaz --
+    // bkz. TeklifVerPage.kopyalamayaBasla). Ayni ekranda oldugumuz icin geri butonu
+    // ve sol menudeki secili sekme aynen calisir.
+    //
+    // Kopya YALNIZCA Giden Tekliflerim'den acilir (bkz. GecmisTekliflerPage.
+    // kopyaButonuGoster); Alınan/Biten Tekliflerim'de buton yok, cunku o
+    // asamadaki bir teklifi yeni teklif hazirlamak icin kullanmak anlamsiz.
+    // Bu yuzden geri donus sekmesi hep Giden Tekliflerim'dir.
+    function kopyayiAc(teklifId) {
+        root.revizyonKaynakSekme = 1
+        icerikYiginlar.currentIndex = root.revizyonSekmesi
+        revizyonPage.kopyalamayaBasla(teklifId)
+    }
+
     // listeyiYenile: Detay ekraninda teklif uzerinde yerinde degisiklik yapilmis
     // olabilir (planlanan teslim tarihi, teklif/uretim notu, sozlesme metni); listeye
     // donulurken kaldigi sayfa yeniden yuklenir ki guncel degerler hemen gorunsun.
@@ -251,6 +266,8 @@ Item {
                 otomatikYukle: false
                 kullaniciId: root.kullaniciId
                 onDetayIstendi: (teklifId) => root.revizyonuAc(1, teklifId)
+                // Kopya butonu yalnizca bu sekmede var (bkz. kopyayiAc).
+                onKopyaIstendi: (teklifId) => root.kopyayiAc(teklifId)
             }
 
             GecmisTekliflerPage {
@@ -325,6 +342,20 @@ Item {
                     if (revizeEdilenIdler && revizeEdilenIdler.length > 0)
                         mesaj += "  •  #" + revizeEdilenIdler.join(", #") + " artık \"Revize Edildi\""
                     sayfa.durumMesajiGoster(mesaj)
+                }
+
+                onKopyaKaydedildi: (yeniTeklifId, kaynakTeklifId) => {
+                    root.revizyondanDon(false)
+                    // Kopya da "Beklemede" durumunda, en yeni kayit olarak olusur --
+                    // listenin ilk sayfasinda gorunur.
+                    const sayfa = root.revizyonKaynakSayfasi()
+                    sayfa.sayfayiYukle(1)
+                    // Kaynak teklifin durumu/icerigi degismedigi icin mesajda
+                    // "gecersizlesti" turu bir bilgi YOKTUR -- iki teklif de gecerli.
+                    // Kopya yalnizca Giden Tekliflerim'den acildigi ve yeni teklif de
+                    // orada listelendigi icin "nerede olustu" aciklamasina gerek yok.
+                    sayfa.durumMesajiGoster("Teklif #" + kaynakTeklifId + " kopyalandı → yeni teklif #" + yeniTeklifId
+                                            + "  •  #" + kaynakTeklifId + " değişmedi")
                 }
             }
         }

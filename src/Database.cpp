@@ -455,11 +455,18 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
     // NOT: Yeni semada sevk_bilgileri.TeklifId UNIQUE oldugu icin bir teklifin
     // birden fazla sevk kaydina sahip olmasi artik yapisal olarak imkansiz;
     // yine de OUTER APPLY + TOP 1 korunuyor (ekstra guvenlik, maliyeti yok).
+    //
+    // KopyaKaynakTeklifId sutunu 07 numarali script ile SONRADAN eklendigi icin
+    // sorguya ancak gercekten varsa giriyor -- script'i calistirmamis bir
+    // veritabaninda teklif listesi "gecersiz sutun adi" hatasiyla bos kalmasin.
+    const QString kopyaSutunu = kopyaKolonuVarMi()
+        ? QStringLiteral("t.KopyaKaynakTeklifId")
+        : QStringLiteral("CAST(NULL AS INT) AS KopyaKaynakTeklifId");
     const QString veriSorgusu = QString(
         "SELECT t.TeklifId, m.FirmaAdi, t.OlusturmaTarihi, t.KabulTarihi, "
         "       t.TeslimatTarihi, t.TeslimTarihi, t.UretimPdfTarihi, "
         "       p.KullaniciAdi AS PersonelKullaniciAdi, t.Durum, t.RedSebebi, sb.Aciklamalar, "
-        "       t.MusteriNotu, t.UretimNotu, t.AnaTeklifId, t.RevizyonNo, "
+        "       t.MusteriNotu, t.UretimNotu, t.AnaTeklifId, t.RevizyonNo, %2, "
         "       son.TeklifId AS GuncelTeklifId, son.RevizyonNo AS GuncelRevizyonNo "
         "FROM dbo.teklifler t "
         "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
@@ -482,7 +489,7 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
         ") son "
         "%1 "
         "ORDER BY t.OlusturmaTarihi DESC "
-        "OFFSET :offset ROWS FETCH NEXT :sayfaBoyutu ROWS ONLY").arg(whereClause);
+        "OFFSET :offset ROWS FETCH NEXT :sayfaBoyutu ROWS ONLY").arg(whereClause, kopyaSutunu);
 
     QSqlQuery veriQuery(m_db);
     veriQuery.prepare(veriSorgusu);
@@ -524,6 +531,11 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
         // YERINE GECEN teklif budur ve rozet ipucunda gosterilir.
         kayit["guncelTeklifId"] = veriQuery.value("GuncelTeklifId").toInt();
         kayit["guncelRevizyonNo"] = veriQuery.value("GuncelRevizyonNo").toInt();
+        // Kopya izi: bu teklif baska bir teklifin "Kopya" butonuyla olusturulduysa
+        // kaynak teklifin id'si. Revizyondan farkli olarak hicbir gecerlilik
+        // kurali tasimaz -- yalnizca listede bilgi olarak gosterilir.
+        kayit["kopyaKaynakTeklifId"] = veriQuery.value("KopyaKaynakTeklifId").isNull()
+            ? 0 : veriQuery.value("KopyaKaynakTeklifId").toInt();
         kayitlar << kayit;
     }
 
@@ -776,6 +788,30 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
         return sonuc;
     }
 
+    // --- Kopya izi -----------------------------------------------------------
+    // "Kopya" akisi (bkz. TeklifVerPage.kopyalamayaBasla): bu kayit var olan bir
+    // teklifin icerigi kopyalanarak olusturuldu. Yazilan tek sey bu iz; kaynak
+    // teklife DOKUNULMAZ (revizyonun aksine durumu degismez, zincire baglanmaz),
+    // cunku amac ayni anda gecerli olabilen iki bagimsiz teklif.
+    //
+    // Ayri bir UPDATE olmasinin sebebi: kolon veritabaninda olmayabilir (bkz.
+    // kopyaKolonuVarMi). Boylece ana INSERT her durumda ayni kalir ve 07 numarali
+    // script calistirilmamis bir kurulumda teklif kaydi yine de sorunsuz olusur.
+    const int kopyaKaynakTeklifId = teklif.value("kopyaKaynakTeklifId", 0).toInt();
+    if (anaTeklifId <= 0 && kopyaKaynakTeklifId > 0 && kopyaKolonuVarMi())
+    {
+        QSqlQuery kopyaIzi(m_db);
+        kopyaIzi.prepare("UPDATE dbo.teklifler SET KopyaKaynakTeklifId = :kaynak WHERE TeklifId = :id");
+        kopyaIzi.bindValue(":kaynak", kopyaKaynakTeklifId);
+        kopyaIzi.bindValue(":id", teklifId);
+        if (!kopyaIzi.exec())
+        {
+            // Iz yazilamadiysa teklifin kendisini kaybetmiyoruz: kopya izi
+            // yalnizca bilgi amaclidir, teklifin ticari icerigini etkilemez.
+            qWarning() << "teklifKaydet (kopya izi) basarisiz:" << kopyaIzi.lastError().text();
+        }
+    }
+
     // --- Eski teklifleri "Revize Edildi" olarak isaretle ---------------------
     // Ayni koke bagli ONCEKI kayitlar (kok teklif + eski revizyonlar) artik
     // gecerli degildir: yerlerine bu yeni revizyon gecti. Musteriye ayni teklifin
@@ -1001,6 +1037,32 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
 bool Database::teklifKilitliMi(const QString &durum)
 {
     return durum == "Kabul Edildi" || durum == "Tamamlandı";
+}
+
+bool Database::kopyaKolonuVarMi()
+{
+    if (m_kopyaKolonuDurumu >= 0)
+        return m_kopyaKolonuDurumu == 1;
+
+    QSqlQuery query(m_db);
+    query.prepare(
+        "SELECT COUNT(*) FROM sys.columns "
+        "WHERE object_id = OBJECT_ID('dbo.teklifler') AND name = 'KopyaKaynakTeklifId'");
+    if (!query.exec() || !query.next())
+    {
+        // Sorgu calismadiysa (ornegin baglanti o an koptu) onbellege YAZMIYORUZ:
+        // bir sonraki cagrida tekrar denenir, yoksa kolon var olsa bile program
+        // acik kaldigi surece "yok" sayilirdi.
+        qWarning() << "kopyaKolonuVarMi sorgusu basarisiz:" << query.lastError().text();
+        return false;
+    }
+
+    m_kopyaKolonuDurumu = query.value(0).toInt() > 0 ? 1 : 0;
+    if (m_kopyaKolonuDurumu == 0)
+        qWarning() << "dbo.teklifler.KopyaKaynakTeklifId sutunu yok; "
+                      "kopyalanan tekliflerin kaynak izi tutulmayacak "
+                      "(db/07_teklif_kopya_kaynagi.sql calistirilmali).";
+    return m_kopyaKolonuDurumu == 1;
 }
 
 int Database::teklifYerineGecenIdGetir(int teklifId)

@@ -69,6 +69,13 @@ Item {
     // cagirir -- Detay, o teklifin verileriyle DOLU Teklif Ver ekranini acar.
     signal detayIstendi(int teklifId)
 
+    // "Kopya" butonuna basildiginda yayinlanir; SatisModuluPage bunu dinleyip ayni
+    // alt sayfada TeklifVerPage.kopyalamayaBasla()'yi cagirir -- teklifin ICERIGI
+    // dolu, MUSTERISI bos bir "yeni teklif" ekrani acilir. Detay'dan farki: kaydedince
+    // revizyon degil, kaynak teklife hic dokunmayan BAGIMSIZ bir teklif olusur
+    // (satis personeli ayni teklifi farkli firmalara verebilsin diye).
+    signal kopyaIstendi(int teklifId)
+
     readonly property int sayfaBoyutu: 50
 
     // --- Tablo sutun genislikleri -------------------------------------------
@@ -86,8 +93,10 @@ Item {
     // Durum rozeti artik tiklanabilir bir menu acicisi oldugu icin icinde bir de
     // "▾" isareti tasiyor; sutun ona gore bir miktar genisletildi.
     readonly property int sutunDurum: 126
-    // Detay + PDF (+ Uretim + İrsaliye) + Sil butonlari ve aralarindaki 6px bosluklar.
-    readonly property int sutunIslemler: root.uretimButonuGoster ? 340 : 190
+    // Detay + PDF (+ Uretim + İrsaliye) + Sil butonlari ve aralarindaki 6px
+    // bosluklar; "Kopya" butonu gosterildiginde kendisi + boslugu icin +64.
+    readonly property int sutunIslemler: (root.uretimButonuGoster ? 340 : 190)
+                                         + (root.kopyaButonuGoster ? 64 : 0)
     // Aciklamalar sutunu yalnizca yer oldugunda gosterilir; dar ekranda Firma Adi
     // sutunu ezilmesin diye gizlenir (icerik yine satirin tooltip'inde okunur).
     readonly property bool aciklamaSutunuGoster: root.width >= 1360
@@ -95,6 +104,13 @@ Item {
     // "Üretim" (uretim PDF'i) butonu: siparis kesinlesmis teklifler icin anlamli
     // oldugundan Alınan ve Biten Tekliflerim'de gosterilir.
     readonly property bool uretimButonuGoster: root.durumFiltresi === "Kabul Edildi" || root.durumFiltresi === "Tamamlandı"
+
+    // "Kopya" butonu YALNIZCA Giden Tekliflerim'de (durumFiltresi bos olan sekme)
+    // gosterilir. Kopya, teklif hazirlama akisina ait bir kisayoldur: ayni icerigi
+    // baska bir firmaya teklif etmek icindir. Alınan (kabul edilmis) ve Biten
+    // (tamamlanmis) tekliflerde ise is artik satis degil takip/uretim asamasindadir;
+    // oradan yeni teklif uretmek anlamsiz kaliyordu.
+    readonly property bool kopyaButonuGoster: root.durumFiltresi === ""
 
     // "İrsaliye" (sevk ve irsaliye bilgileri) butonu da ayni iki sekmede
     // gosterilir: fatura/irsaliye basligi ve siparis sartlari ancak siparis
@@ -690,6 +706,30 @@ Item {
                             }
                         }
 
+                        // Bu teklif baska bir teklifin KOPYASI olarak olusturulduysa
+                        // kucuk bir "⧉" izi. Revizyon rozetinden (R1/R2) farkli:
+                        // gecerlilikle ilgisi yoktur, iki teklif de bagimsiz ve
+                        // gecerlidir -- yalnizca "bu icerik #X'ten geldi" bilgisidir.
+                        // Kaynak teklif silinmis olabilir; id yine de gosterilir.
+                        Text {
+                            visible: satir.modelData.kopyaKaynakTeklifId > 0
+                            text: "⧉"
+                            color: Theme.metinCokSoluk
+                            font.pixelSize: Theme.fontBoyutKucuk + 1
+                            verticalAlignment: Text.AlignVCenter
+                            Layout.fillHeight: true
+
+                            ToolTip.visible: kopyaIziAlani.containsMouse
+                            ToolTip.delay: 300
+                            ToolTip.text: "Teklif #" + satir.modelData.kopyaKaynakTeklifId + " kopyalanarak oluşturuldu"
+                            MouseArea {
+                                id: kopyaIziAlani
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.NoButton
+                            }
+                        }
+
                         // Not varsa kucuk ikon: uzerine gelince not ipucunda
                         // gorunur, tiklaninca not penceresinde tam metin okunur.
                         Text {
@@ -1016,6 +1056,41 @@ Item {
                                 id: detayMetni
                                 text: "Detay"
                                 color: Theme.vurguAcik
+                                font.family: Theme.fontAilesi
+                                font.pixelSize: Theme.fontBoyutKucuk
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+
+                        // Teklifin icerigini yeni bir teklif formuna kopyalar. Kaynak
+                        // teklife HICBIR SEY yapmaz (durumu degismez, revizyon
+                        // olusmaz) -- bu yuzden Giden Tekliflerim'deki kilitli/revize
+                        // edilmis tekliflerde de gosterilir. Ayni veya cok benzer
+                        // teklifin farkli firmalara verilmesi icindir; bu yuzden
+                        // yalnizca Giden Tekliflerim'de durur (bkz. kopyaButonuGoster).
+                        // Bkz. SatisModuluPage.qml (kopyaIstendi).
+                        Button {
+                            id: kopyaButonu
+                            visible: root.kopyaButonuGoster
+                            text: "Kopya"
+                            Layout.preferredWidth: Math.max(56, Math.ceil(kopyaMetni.implicitWidth) + 20)
+                            Layout.preferredHeight: root.hizalanmisYukseklik(Math.max(28, kopyaMetni.implicitHeight + 10))
+                            onClicked: root.kopyaIstendi(satir.modelData.teklifId)
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            ToolTip.text: "Bu teklifin içeriğiyle yeni bir teklif hazırla (farklı firmaya verilebilir).\n"
+                                          + "Teklif #" + satir.modelData.teklifId + " hiç değişmez; revizyon oluşmaz."
+                            background: Rectangle {
+                                radius: 5
+                                color: kopyaButonu.hovered ? Theme.panelHover : "transparent"
+                                border.color: Theme.kenarlik
+                                border.width: 1
+                            }
+                            contentItem: Text {
+                                id: kopyaMetni
+                                text: "Kopya"
+                                color: Theme.metinIkincil
                                 font.family: Theme.fontAilesi
                                 font.pixelSize: Theme.fontBoyutKucuk
                                 horizontalAlignment: Text.AlignHCenter

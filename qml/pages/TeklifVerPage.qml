@@ -66,6 +66,11 @@ Item {
     // (kilitli teklifler isaretlenmedigi icin bos da olabilir).
     signal revizyonKaydedildi(int yeniTeklifId, int kaynakTeklifId, var revizeEdilenIdler)
 
+    // Kopya basariyla kaydedilince yayinlanir (bkz. kopyalamayaBasla). Revizyondan
+    // ayri bir sinyal: kaynak teklifte hicbir degisiklik olmadigi icin gosterilecek
+    // mesaj da farklidir ("#X gecersizlesti" gibi bir bilgi YOKTUR).
+    signal kopyaKaydedildi(int yeniTeklifId, int kaynakTeklifId)
+
     // Kucuk yardimci bilesenler: dosya icinde birden fazla yerde kullanildigi
     // icin inline "component" olarak (dosyanin en ustunde, root'un dogrudan
     // cocugu olarak) tanimlaniyor -- QML'de inline component'ler boyle, tek
@@ -278,6 +283,21 @@ Item {
     property int duzenlenenAnaTeklifId: 0
     property int duzenlenenKaynakTeklifId: 0
 
+    // --- Kopyala akisi (Giden/Alınan/Biten Tekliflerim'deki "Kopya" butonu) ---
+    // Satis personeli ayni icerikli teklifi farkli firmalara verebiliyor. Kopya,
+    // REVIZYON DEGILDIR: kaynak teklife hic dokunulmaz (durumu degismez, "Revize
+    // Edildi" olmaz), yeni kayit bastan bagimsiz bir teklif olur -- iki teklif ayni
+    // anda gecerli olabilir. Bu yuzden kopya modunda duzenlenenAnaTeklifId ve
+    // duzenlenenKaynakTeklifId 0'DIR (yani ekran "yeni teklif" gibi davranir,
+    // kaynaga yerinde yazma yapan hicbir yol tetiklenmez); tek fark, kaydedilirken
+    // teklifKaydet()'e izlenebilirlik icin gonderilen bu id.
+    property int kopyaKaynakTeklifId: 0
+    readonly property bool kopyaModu: root.kopyaKaynakTeklifId > 0
+
+    // Ekran, sol menude maddesi olmayan bir ALT SAYFA olarak mi acildi? (Detay ya
+    // da Kopya akisi.) Geri butonu ve baslik buna gore gorunur.
+    readonly property bool altSayfaModu: root.duzenlenenAnaTeklifId > 0 || root.kopyaModu
+
     // --- Satis sozlesmesi metni ("Satış Sözleşmesi" butonu/penceresi) ---
     // Teklif PDF'inin son sayfasindaki maddeler. BOS ise "kullanici degistirmedi"
     // demektir: kaydedilirken SatisSozlesmesiMetni NULL kalir ve PDF, dilin
@@ -376,28 +396,96 @@ Item {
     // Giden Tekliflerim'deki "Detay" butonundan cagrilir (bkz. SatisModuluPage.qml).
     // Ilgili teklifin kayitli TUM verisini ceker ve formu/sepeti onunla doldurur.
     function duzenlemeyeBasla(teklifId) {
-        const veri = database.teklifDuzenlemeVerisiGetir(teklifId)
-        if (!veri.basarili) {
-            bilgiMesaji.color = Theme.tehlikeAcik
-            bilgiMesaji.text = veri.hata.length > 0 ? veri.hata : "Teklif verisi alınamadı."
+        // guncelKur=false: revizyon ayni teklifin yeni surumudur, doviz tutarlari
+        // teklifin kaydedildigi kurla gelir.
+        const veri = root.teklifVerisiniYukle(teklifId, false)
+        if (!veri)
             return
-        }
 
         root.secilenMusteriId = veri.musteriId
         root.secilenFirmaAdi = veri.musteriAdi
-        firmaAramaKutusu.text = ""
-
         ilgiliKisiAlani.text = veri.ilgiliKisi
         ilgiliKisiTelAlani.text = veri.ilgiliKisiTelefonu
         ilgiliKisiEpostaAlani.text = veri.ilgiliKisiEposta
-        teslimatSekliAlani.text = veri.teslimatSekli
-        teslimatYeriAlani.text = veri.teslimatYeri
         // Dogrudan property'e yazilir (teslimatTarihiniAyarla DEGIL): yukleme
         // sirasinda veritabanina geri yazma yapilmasin.
         root.teslimatTarihi = veri.teslimatTarihi || ""
         root.musteriNotu = veri.musteriNotu || ""
         root.uretimNotu = veri.uretimNotu || ""
         root.teklifDurumu = veri.durum || ""
+
+        root.duzenlenenAnaTeklifId = veri.anaTeklifId
+        root.duzenlenenKaynakTeklifId = veri.teklifId
+        root.kopyaKaynakTeklifId = 0
+    }
+
+    // Listelerdeki "Kopya" butonundan cagrilir (bkz. SatisModuluPage.qml).
+    // Kaynak teklifin TICARI ICERIGINI (sepet -- urun kodlari/aciklamalari, TL
+    // fiyatlar ve maliyetler --, indirim/KDV, paketleme/tasima, para birimi, dil,
+    // teslimat sekli/yeri, sozlesme metni) forma tasir. KUR ise kaynaktan
+    // ALINMAZ, guncel olarak cekilir (bkz. teklifVerisiniYukle).
+    // MUSTERIYE/O TEKLIFE ozel olan her sey bilincli olarak BOS gelir:
+    //   musteri + ilgili kisi bilgileri -> yeni firma secilecek,
+    //   teklif/uretim notu, planlanan teslim tarihi, durum -> yeni teklifin kendi
+    //   sureci bastan baslar.
+    // Kaynak teklif KILITLI (Kabul Edildi/Tamamlandı) veya "Revize Edildi" olsa da
+    // kopya alinabilir: kaynaga hicbir sey yazilmadigi icin kilidin korudugu sey
+    // (teklifin kendisi) zarar gormez. teklifDurumu bos kaldigi icin de yeni form
+    // kilitli gorunmez.
+    function kopyalamayaBasla(teklifId) {
+        // guncelKur=true: kopyada tasinmasi istenen sey urun kodlari/aciklamalari ve
+        // iceriktir; kur GUNCEL cekilir (bkz. teklifVerisiniYukle).
+        const veri = root.teklifVerisiniYukle(teklifId, true)
+        if (!veri)
+            return
+
+        root.secilenMusteriId = 0
+        root.secilenFirmaAdi = ""
+        ilgiliKisiAlani.text = ""
+        ilgiliKisiTelAlani.text = ""
+        ilgiliKisiEpostaAlani.text = ""
+        root.teslimatTarihi = ""
+        root.musteriNotu = ""
+        root.uretimNotu = ""
+        root.teklifDurumu = ""
+
+        root.duzenlenenAnaTeklifId = 0
+        root.duzenlenenKaynakTeklifId = 0
+        root.kopyaKaynakTeklifId = veri.teklifId
+
+        bilgiMesaji.color = Theme.basariAcik
+        const dovizli = veri.paraBirimi === "USD" || veri.paraBirimi === "EUR"
+        bilgiMesaji.text = "Teklif #" + veri.teklifId + " kopyalandı"
+                           + (dovizli ? " (kur güncel olarak çekiliyor). " : ". ")
+                           + "Firmayı seçip değişikliklerinizi yapın; \"Teklifi Kaydet\" yeni ve bağımsız bir teklif "
+                           + "oluşturur, #" + veri.teklifId + " hiç değişmez."
+    }
+
+    // duzenlemeyeBasla + kopyalamayaBasla'nin ortak kismi: teklifin kayitli verisini
+    // ceker ve HER IKI akista da AYNEN tasinan alanlari (sepet, ticari sartlar, dil/
+    // para birimi, teslimat sekli/yeri, sozlesme metni) forma yazar. Basarisizsa
+    // hata mesajini gosterip null doner.
+    //
+    // guncelKur: KUR bu iki akista farkli davranir.
+    //   false (Detay/revizyon) -> teklifin kaydedildigi andaki ORIJINAL kur yuklenir;
+    //          revizyon ayni teklifin yeni surumudur, doviz tutarlari kaymamalidir.
+    //   true  (Kopya) -> kur GUNCEL olarak internetten cekilir. Kopyada tasinmasi
+    //          istenen sey urun kodlari/aciklamalari ve iceriktir; aylar once
+    //          kaydedilmis bir teklifin kuruyla yeni bir firmaya teklif verilmesi
+    //          yanlis olurdu. Kalem fiyatlari TL tutulur (bkz. teklifDuzenlemeVerisiGetir:
+    //          birimFiyatTl), bu yuzden yeni kur yalnizca doviz karsiliklarini
+    //          yeniden hesaplar -- TL fiyatlar aynen kalir.
+    function teklifVerisiniYukle(teklifId, guncelKur) {
+        const veri = database.teklifDuzenlemeVerisiGetir(teklifId)
+        if (!veri.basarili) {
+            bilgiMesaji.color = Theme.tehlikeAcik
+            bilgiMesaji.text = veri.hata.length > 0 ? veri.hata : "Teklif verisi alınamadı."
+            return null
+        }
+
+        firmaAramaKutusu.text = ""
+        teslimatSekliAlani.text = veri.teslimatSekli
+        teslimatYeriAlani.text = veri.teslimatYeri
 
         // Ticari sartlar gorunen UcretAlani kutularina ayarla() ile yazilir --
         // kutudaki metin Turkce bicimde ("1.500,00") tutuldugu icin dogrudan
@@ -413,7 +501,17 @@ Item {
         // aksi halde combo degisince tetiklenen onCurrentTextChanged, usdKur/eurKur
         // henuz 0 gordugu icin otomatik olarak GUNCEL kuru internetten cekmeye
         // calisir ve teklifin kaydedildigi andaki ORIJINAL kuru ezer.
-        if (veri.paraBirimi === "USD") {
+        const dovizliMi = veri.paraBirimi === "USD" || veri.paraBirimi === "EUR"
+        if (guncelKur === true && dovizliMi) {
+            // Kopya: eski kuru hic yuklemiyoruz. Ayrica onceki kurlari TEMIZLIYORUZ --
+            // boylece cekme basarisiz olursa (agsizlik) kaydetme, kaynak teklifin
+            // eski kuruyla sessizce yapilamaz; "Teklifi Kaydet" kurEksik uyarisi
+            // verir ve kullanici kuru elle girer (bkz. kurEksik).
+            root.usdKur = 0
+            root.eurKur = 0
+            usdKurBicimi.temizle()
+            eurKurBicimi.temizle()
+        } else if (veri.paraBirimi === "USD") {
             root.usdKur = veri.kur
             usdKurBicimi.ayarla(veri.kur)
         } else if (veri.paraBirimi === "EUR") {
@@ -422,26 +520,34 @@ Item {
         }
         paraBirimiCombo.currentIndex = Math.max(0, paraBirimiCombo.model.indexOf(veri.paraBirimi))
 
+        // Kopyada kuru burada, para birimi secildikten SONRA cekiyoruz. Combo'nun
+        // kendi onCurrentTextChanged'i de kur 0 oldugunda cekmeyi tetikler; ancak
+        // para birimi DEGISMEDIYSE (ornegin ust uste iki USD teklif kopyalanirsa)
+        // o sinyal hic gelmez -- bu yuzden cagriyi acikca yapiyoruz.
+        if (guncelKur === true && dovizliMi && !root.kurCekiliyor)
+            root.guncelKuruCek()
+
         root.sepet = veri.kalemler
 
         // Bu teklife ozel bir sozlesme metni kaydedilmisse onu tasi; yoksa bos
         // kalir ve "Satış Sözleşmesi" penceresi varsayilan metinle acilir.
         root.sozlesmeMetni = veri.sozlesmeMetni !== undefined ? veri.sozlesmeMetni : ""
 
-        root.duzenlenenAnaTeklifId = veri.anaTeklifId
-        root.duzenlenenKaynakTeklifId = veri.teklifId
-
         // Hangi teklifte oldugumuz zaten basliktan ("#2264 Teklif Bilgileri") ve
         // geri butonundan belli; ayrica bir "yuklendi" bildirimi gosterilmiyor.
         // Bilgi kutusu, onceki bir hatadan kalan metni tasimasin diye temizlenir.
+        // (Kopya akisi bunun uzerine kendi aciklama mesajini yazar.)
         bilgiMesaji.color = Theme.basariAcik
         bilgiMesaji.text = ""
+
+        return veri
     }
 
-    // Revizyon modundan cikip formu bos "yeni teklif" durumuna dondurur.
+    // Revizyon / kopya modundan cikip formu bos "yeni teklif" durumuna dondurur.
     function duzenlemeyiIptalEt() {
         root.duzenlenenAnaTeklifId = 0
         root.duzenlenenKaynakTeklifId = 0
+        root.kopyaKaynakTeklifId = 0
         root.sozlesmeMetni = ""
 
         root.sepet = []
@@ -684,7 +790,11 @@ Item {
             // 0 ise (normal "yeni teklif" akisi) teklifKaydet() bunu tamamen
             // yok sayar -- davranis degismez. >0 ise (Detay -> Revize Et akisi)
             // yeni kayit bu teklifin (kok) revizyonu olarak eklenir.
-            anaTeklifId: root.duzenlenenAnaTeklifId
+            anaTeklifId: root.duzenlenenAnaTeklifId,
+            // Kopya akisi: yalnizca "hangi tekliften kopyalandi" izi olarak
+            // saklanir. Kaynak teklife hicbir sey yapilmaz (bkz. kopyalamayaBasla);
+            // 0 ise hic yazilmaz. anaTeklifId ile ayni anda dolu olmaz.
+            kopyaKaynakTeklifId: root.kopyaKaynakTeklifId
         }
     }
 
@@ -801,6 +911,65 @@ Item {
         onClicked: root.forceActiveFocus()
     }
 
+    // Sag ustteki bildirim kutusu. Gecici bir geri bildirim oldugu icin
+    // ekranda kalici degil: metin her degistiginde 5 saniyelik sayac
+    // bastan baslar ve sure dolunca kutu kendiliginden kaybolur. Art arda
+    // gelen mesajlarda (ornegin "PDF hazırlanıyor..." -> "PDF: ...") sayac
+    // sifirlanir, yani her mesaj kendi 5 saniyesini yasar.
+    //
+    // ONEMLI: kutu bilerek baslik satirinin (RowLayout) DISINDA, sayfanin
+    // uzerinde yuzen bir katman olarak duruyor. Layout'un icinde oldugunda
+    // uzun bir mesaj (ornegin kopyalama bildirimi) satirin minimum genisligini
+    // buyutuyor, bu da mesaj ekranda kaldigi surece tum sayfayi saga
+    // tasiriyordu. Yuzen katman hicbir seyin yerini degistirmez; ustunden
+    // gecer ve kendiliginden kaybolur. Icinde MouseArea olmadigi icin
+    // altindaki butonlara yapilan tiklamalari da engellemez.
+    Rectangle {
+        id: bilgiMesajiKutusu
+        z: 100
+        visible: bilgiMesaji.text.length > 0
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: 24
+        anchors.rightMargin: 24
+        radius: Theme.radiusNormal
+        color: bilgiMesaji.color === Theme.tehlikeAcik ? Qt.rgba(0.14, 0.08, 0.09, 0.97) : Qt.rgba(0.07, 0.14, 0.10, 0.97)
+        border.width: 1
+        border.color: bilgiMesaji.color === Theme.tehlikeAcik ? Theme.tehlikeAcik : Theme.basariAcik
+
+        // Metin sigmazsa alt satira sarsin; kutu pencereyi asmasin.
+        readonly property int enFazlaGenislik: Math.min(420, root.width - 96)
+        implicitWidth: Math.min(bilgiMesaji.implicitWidth, enFazlaGenislik) + 24
+        implicitHeight: bilgiMesaji.height + 14
+
+        Timer {
+            id: bilgiMesajiZamanlayici
+            interval: 5000
+            onTriggered: bilgiMesaji.text = ""
+        }
+
+        Label {
+            id: bilgiMesaji
+            anchors.centerIn: parent
+            width: Math.min(implicitWidth, bilgiMesajiKutusu.enFazlaGenislik)
+            wrapMode: Text.WordWrap
+            horizontalAlignment: Text.AlignHCenter
+            color: Theme.basariAcik
+            font.family: Theme.fontAilesi
+            font.pixelSize: Theme.fontBoyutKucuk
+            font.bold: true
+
+            // Mesaji kimin yazdigi onemli degil (PDF, kayit, hata...):
+            // hepsi bu tek yerden otomatik kapanir.
+            onTextChanged: {
+                if (bilgiMesaji.text.length > 0)
+                    bilgiMesajiZamanlayici.restart()
+                else
+                    bilgiMesajiZamanlayici.stop()
+            }
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 24
@@ -815,7 +984,7 @@ Item {
             // geri donus. Normal "Teklif Ver" akisinda tamamen gizlidir.
             Button {
                 id: geriButonu
-                visible: root.duzenlenenAnaTeklifId > 0
+                visible: root.altSayfaModu
                 Layout.preferredHeight: 38
                 leftPadding: 14
                 rightPadding: 14
@@ -847,6 +1016,8 @@ Item {
                     // bellidir, bu yuzden ayrica bir rozet/aciklama satiri tasinmiyor.
                     text: root.duzenlenenAnaTeklifId > 0
                         ? "#" + root.duzenlenenKaynakTeklifId + " Teklif Bilgileri"
+                        : root.kopyaModu
+                        ? "#" + root.kopyaKaynakTeklifId + " Kopyası — Yeni Teklif"
                         : "Teklif Oluştur"
                     font.family: Theme.fontAilesi
                     font.pixelSize: Theme.fontBoyutBaslik
@@ -875,49 +1046,19 @@ Item {
                     font.pixelSize: Theme.fontBoyutKucuk
                     color: Theme.uyariAcik
                 }
+                // Kopya modu: kullanici bunun kaynak teklifi DEGISTIRMEDIGINI, yeni
+                // ve bagimsiz bir teklif hazirladigini her an gorsun.
+                Label {
+                    visible: root.kopyaModu
+                    text: "⧉  Teklif #" + root.kopyaKaynakTeklifId + " kopyalandı — kaynak teklif hiç değişmez. "
+                          + "Kaydedince bağımsız, yeni bir teklif oluşur (revizyon değil)."
+                    font.family: Theme.fontAilesi
+                    font.pixelSize: Theme.fontBoyutKucuk
+                    color: Theme.vurguAcik
+                }
             }
 
             Item { Layout.fillWidth: true }
-
-            // Sag ustteki bildirim kutusu. Gecici bir geri bildirim oldugu icin
-            // ekranda kalici degil: metin her degistiginde 5 saniyelik sayac
-            // bastan baslar ve sure dolunca kutu kendiliginden kaybolur. Art arda
-            // gelen mesajlarda (ornegin "PDF hazırlanıyor..." -> "PDF: ...") sayac
-            // sifirlanir, yani her mesaj kendi 5 saniyesini yasar.
-            Rectangle {
-                id: bilgiMesajiKutusu
-                visible: bilgiMesaji.text.length > 0
-                radius: Theme.radiusNormal
-                color: bilgiMesaji.color === Theme.tehlikeAcik ? Qt.rgba(0.97, 0.44, 0.44, 0.12) : Qt.rgba(0.29, 0.87, 0.5, 0.12)
-                border.width: 1
-                border.color: bilgiMesaji.color === Theme.tehlikeAcik ? Theme.tehlikeAcik : Theme.basariAcik
-                implicitWidth: bilgiMesaji.implicitWidth + 24
-                implicitHeight: bilgiMesaji.implicitHeight + 14
-
-                Timer {
-                    id: bilgiMesajiZamanlayici
-                    interval: 5000
-                    onTriggered: bilgiMesaji.text = ""
-                }
-
-                Label {
-                    id: bilgiMesaji
-                    anchors.centerIn: parent
-                    color: Theme.basariAcik
-                    font.family: Theme.fontAilesi
-                    font.pixelSize: Theme.fontBoyutKucuk
-                    font.bold: true
-
-                    // Mesaji kimin yazdigi onemli degil (PDF, kayit, hata...):
-                    // hepsi bu tek yerden otomatik kapanir.
-                    onTextChanged: {
-                        if (bilgiMesaji.text.length > 0)
-                            bilgiMesajiZamanlayici.restart()
-                        else
-                            bilgiMesajiZamanlayici.stop()
-                    }
-                }
-            }
 
             // Notlar: formda kalici metin kutusu yerine baslikta iki kucuk buton;
             // tiklaninca not penceresi acilir (bkz. musteriNotuDialogu/uretimNotuDialogu).
@@ -2441,11 +2582,15 @@ Item {
                             }
 
                             const revizyonMuydu = root.duzenlenenAnaTeklifId > 0
+                            const kopyaMiydi = root.kopyaModu
+                            const kopyaKaynagi = root.kopyaKaynakTeklifId
                             const sonuc = database.teklifKaydet(root.teklifVerisiOlustur())
                             if (sonuc.basarili) {
                                 bilgiMesaji.color = Theme.basariAcik
                                 const onEk = revizyonMuydu
                                     ? "Teklif #" + sonuc.teklifId + " (Teklif #" + root.duzenlenenKaynakTeklifId + " revizyonu) kaydedildi. "
+                                    : kopyaMiydi
+                                    ? "Teklif #" + sonuc.teklifId + " (Teklif #" + kopyaKaynagi + " kopyası) kaydedildi. "
                                     : "Teklif #" + sonuc.teklifId + " kaydedildi. "
                                 bilgiMesaji.text = onEk + "PDF hazırlanıyor..."
 
@@ -2464,6 +2609,13 @@ Item {
                                     root.duzenlemeyiIptalEt()
                                     root.revizyonKaydedildi(sonuc.teklifId, kaynakTeklifId,
                                                             sonuc.revizeEdilenTeklifIdler || [])
+                                } else if (kopyaMiydi) {
+                                    // Kopya akisi da bir ALT SAYFA'da yasar: formu
+                                    // bosaltip gelinen listeye donuyoruz. Kaynak
+                                    // teklifte hicbir degisiklik olmadigi icin
+                                    // "revize edildi" bilgisi gonderilmez.
+                                    root.duzenlemeyiIptalEt()
+                                    root.kopyaKaydedildi(sonuc.teklifId, kopyaKaynagi)
                                 } else {
                                     root.sepet = []
                                     root.secilenMusteriId = 0
