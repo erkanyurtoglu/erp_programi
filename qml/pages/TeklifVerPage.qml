@@ -393,6 +393,82 @@ Item {
         }
     }
 
+    // --- SATIR BAZLI uretim takibi (sepet satirindaki ✓ kutusu + not butonu) ---
+    // Teklifin TAMAMI icin tek bir uretim notu, birden fazla urunlu tekliflerde
+    // yetmiyor: hangi urunun bittigi ve hangi urune ait not oldugu kaybolur.
+    // Bu yuzden her sepet satiri kendi "tamamlandi" bayragini ve kendi notunu
+    // tasir (dbo.teklif_kalemleri.Tamamlandi / UretimNotu) -- ikisi de uretim
+    // PDF'inde o satirin hizasinda basilir.
+    //
+    // Satir bazli takip yalnizca KAYITLI bir teklif acikken anlamlidir: uretim
+    // teklif kabul edildikten sonra baslar, kaydedilmemis formda ya da kopyada
+    // takip edilecek bir uretim yoktur.
+    readonly property bool uretimTakibiGorunur: root.duzenlenenKaynakTeklifId > 0 && !root.kopyaModu
+
+    // Bu satirin uretim bilgisi veritabanina YERINDE yazilabilir mi? Kalem
+    // henuz kaydedilmemisse (sepete yeni eklenmis satir) veya teklif
+    // tamamlanmissa yazilmaz; deger ekranda bekler, "Teklifi Kaydet" ile gider.
+    function kalemYerindeYazilirMi(dizinIndex) {
+        const kalem = root.sepet[dizinIndex]
+        return !root.uretimBilgisiKilitli && kalem && (kalem.teklifKalemId || 0) > 0
+    }
+
+    function kalemTamamlandiAyarla(dizinIndex, tamamlandi) {
+        if (root.uretimAlaniKilitli)
+            return
+        const kalemId = root.sepet[dizinIndex].teklifKalemId || 0
+        const kalemAdi = root.sepet[dizinIndex].urunKodu || "Kalem"
+        root.sepetAlaniGuncelle(dizinIndex, "tamamlandi", tamamlandi)
+
+        if (!root.kalemYerindeYazilirMi(dizinIndex)) {
+            bilgiMesaji.color = Theme.basariAcik
+            bilgiMesaji.text = root.uretimBilgisiKilitli
+                ? kalemAdi + " üretim durumu \"Teklifi Kaydet\" ile yeni revizyona yazılacak."
+                : kalemAdi + " üretim durumu, teklif kaydedilince birlikte kaydedilecek."
+            return
+        }
+
+        if (database.teklifKalemTamamlandiGuncelle(kalemId, tamamlandi)) {
+            bilgiMesaji.color = Theme.basariAcik
+            bilgiMesaji.text = kalemAdi + (tamamlandi ? " üretimi tamamlandı olarak işaretlendi."
+                                                      : " üretim işareti kaldırıldı.")
+        } else {
+            // Yazilamadiysa ekrandaki kutu da eski haline donsun -- aksi halde
+            // kullanici isaretlenmis saniyor, uretim formunda gorunmuyordu.
+            root.sepetAlaniGuncelle(dizinIndex, "tamamlandi", !tamamlandi)
+            bilgiMesaji.color = Theme.tehlikeAcik
+            bilgiMesaji.text = kalemAdi + " üretim durumu kaydedilemedi."
+        }
+    }
+
+    function kalemUretimNotunuKaydet(dizinIndex, yeniNot) {
+        if (root.uretimAlaniKilitli || dizinIndex < 0 || dizinIndex >= root.sepet.length)
+            return
+        const eskiNot = root.sepet[dizinIndex].uretimNotu || ""
+        if (yeniNot === eskiNot)
+            return
+        const kalemId = root.sepet[dizinIndex].teklifKalemId || 0
+        const kalemAdi = root.sepet[dizinIndex].urunKodu || "Kalem"
+        root.sepetAlaniGuncelle(dizinIndex, "uretimNotu", yeniNot)
+
+        if (!root.kalemYerindeYazilirMi(dizinIndex)) {
+            bilgiMesaji.color = Theme.basariAcik
+            bilgiMesaji.text = root.uretimBilgisiKilitli
+                ? kalemAdi + " üretim notu \"Teklifi Kaydet\" ile yeni revizyona yazılacak."
+                : kalemAdi + " üretim notu, teklif kaydedilince birlikte kaydedilecek."
+            return
+        }
+
+        if (database.teklifKalemUretimNotuGuncelle(kalemId, yeniNot)) {
+            bilgiMesaji.color = Theme.basariAcik
+            bilgiMesaji.text = kalemAdi + " üretim notu kaydedildi."
+        } else {
+            root.sepetAlaniGuncelle(dizinIndex, "uretimNotu", eskiNot)
+            bilgiMesaji.color = Theme.tehlikeAcik
+            bilgiMesaji.text = kalemAdi + " üretim notu kaydedilemedi."
+        }
+    }
+
     // Giden Tekliflerim'deki "Detay" butonundan cagrilir (bkz. SatisModuluPage.qml).
     // Ilgili teklifin kayitli TUM verisini ceker ve formu/sepeti onunla doldurur.
     function duzenlemeyeBasla(teklifId) {
@@ -452,6 +528,17 @@ Item {
         root.duzenlenenAnaTeklifId = 0
         root.duzenlenenKaynakTeklifId = 0
         root.kopyaKaynakTeklifId = veri.teklifId
+
+        // Satir bazli uretim takibi kaynak teklifin KENDI uretimine aittir:
+        // kopya bastan bagimsiz yeni bir teklif oldugu icin hicbir kalem
+        // "tamamlandi" gelmez ve kalem notlari tasinmaz. teklifKalemId de
+        // sifirlanir -- aksi halde yeni formdaki bir isaret, kaynak teklifin
+        // kalemine yazilirdi.
+        root.sepet = root.sepet.map(k => Object.assign({}, k, {
+            teklifKalemId: 0,
+            tamamlandi: false,
+            uretimNotu: ""
+        }))
 
         bilgiMesaji.color = Theme.basariAcik
         const dovizli = veri.paraBirimi === "USD" || veri.paraBirimi === "EUR"
@@ -1031,7 +1118,7 @@ Item {
                           ? "🔒  " + root.teklifDurumu + " — bu teklifin kendisi değişmez; yaptığınız değişiklikler \"Teklifi Kaydet\" ile yeni revizyon olarak kaydedilir."
                           : root.uretimBilgisiKilitli
                           ? "🔒  " + root.teklifDurumu + " — bu teklif değiştirilemez."
-                          : "🔒  " + root.teklifDurumu + " — teklif değiştirilemez; yalnızca teslim tarihi ve üretim notu güncellenebilir."
+                          : "🔒  " + root.teklifDurumu + " — teklif değiştirilemez; yalnızca teslim tarihi, üretim notu ve sepetteki ürünlerin üretim durumu/notu güncellenebilir."
                     font.family: Theme.fontAilesi
                     font.pixelSize: Theme.fontBoyutKucuk
                     color: Theme.metinSoluk
@@ -1907,6 +1994,18 @@ Item {
                             Label { text: "FİYAT " + root.paraBirimiSembol(paraBirimiCombo.currentText); color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignLeft }
                             Label { text: "İNDİRİMLİ"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 96; horizontalAlignment: Text.AlignLeft }
                             Label { text: "TOPLAM"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 112; horizontalAlignment: Text.AlignLeft }
+                            // Satir bazli uretim takibi sutunu (✓ kutusu + not
+                            // butonu); yalnizca kayitli teklif acikken gorunur.
+                            Label {
+                                visible: root.uretimTakibiGorunur
+                                text: "ÜRETİM"
+                                color: Theme.metinCokSoluk
+                                font.family: Theme.fontAilesi
+                                font.pixelSize: 10
+                                font.letterSpacing: 1
+                                Layout.preferredWidth: 62
+                                horizontalAlignment: Text.AlignHCenter
+                            }
                             Label { text: ""; Layout.preferredWidth: 24 }
                         }
 
@@ -2047,9 +2146,14 @@ Item {
                             }
 
                             RowLayout {
-                                // Kilitli teklifte adet/maliyet/fiyat degistirilemez,
-                                // kalem silinemez (liste yine kaydirilabilir).
-                                enabled: !root.formKilitli
+                                // NOT: "enabled" satirin TAMAMINA degil, tek tek
+                                // ticari alanlara (adet/maliyet/fiyat/sil/siralama)
+                                // veriliyor. Satirin uretim takibi (✓ kutusu ve
+                                // kalem notu) kilitli teklifte de calismali:
+                                // uretim zaten teklif KABUL EDILDIKTEN sonra
+                                // basliyor, yani o alanlar yalnizca teklif
+                                // "Tamamlandı"ya gecince kilitlenir (bkz.
+                                // uretimAlaniKilitli).
                                 anchors.fill: sepetSatiriCerceve
                                 anchors.leftMargin: 12
                                 anchors.rightMargin: 8
@@ -2089,6 +2193,7 @@ Item {
 
                                     MouseArea {
                                         id: tutamakAlani
+                                        enabled: !root.formKilitli
                                         anchors.fill: parent
                                         hoverEnabled: true
                                         cursorShape: sepetSatiri.suruklenenSatir ? Qt.ClosedHandCursor : Qt.OpenHandCursor
@@ -2152,6 +2257,7 @@ Item {
 
                                 SpinBox {
                                     id: adetSpin
+                                    enabled: !root.formKilitli
                                     Layout.preferredWidth: 58
                                     Layout.preferredHeight: 30
                                     from: 1
@@ -2182,12 +2288,14 @@ Item {
                                 }
 
                                 SepetSayiAlani {
+                                    enabled: !root.formKilitli
                                     Layout.preferredWidth: 80
                                     deger: root.tlDenCevir(sepetSatiri.modelData.maliyet)
                                     onDegisti: (yeniDeger) => root.sepetTutarGuncelle(sepetSatiri.index, "maliyet", yeniDeger)
                                 }
 
                                 SepetSayiAlani {
+                                    enabled: !root.formKilitli
                                     Layout.preferredWidth: 80
                                     deger: root.tlDenCevir(sepetSatiri.modelData.birimFiyatTl)
                                     onDegisti: (yeniDeger) => root.sepetTutarGuncelle(sepetSatiri.index, "birimFiyatTl", yeniDeger)
@@ -2214,6 +2322,103 @@ Item {
                                     Layout.preferredWidth: 112
                                 }
 
+                                // ---- Satir bazli uretim takibi ----
+                                // Solda "üretimi tamamlandı" kutusu, sagda o
+                                // kaleme ozel uretim notu butonu. Ikisi de teklif
+                                // "Tamamlandı"ya gecince kilitlenir; kabul edilmis
+                                // teklifte serbesttir (uretim o asamada yapilir).
+                                RowLayout {
+                                    id: uretimHucresi
+                                    visible: root.uretimTakibiGorunur
+                                    // Bilincli olarak "enabled: false" YAPILMAZ:
+                                    // tamamlanmis teklifte de kalem notu okunabilmeli
+                                    // (pencere salt-okunur acilir) ve ipucunda
+                                    // gorunebilmeli. DEGISTIRME engeli hem
+                                    // kalemTamamlandiAyarla/kalemUretimNotunuKaydet
+                                    // icinde hem de C++ tarafinda uygulanir.
+                                    Layout.preferredWidth: 62
+                                    spacing: 4
+
+                                    readonly property bool tamamlandi: sepetSatiri.modelData.tamamlandi === true
+                                    readonly property string kalemNotu: sepetSatiri.modelData.uretimNotu || ""
+
+                                    Rectangle {
+                                        id: tamamlandiKutusu
+                                        Layout.preferredWidth: 26
+                                        Layout.preferredHeight: 26
+                                        radius: Theme.radiusKucuk
+                                        color: uretimHucresi.tamamlandi
+                                            ? Theme.basari
+                                            : (tamamlandiAlani.containsMouse ? Theme.panelHover : "transparent")
+                                        border.width: 1
+                                        border.color: uretimHucresi.tamamlandi ? Theme.basari : Theme.kenarlik
+                                        opacity: root.uretimAlaniKilitli ? 0.55 : 1
+                                        Behavior on color { ColorAnimation { duration: 120 } }
+
+                                        Label {
+                                            anchors.centerIn: parent
+                                            text: "✓"
+                                            color: uretimHucresi.tamamlandi ? "#ffffff" : Theme.metinCokSoluk
+                                            font.pixelSize: 13
+                                            font.bold: true
+                                        }
+
+                                        MouseArea {
+                                            id: tamamlandiAlani
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: root.uretimAlaniKilitli
+                                                ? Qt.ArrowCursor : Qt.PointingHandCursor
+                                            onClicked: root.kalemTamamlandiAyarla(sepetSatiri.index,
+                                                                                  !uretimHucresi.tamamlandi)
+                                        }
+
+                                        ToolTip.visible: tamamlandiAlani.containsMouse
+                                        ToolTip.delay: 400
+                                        ToolTip.text: root.uretimAlaniKilitli
+                                            ? "Teklif tamamlandı; üretim durumu değiştirilemez."
+                                            : (uretimHucresi.tamamlandi
+                                               ? "Bu ürünün üretimi tamamlandı (kaldırmak için tıklayın)."
+                                               : "Bu ürünün üretimi tamamlandı olarak işaretle.")
+                                    }
+
+                                    Rectangle {
+                                        id: kalemNotButonu
+                                        Layout.preferredWidth: 26
+                                        Layout.preferredHeight: 26
+                                        radius: Theme.radiusKucuk
+                                        color: kalemNotAlani.containsMouse ? Theme.panelHover : "transparent"
+                                        border.width: 1
+                                        // Notu olan satir kenarliktan belli olur:
+                                        // pencereyi acmadan hangi urunde not oldugu gorulur.
+                                        border.color: uretimHucresi.kalemNotu.trim().length > 0
+                                            ? Theme.uyari : Theme.kenarlik
+
+                                        Label {
+                                            anchors.centerIn: parent
+                                            text: "🗒"
+                                            color: Theme.metinIkincil
+                                            font.pixelSize: 12
+                                        }
+
+                                        MouseArea {
+                                            id: kalemNotAlani
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: kalemUretimNotuDialogu.ac(sepetSatiri.index)
+                                        }
+
+                                        ToolTip.visible: kalemNotAlani.containsMouse
+                                        ToolTip.delay: 400
+                                        ToolTip.text: uretimHucresi.kalemNotu.trim().length > 0
+                                            ? uretimHucresi.kalemNotu
+                                            : (root.uretimAlaniKilitli
+                                               ? "Bu ürün için üretim notu girilmemiş."
+                                               : "Bu ürüne özel üretim notu ekle.")
+                                    }
+                                }
+
                                 Rectangle {
                                     id: silButonu
                                     opacity: root.formKilitli ? 0 : 1
@@ -2231,6 +2436,9 @@ Item {
 
                                     MouseArea {
                                         id: silAlani
+                                        // Buton kilitli teklifte gorunmez (opacity 0)
+                                        // olsa da tiklanabilir kalmamali.
+                                        enabled: !root.formKilitli
                                         anchors.fill: parent
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
@@ -2714,6 +2922,41 @@ Item {
         metin: root.uretimNotu
         saltOkunur: root.uretimAlaniKilitli
         onKaydedildi: function(yeniMetin) { root.uretimNotunuKaydet(yeniMetin) }
+    }
+
+    // ---- Sepet satirina ozel uretim notu penceresi ----
+    // Teklifin GENEL uretim notundan ayridir: bu not yalnizca tek bir urune
+    // aittir ve uretim formunda o urunun satirinin altinda basilir. Tek bir
+    // pencere tum satirlar icin kullanilir; hangi satirin duzenlendigi
+    // ac() ile verilen dizinIndex'te tutulur.
+    NotDuzenleDialog {
+        id: kalemUretimNotuDialogu
+
+        // Pencere acilirken sabitlenir: sepet dizisi (siralama, silme) pencere
+        // acikken degisse bile not, acildigi satira yazilir.
+        property int dizinIndex: -1
+        property string kalemEtiketi: ""
+
+        function ac(index) {
+            const kalem = root.sepet[index]
+            if (!kalem)
+                return
+            kalemUretimNotuDialogu.dizinIndex = index
+            kalemUretimNotuDialogu.kalemEtiketi = (kalem.urunKodu || "MANUEL")
+                + " — " + root.kalemAciklamasi(kalem)
+            kalemUretimNotuDialogu.metin = kalem.uretimNotu || ""
+            kalemUretimNotuDialogu.open()
+        }
+
+        baslik: "Ürün Üretim Notu"
+        bilgi: kalemUretimNotuDialogu.kalemEtiketi
+               + "\nSadece bu ürüne ait not; üretim PDF'inde bu ürünün satırının altına basılır."
+        yerTutucu: "Bu ürüne özel ölçü, malzeme, renk, öncelik vb. notlar..."
+        renk: Theme.uyari
+        saltOkunur: root.uretimAlaniKilitli
+        onKaydedildi: function(yeniMetin) {
+            root.kalemUretimNotunuKaydet(kalemUretimNotuDialogu.dizinIndex, yeniMetin)
+        }
     }
 
     // ---- Manuel urun ekleme dialogu ----

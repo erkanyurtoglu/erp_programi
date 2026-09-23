@@ -713,9 +713,9 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
         kalemEkle.prepare(
             "INSERT INTO dbo.teklif_kalemleri "
             "(TeklifId, UrunId, Adet, BirimFiyat, IndirimliBirimFiyat, ToplamTutar, MaliyetFiyati, "
-            " UrunAciklamasi, ParaBirimi, Kur) "
+            " UrunAciklamasi, ParaBirimi, Kur, Tamamlandi, UretimNotu) "
             "VALUES (:teklifId, :urunId, :adet, :birimFiyat, :indirimliBirimFiyat, :toplamTutar, "
-            "        :maliyetFiyati, :urunAciklamasi, :paraBirimi, :kur)");
+            "        :maliyetFiyati, :urunAciklamasi, :paraBirimi, :kur, :tamamlandi, :kalemUretimNotu)");
         kalemEkle.bindValue(":teklifId", teklifId);
 
         // Manuel eklenen kalemlerde (sepete elle yazilan, urunler tablosunda karsiligi
@@ -758,6 +758,15 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
         kalemEkle.bindValue(":urunAciklamasi", kalem.value("aciklama").toString());
         kalemEkle.bindValue(":paraBirimi", kalem.value("paraBirimi", "TL").toString());
         kalemEkle.bindValue(":kur", kalem.value("kur", 1).toDouble());
+
+        // Satir bazli uretim takibi. Normal "Teklif Ver" ve "Kopya" akislarinda
+        // bu alanlar hic gelmez -> 0 / NULL, yani uretim yeni tekliften temiz
+        // baslar. Revizyonda ise QML kaynak teklifin degerlerini tasidigi icin
+        // "hangi kalem bitmisti" bilgisi yeni surume devredilir.
+        kalemEkle.bindValue(":tamamlandi", kalem.value("tamamlandi", false).toBool() ? 1 : 0);
+        const QString kalemUretimNotu = kalem.value("uretimNotu").toString().trimmed();
+        kalemEkle.bindValue(":kalemUretimNotu", kalemUretimNotu.isEmpty()
+            ? QVariant(QMetaType(QMetaType::QString)) : QVariant(kalemUretimNotu));
 
         if (!kalemEkle.exec())
         {
@@ -944,7 +953,8 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
 
     QSqlQuery kalemQuery(m_db);
     kalemQuery.prepare(
-        "SELECT tk.UrunId, tk.Adet, tk.BirimFiyat, tk.MaliyetFiyati, tk.Kur, "
+        "SELECT tk.TeklifKalemId, tk.UrunId, tk.Adet, tk.BirimFiyat, tk.MaliyetFiyati, tk.Kur, "
+        "       tk.Tamamlandi, tk.UretimNotu, "
         "       u.UrunKodu, tk.UrunAciklamasi, "
         "       u.UrunAciklamasi AS KatalogAciklamaTr, u.UrunAciklamasiEn AS KatalogAciklamaEn "
         "FROM dbo.teklif_kalemleri tk "
@@ -1002,6 +1012,12 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
         kalem["adet"] = kalemQuery.value("Adet").toInt();
         kalem["birimFiyatTl"] = birimFiyat * kur;
         kalem["maliyet"] = maliyetFiyati * kur;
+        // Satir bazli uretim takibi: kalemin kendi id'si (ekrandaki isaret
+        // kutusu/not penceresi bununla YERINDE yazar, bkz.
+        // teklifKalemTamamlandiGuncelle) ve mevcut degerleri.
+        kalem["teklifKalemId"] = kalemQuery.value("TeklifKalemId").toInt();
+        kalem["tamamlandi"] = kalemQuery.value("Tamamlandi").toBool();
+        kalem["uretimNotu"] = kalemQuery.value("UretimNotu").toString();
         kalemler.append(kalem);
     }
 
@@ -1177,6 +1193,76 @@ bool Database::teklifUretimNotuGuncelle(int teklifId, const QString &uretimNotu)
     if (!query.exec())
     {
         qWarning() << "teklifUretimNotuGuncelle basarisiz:" << query.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool Database::teklifKalemiUretimeAcikMi(int teklifKalemId)
+{
+    // Kalemin durumu bagli oldugu TEKLIFIN durumudur; kalemin kendi durumu yok.
+    QSqlQuery query(m_db);
+    query.prepare(
+        "SELECT t.Durum FROM dbo.teklif_kalemleri tk "
+        "INNER JOIN dbo.teklifler t ON t.TeklifId = tk.TeklifId "
+        "WHERE tk.TeklifKalemId = :id");
+    query.bindValue(":id", teklifKalemId);
+
+    if (!query.exec() || !query.next())
+    {
+        qWarning() << "teklifKalemiUretimeAcikMi: kalem bulunamadi:" << teklifKalemId
+                   << query.lastError().text();
+        return false;
+    }
+
+    // Planlanan teslim tarihi / genel uretim notuyla ayni kural: kabul edilmis
+    // teklifte yazilabilir, tamamlanmis teklifte kilitlidir.
+    if (query.value(0).toString() == "Tamamlandı")
+    {
+        qWarning() << "teklif kalemi uretim bilgisi degistirilemez (teklif tamamlandi):" << teklifKalemId;
+        return false;
+    }
+    return true;
+}
+
+bool Database::teklifKalemTamamlandiGuncelle(int teklifKalemId, bool tamamlandi)
+{
+    if (teklifKalemId <= 0 || !baglantiHazir())
+        return false;
+
+    if (!teklifKalemiUretimeAcikMi(teklifKalemId))
+        return false;
+
+    QSqlQuery query(m_db);
+    query.prepare("UPDATE dbo.teklif_kalemleri SET Tamamlandi = :tamamlandi WHERE TeklifKalemId = :id");
+    query.bindValue(":tamamlandi", tamamlandi ? 1 : 0);
+    query.bindValue(":id", teklifKalemId);
+
+    if (!query.exec())
+    {
+        qWarning() << "teklifKalemTamamlandiGuncelle basarisiz:" << query.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool Database::teklifKalemUretimNotuGuncelle(int teklifKalemId, const QString &uretimNotu)
+{
+    if (teklifKalemId <= 0 || !baglantiHazir())
+        return false;
+
+    if (!teklifKalemiUretimeAcikMi(teklifKalemId))
+        return false;
+
+    QSqlQuery query(m_db);
+    query.prepare("UPDATE dbo.teklif_kalemleri SET UretimNotu = :not WHERE TeklifKalemId = :id");
+    const QString temiz = uretimNotu.trimmed();
+    query.bindValue(":not", temiz.isEmpty() ? QVariant(QMetaType(QMetaType::QString)) : QVariant(temiz));
+    query.bindValue(":id", teklifKalemId);
+
+    if (!query.exec())
+    {
+        qWarning() << "teklifKalemUretimNotuGuncelle basarisiz:" << query.lastError().text();
         return false;
     }
     return true;
@@ -2193,6 +2279,7 @@ bool Database::pdfVerisiniOku(int teklifId, QString &firmaAdiOut, QVariantMap &v
     QSqlQuery kalemQuery(m_db);
     kalemQuery.prepare(
         "SELECT tk.Adet, tk.BirimFiyat, tk.IndirimliBirimFiyat, tk.ToplamTutar, "
+        "       tk.Tamamlandi, tk.UretimNotu, "
         "       u.UrunKodu, tk.UrunAciklamasi, u.UrunAciklamasi AS KatalogAciklamaTr "
         "FROM dbo.teklif_kalemleri tk "
         "LEFT JOIN dbo.urunler u ON u.UrunId = tk.UrunId "
@@ -2221,6 +2308,10 @@ bool Database::pdfVerisiniOku(int teklifId, QString &firmaAdiOut, QVariantMap &v
         // Manuel kalemlerde ("MANUEL-...") katalog satiri teklife ozeldir ve
         // zaten kayitli aciklamanin aynisidir.
         kalem["urunAciklamasiTr"] = kalemQuery.value("KatalogAciklamaTr").toString();
+        // Satir bazli uretim takibi: yalnizca URETIM PDF'i kullanir (musteriye
+        // giden teklif PDF'i bu alanlari gormezden gelir -- ic bilgidir).
+        kalem["tamamlandi"] = kalemQuery.value("Tamamlandi").toBool();
+        kalem["uretimNotu"] = kalemQuery.value("UretimNotu").toString();
         kalemler.append(kalem);
     }
     veri["kalemler"] = kalemler;

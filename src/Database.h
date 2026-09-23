@@ -97,7 +97,13 @@ public:
     //   indirimliToplam, kdvTutari, genelToplam (double, QML tarafinda hesaplanmis),
     //   kalemler (QVariantList<QVariantMap{urunId (0 ise manuel kalem), urunKodu,
     //             aciklama, adet, birimFiyat, indirimliBirimFiyat, toplamTutar,
-    //             maliyetFiyati, paraBirimi, kur}>),
+    //             maliyetFiyati, paraBirimi, kur,
+    //             tamamlandi (bool, OPSIYONEL; satirin uretimi bitti mi) ve
+    //             uretimNotu (string, OPSIYONEL; o satira ozel uretim notu) --
+    //             ikisi de verilmezse 0/NULL kaydedilir. Bunlar yalnizca
+    //             REVIZYON akisinda dolu gelir: teklifin yeni surumu, eski
+    //             surumunun uretim durumunu devralir; "Kopya" akisinda QML
+    //             tarafi bilincli olarak sifirlar}>),
     //   anaTeklifId (int, OPSIYONEL): >0 verilirse bu YENI teklif, o teklifin
     //             (veya zaten bir revizyonsa onun kok teklifinin) bir REVIZYONU
     //             olarak kaydedilir -- orijinal teklif SATIRI hic degismez/silinmez,
@@ -140,7 +146,11 @@ public:
     //   "ilgiliKisiTelefonu", "ilgiliKisiEposta", "teslimatSekli", "teslimatYeri",
     //   "paketlemeUcretiTl", "tasimaUcretiTl", "kur" (double, TL'ye cevirmek icin),
     //   "kalemler" (QVariantList<QVariantMap{urunId (0 ise manuel), urunKodu,
-    //             aciklama, adet (int), birimFiyatTl, maliyet (double)}>),
+    //             aciklama, adet (int), birimFiyatTl, maliyet (double),
+    //             teklifKalemId (int, satirin kendi id'si -- satir bazli uretim
+    //             bilgisini YERINDE guncellemek icin, bkz.
+    //             teklifKalemTamamlandiGuncelle), tamamlandi (bool),
+    //             uretimNotu (string, o satira ozel uretim notu)}>),
     //   "sozlesmeMetni" (string; teklife ozel bir sozlesme metni kaydedilmemisse bos),
     //   "musteriNotu" (string, teklif notu), "uretimNotu" (string),
     //   "teslimatTarihi" (string, "yyyy-MM-dd" veya bos), "durum" (string).
@@ -169,6 +179,29 @@ public:
     Q_INVOKABLE bool teklifMusteriNotuGuncelle(int teklifId, const QString &musteriNotu);
     // Uretim notu (UretimNotu): uretim PDF'ine basilir.
     Q_INVOKABLE bool teklifUretimNotuGuncelle(int teklifId, const QString &uretimNotu);
+
+    // ------------------------------------------------------------------
+    // SATIR BAZLI uretim takibi (dbo.teklif_kalemleri.Tamamlandi / UretimNotu).
+    //
+    // Bir teklifte birden fazla urun oldugunda teklifin TAMAMI icin tek bir
+    // "bitti" bilgisi yetmiyor: 5 kalemin 3'u uretilmis olabilir, ya da yalnizca
+    // bir urun icin ozel bir olcu/malzeme notu olabilir. Bu yuzden her teklif
+    // KALEMI kendi "tamamlandi" bayragini ve kendi uretim notunu tasir. Teklifin
+    // GENEL uretim notu (teklifUretimNotuGuncelle) bundan bagimsizdir ve tum
+    // teklife dair notlar icin kullanilmaya devam eder; ikisi de uretim PDF'ine
+    // basilir (bkz. TeklifPdfOlusturucu::uretimPdfUret).
+    //
+    // Her ikisi de kayitli teklifi YERINDE gunceller (revizyon olusturmaz).
+    // KILIT KURALI, planlanan teslim tarihi/genel uretim notuyla AYNIDIR:
+    // "Kabul Edildi" teklifte serbestce isaretlenir/yazilir -- uretim zaten
+    // kabulden sonra basladigi icin bilgi o asamada olusur --, teklif
+    // "Tamamlandı"ya gectikten sonra ARTIK DEGISTIRILEMEZ (false doner).
+    //
+    // teklifKalemId, teklifDuzenlemeVerisiGetir'in donen kalemlerindeki
+    // "teklifKalemId" degeridir; 0/gecersizse (henuz kaydedilmemis teklif) false doner.
+    Q_INVOKABLE bool teklifKalemTamamlandiGuncelle(int teklifKalemId, bool tamamlandi);
+    // uretimNotu bos/bosluk ise sutun NULL'lanir (not kaldirilir).
+    Q_INVOKABLE bool teklifKalemUretimNotuGuncelle(int teklifKalemId, const QString &uretimNotu);
 
     // Teklifin durumunu degistirir. Gecerli durumlar: "Beklemede", "Kabul Edildi",
     // "Reddedildi", "Tamamlandı" (bkz. gecerliDurumlar()).
@@ -419,6 +452,10 @@ private:
     static bool teklifKilitliMi(const QString &durum);
     // Teklifin guncel durumu; teklif bulunamazsa bos string.
     QString teklifDurumuGetir(int teklifId);
+    // Bu kalemin satir bazli uretim bilgisi (tamamlandi/uretim notu) su an
+    // yazilabilir mi? Kalem yoksa ya da bagli oldugu teklif "Tamamlandı" ise
+    // false doner (bkz. teklifKalemTamamlandiGuncelle ustundeki kilit kurali).
+    bool teklifKalemiUretimeAcikMi(int teklifKalemId);
     // dbo.teklifler.KopyaKaynakTeklifId sutunu var mi? (db/07_teklif_kopya_kaynagi.sql
     // calistirilmadiysa yoktur.) Sonuc bir kez sorgulanip saklanir -- script
     // program acikken calistirilirsa programin yeniden baslatilmasi gerekir. Kolon yoksa

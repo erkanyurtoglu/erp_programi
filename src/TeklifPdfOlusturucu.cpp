@@ -681,12 +681,27 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
     if (bas >= 0 && govdeSonu > bas)
         sablon.remove(bas, govdeSonu - bas);
 
-    // Fiyatsiz 4 sutunluk tablo ve uretim notu kutusu icin ek stiller.
+    // Fiyatsiz 6 sutunluk tablo (No / Kod / Aciklama / Adet / Durum / Not) ve
+    // uretim notu kutusu icin ek stiller. "Durum" ve "Not" sutunlari uretimin
+    // satir satir takip edilmesini saglar -- teklifte birden fazla urun
+    // oldugunda hangisinin bittigi ve hangisinde not oldugu tek bakista gorulur.
+    //
+    // Durum hucresinde METIN YOK, yalnizca bir kare kutu var: form ciktisi
+    // uretimde elle de isaretlenebilsin diye ("Bekliyor" yazisi hem gereksiz
+    // yer kapliyor hem de elle isaretlemeyi imkansiz kiliyordu).
     sablon.replace(QStringLiteral("</style>"), QStringLiteral(
-        "    table.uretim col:nth-child(1) { width: 7%; }\n"
-        "    table.uretim col:nth-child(2) { width: 18%; }\n"
-        "    table.uretim col:nth-child(3) { width: 63%; }\n"
-        "    table.uretim col:nth-child(4) { width: 12%; }\n"
+        "    table.uretim col:nth-child(1) { width: 5%; }\n"
+        "    table.uretim col:nth-child(2) { width: 13%; }\n"
+        "    table.uretim col:nth-child(3) { width: 40%; }\n"
+        "    table.uretim col:nth-child(4) { width: 7%; }\n"
+        "    table.uretim col:nth-child(5) { width: 9%; }\n"
+        "    table.uretim col:nth-child(6) { width: 26%; }\n"
+        "    table.uretim td.durum { text-align: center; }\n"
+        "    table.uretim td.durum .kutu { display: inline-block; width: 13px; height: 13px;\n"
+        "        border: 1.5px solid #333; line-height: 13px; font-size: 12px; font-weight: bold; }\n"
+        "    table.uretim td.durum .kutu.bitti { background-color: #333; color: #fff; }\n"
+        "    table.uretim td.kalem-not { white-space: pre-wrap; font-size: 9pt; }\n"
+        "    table.uretim tr.bitti td { background-color: #eef7ee; }\n"
         "    .uretim-not { margin-top: 16px; border: 1px solid #333; padding: 8px 10px; }\n"
         "    .uretim-not .etiket { font-weight: bold; margin-bottom: 4px; }\n"
         "    .uretim-not .metin { white-space: pre-wrap; }\n"
@@ -695,10 +710,15 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
     const bool teklifIngilizce = veri.value("dil").toString().compare("EN", Qt::CaseInsensitive) == 0;
     const QVariantList kalemler = veri.value("kalemler").toList();
 
-    // --- Kalemler: fiyat yok, sadece kod/aciklama/adet ---
+    // --- Kalemler: fiyat yok; kod/aciklama/adet + SATIR BAZLI uretim durumu ---
+    // Teklifin tamami icin tek bir "bitti" bilgisi yetmiyor: 5 kalemlik bir
+    // teklifte 3'u uretilmis olabilir, ya da yalnizca bir urunun ozel bir olcu/
+    // malzeme notu olabilir. Bu yuzden her satir kendi durumunu ve kendi
+    // notunu tasir (bkz. dbo.teklif_kalemleri.Tamamlandi / UretimNotu).
     QString kalemSatirlariHtml;
     int satirNo = 0;
     int toplamAdet = 0;
+    int tamamlananKalem = 0;
     for (const QVariant &kalemVar : kalemler)
     {
         const QVariantMap k = kalemVar.toMap();
@@ -712,20 +732,40 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
         const QString aciklama = (teklifIngilizce && !manuelMi && !katalogTr.trimmed().isEmpty())
             ? katalogTr : k.value("urunAciklamasi").toString();
 
-        const QString satirSinifi = (satirNo % 2 == 0) ? QStringLiteral(" class='zebra'") : QString();
+        const bool tamamlandi = k.value("tamamlandi").toBool();
+        if (tamamlandi)
+            ++tamamlananKalem;
+        const QString kalemNotu = k.value("uretimNotu").toString().trimmed();
+
+        // Tamamlanmis satir zebra yerine acik yesil zeminle isaretlenir --
+        // uretim formuna bakan kisi neyin bittigini satir satir gorur.
+        const QString satirSinifi = tamamlandi
+            ? QStringLiteral(" class='bitti'")
+            : ((satirNo % 2 == 0) ? QStringLiteral(" class='zebra'") : QString());
         // Hucreler ayri ayri eklenir: zincirli .arg() kullanilsaydi aciklamadaki
         // "%5" gibi bir ifade sonraki argumanla degistirilirdi.
         kalemSatirlariHtml += QStringLiteral("<tr%1>").arg(satirSinifi);
         kalemSatirlariHtml += QStringLiteral("<td>%1</td>").arg(satirNo);
         kalemSatirlariHtml += QStringLiteral("<td>%1</td>").arg((manuelMi ? QString() : urunKodu).toHtmlEscaped());
         kalemSatirlariHtml += QStringLiteral("<td>%1</td>").arg(aciklama.toHtmlEscaped());
-        kalemSatirlariHtml += QStringLiteral("<td class='sag'>%1</td></tr>").arg(adet);
+        kalemSatirlariHtml += QStringLiteral("<td class='sag'>%1</td>").arg(adet);
+        // Durum: yalnizca kare kutu -- dolu/isaretli ise uretimi bitmis demektir.
+        kalemSatirlariHtml += tamamlandi
+            ? QStringLiteral("<td class='durum'><span class='kutu bitti'>&#10004;</span></td>")
+            : QStringLiteral("<td class='durum'><span class='kutu'></span></td>");
+        // Kalemin kendi uretim notu, durumun SAGINDAKI kendi sutununda durur:
+        // aciklamanin altina yazilsaydi urun metniyle karisirdi.
+        kalemSatirlariHtml += QStringLiteral("<td class='kalem-not'>%1</td></tr>")
+            .arg(kalemNotu.toHtmlEscaped());
     }
     kalemSatirlariHtml += QStringLiteral("<tr><td></td><td></td><td class='sag'><b>Toplam Adet:</b></td>"
-                                         "<td class='sag'><b>%1</b></td></tr>").arg(toplamAdet);
+                                         "<td class='sag'><b>%1</b></td>"
+                                         "<td class='durum'><b>%2/%3</b></td><td></td></tr>")
+        .arg(toplamAdet).arg(tamamlananKalem).arg(satirNo);
 
     const QString kalemBaslikHtml = QStringLiteral(
-        "<th>No</th><th>Ürün Kodu</th><th>Açıklama</th><th class='sag'>Adet</th>");
+        "<th>No</th><th>Ürün Kodu</th><th>Açıklama</th><th class='sag'>Adet</th>"
+        "<th style='text-align:center'>Durum</th><th>Not</th>");
 
     // --- Bilgi bloklari (bos alanlar gizlenir) ---
     auto satir = [](const QString &etiket, const QString &deger) {
@@ -757,14 +797,22 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
     sagBlokHtml += QStringLiteral("<div><b>Planlanan Teslim Tarihi:</b> %1</div>")
         .arg(teslimatTarihi.isEmpty() ? QStringLiteral("Belirtilmedi") : teslimatTarihi);
     sagBlokHtml += satir(QStringLiteral("Teklifi Yapan"), veri.value("personelAdSoyad").toString());
+    // Satir bazli durumlarin ozeti: formun basinda isin nerede oldugu gorulsun.
+    if (satirNo > 0)
+    {
+        sagBlokHtml += QStringLiteral("<div><b>Üretim Durumu:</b> %1 / %2 kalem tamamlandı</div>")
+            .arg(tamamlananKalem).arg(satirNo);
+    }
     sagBlokHtml += satir(QStringLiteral("Üretim Formu Tarihi"),
                          QDateTime::currentDateTime().toString(QStringLiteral("dd.MM.yyyy HH:mm")));
 
-    // Yalnizca uretim notu basilir; teklif notu uretimciye gitmez.
+    // Yalnizca uretim notu basilir; teklif notu uretimciye gitmez. Bu, teklifin
+    // TAMAMINA dair genel nottur; tek bir urune ait notlar yukarida kendi
+    // satirlarinin altinda durur.
     const QString uretimNotu = veri.value("uretimNotu").toString().trimmed();
     const QString notHtml = uretimNotu.isEmpty()
         ? QString()
-        : QStringLiteral("<div class=\"uretim-not\"><div class=\"etiket\">Üretim Notu</div>"
+        : QStringLiteral("<div class=\"uretim-not\"><div class=\"etiket\">Genel Üretim Notu</div>"
                          "<div class=\"metin\">%1</div></div>").arg(uretimNotu.toHtmlEscaped());
 
     // Not kutusu tablonun hemen altina (toplam blogunun yerine) konur.
@@ -787,7 +835,7 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
     degerler["SAG_BLOK"] = sagBlokHtml;
     degerler["URUNLER_BASLIK"] = QStringLiteral("Üretilecek Ürünler");
     degerler["INDIRIM_SINIFI"] = QStringLiteral("uretim");
-    degerler["KOLON_GRUBU"] = QStringLiteral("<col/><col/><col/><col/>");
+    degerler["KOLON_GRUBU"] = QStringLiteral("<col/><col/><col/><col/><col/><col/>");
     degerler["KALEM_BASLIK"] = kalemBaslikHtml;
     degerler["KALEM_SATIRLARI"] = kalemSatirlariHtml;
     degerler["TOPLAM_SATIRLARI"] = QString();
