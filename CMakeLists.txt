@@ -68,6 +68,10 @@ qt_add_qml_module(erp_programi
         qml/components/NotDuzenleDialog.qml
         qml/components/SevkBilgileriDialog.qml
         qml/components/SayiBicimlendirici.qml
+        qml/components/TemaDialog.qml
+        qml/components/TemaComboBox.qml
+        qml/components/EtiketliAlan.qml
+        qml/components/SifreOnayDialog.qml
 )
 
 target_link_libraries(erp_programi PRIVATE

@@ -347,23 +347,13 @@ Item {
     }
 
     // ---- Ekle / Duzenle dialogu ----
-    Dialog {
+    TemaDialog {
         id: duzenlemeDialogu
         property int kullaniciId: 0
-        modal: true
-        width: 420
-        anchors.centerIn: parent
-        standardButtons: Dialog.Save | Dialog.Cancel
-
-        background: Rectangle { color: Theme.panel; radius: Theme.radiusNormal; border.color: Theme.kenarlik; border.width: 1 }
-        header: Label {
-            text: duzenlemeDialogu.title
-            color: Theme.metinBirincil
-            font.family: Theme.fontAilesi
-            font.bold: true
-            font.pixelSize: Theme.fontBoyutOrta
-            padding: 16
-        }
+        width: 460
+        baslik: title
+        onayMetni: "Kaydet"
+        elleKapat: true
 
         function secilenRolIdListesi() {
             const secilenler = []
@@ -375,7 +365,7 @@ Item {
             return secilenler
         }
 
-        onAccepted: {
+        onOnaylandi: {
             const veri = {
                 adSoyad: adSoyadAlani.text,
                 kullaniciAdi: kullaniciAdiAlani.text,
@@ -387,15 +377,13 @@ Item {
             const sonuc = duzenlemeDialogu.kullaniciId > 0
                 ? database.personelGuncelle(duzenlemeDialogu.kullaniciId, veri)
                 : database.personelEkle(veri)
-            if (sonuc.basarili) {
-                hataMesaji.text = ""
-                root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
-            } else {
-                // Save'e basilinca dialog zaten kapanmis oluyor; hata mesaji gorunsun
-                // ve girilen bilgiler kaybolmasin diye yeniden aciyoruz.
+            if (!sonuc.basarili) {
                 hataMesaji.text = sonuc.hata
-                duzenlemeDialogu.open()
+                return
             }
+            hataMesaji.text = ""
+            duzenlemeDialogu.close()
+            root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
         }
 
         contentItem: ColumnLayout {
@@ -430,6 +418,27 @@ Item {
                         required property var modelData
                         readonly property int rolId: modelData.rolId
                         text: modelData.rolAdi
+
+                        indicator: Rectangle {
+                            implicitWidth: 18
+                            implicitHeight: 18
+                            x: kutu.leftPadding
+                            y: (kutu.height - height) / 2
+                            radius: 4
+                            color: kutu.checked ? Theme.vurgu : Theme.arkaplan
+                            border.width: 1
+                            border.color: kutu.checked ? Theme.vurgu
+                                        : (kutu.hovered ? Theme.metinSoluk : Theme.kenarlik)
+
+                            Text {
+                                anchors.centerIn: parent
+                                visible: kutu.checked
+                                text: "✓"
+                                color: "#ffffff"
+                                font.bold: true
+                                font.pixelSize: 12
+                            }
+                        }
 
                         contentItem: Label {
                             text: kutu.text

@@ -75,20 +75,6 @@ Item {
     // icin inline "component" olarak (dosyanin en ustunde, root'un dogrudan
     // cocugu olarak) tanimlaniyor -- QML'de inline component'ler boyle, tek
     // seviyeli olarak tanimlanmalidir.
-    // Manuel urun ekleme dialogundaki alan stili (bkz. UrunlerimPage.qml'deki
-    // ayni amacli FormAlani bileseni).
-    component ManuelUrunAlani: TextField {
-        Layout.fillWidth: true
-        Layout.preferredHeight: Theme.girdiYuksekligi + 6
-        color: Theme.metinBirincil
-        placeholderTextColor: Theme.metinCokSoluk
-        font.family: Theme.fontAilesi
-        font.pixelSize: Theme.fontBoyutNormal
-        leftPadding: 12
-        rightPadding: 12
-        background: Rectangle { color: Theme.arkaplan; radius: Theme.radiusKucuk; border.width: 1; border.color: Theme.kenarlik }
-    }
-
     component UcretAlani: Rectangle {
         id: ucretAlani
         property string birim: "%"
@@ -356,13 +342,8 @@ Item {
             return
         root.musteriNotu = yeniNot
         // Kilitli teklifin kendisine yazilmaz; not yalnizca revizyona gider.
-        if (root.duzenlenenKaynakTeklifId <= 0 || root.teklifKilitli) {
-            bilgiMesaji.color = Theme.basariAcik
-            bilgiMesaji.text = root.teklifKilitli
-                ? "Teklif notu \"Teklifi Kaydet\" ile yeni revizyona yazılacak."
-                : "Teklif notu, teklif kaydedilince birlikte kaydedilecek."
+        if (root.duzenlenenKaynakTeklifId <= 0 || root.teklifKilitli)
             return
-        }
         if (database.teklifMusteriNotuGuncelle(root.duzenlenenKaynakTeklifId, yeniNot)) {
             bilgiMesaji.color = Theme.basariAcik
             bilgiMesaji.text = "Teklif #" + root.duzenlenenKaynakTeklifId + " teklif notu kaydedildi."
@@ -377,13 +358,8 @@ Item {
             return
         root.uretimNotu = yeniNot
         // Tamamlanmis teklifte (Giden'den revize) not yalnizca revizyona gider.
-        if (root.duzenlenenKaynakTeklifId <= 0 || root.uretimBilgisiKilitli) {
-            bilgiMesaji.color = Theme.basariAcik
-            bilgiMesaji.text = root.uretimBilgisiKilitli
-                ? "Üretim notu \"Teklifi Kaydet\" ile yeni revizyona yazılacak."
-                : "Üretim notu, teklif kaydedilince birlikte kaydedilecek."
+        if (root.duzenlenenKaynakTeklifId <= 0 || root.uretimBilgisiKilitli)
             return
-        }
         if (database.teklifUretimNotuGuncelle(root.duzenlenenKaynakTeklifId, yeniNot)) {
             bilgiMesaji.color = Theme.basariAcik
             bilgiMesaji.text = "Teklif #" + root.duzenlenenKaynakTeklifId + " üretim notu kaydedildi."
@@ -420,18 +396,12 @@ Item {
         const kalemAdi = root.sepet[dizinIndex].urunKodu || "Kalem"
         root.sepetAlaniGuncelle(dizinIndex, "tamamlandi", tamamlandi)
 
-        if (!root.kalemYerindeYazilirMi(dizinIndex)) {
-            bilgiMesaji.color = Theme.basariAcik
-            bilgiMesaji.text = root.uretimBilgisiKilitli
-                ? kalemAdi + " üretim durumu \"Teklifi Kaydet\" ile yeni revizyona yazılacak."
-                : kalemAdi + " üretim durumu, teklif kaydedilince birlikte kaydedilecek."
+        if (!root.kalemYerindeYazilirMi(dizinIndex))
             return
-        }
 
         if (database.teklifKalemTamamlandiGuncelle(kalemId, tamamlandi)) {
             bilgiMesaji.color = Theme.basariAcik
-            bilgiMesaji.text = kalemAdi + (tamamlandi ? " üretimi tamamlandı olarak işaretlendi."
-                                                      : " üretim işareti kaldırıldı.")
+            bilgiMesaji.text = kalemAdi + (tamamlandi ? " üretimi tamamlandı." : " üretim işareti kaldırıldı.")
         } else {
             // Yazilamadiysa ekrandaki kutu da eski haline donsun -- aksi halde
             // kullanici isaretlenmis saniyor, uretim formunda gorunmuyordu.
@@ -451,13 +421,8 @@ Item {
         const kalemAdi = root.sepet[dizinIndex].urunKodu || "Kalem"
         root.sepetAlaniGuncelle(dizinIndex, "uretimNotu", yeniNot)
 
-        if (!root.kalemYerindeYazilirMi(dizinIndex)) {
-            bilgiMesaji.color = Theme.basariAcik
-            bilgiMesaji.text = root.uretimBilgisiKilitli
-                ? kalemAdi + " üretim notu \"Teklifi Kaydet\" ile yeni revizyona yazılacak."
-                : kalemAdi + " üretim notu, teklif kaydedilince birlikte kaydedilecek."
+        if (!root.kalemYerindeYazilirMi(dizinIndex))
             return
-        }
 
         if (database.teklifKalemUretimNotuGuncelle(kalemId, yeniNot)) {
             bilgiMesaji.color = Theme.basariAcik
@@ -540,12 +505,6 @@ Item {
             uretimNotu: ""
         }))
 
-        bilgiMesaji.color = Theme.basariAcik
-        const dovizli = veri.paraBirimi === "USD" || veri.paraBirimi === "EUR"
-        bilgiMesaji.text = "Teklif #" + veri.teklifId + " kopyalandı"
-                           + (dovizli ? " (kur güncel olarak çekiliyor). " : ". ")
-                           + "Firmayı seçip değişikliklerinizi yapın; \"Teklifi Kaydet\" yeni ve bağımsız bir teklif "
-                           + "oluşturur, #" + veri.teklifId + " hiç değişmez."
     }
 
     // duzenlemeyeBasla + kopyalamayaBasla'nin ortak kismi: teklifin kayitli verisini
@@ -674,14 +633,25 @@ Item {
         return pb === "USD" ? "$" : (pb === "EUR" ? "€" : "₺")
     }
 
-    // open.er-api.com'dan USD bazli kurlari ceker: rates.TRY dogrudan USD->TRY,
-    // rates.TRY / rates.EUR ise EUR->TRY olarak hesaplanir. Basarisiz olursa
-    // (agsizlik, zaman asimi, beklenmeyen yanit) mevcut elle giris alanlari
-    // fallback olarak calismaya devam eder -- kullaniciya hata mesaji gosterilir.
+    // TCMB gosterge niteligindeki alis/satis kurlari (WPF ile ayni kaynak).
+    // Teklif hesaplarinda doviz SATIS kuru kullanilir; alis yalnizca gosterilir.
+    property real usdAlis: 0
+    property real eurAlis: 0
+
+    // TCMB'nin gunluk kur dosyasindan (today.xml) USD ve EUR alis/satis kurlarini
+    // ceker. Basarisiz olursa elle giris alanlari kullanilabilir.
     function guncelKuruCek() {
         root.kurCekiliyor = true
         root.kurMesaji = ""
         root.kurMesajiHata = false
+
+        function kurOku(xml, kod, etiket) {
+            const blok = new RegExp('CurrencyCode="' + kod + '"[\\s\\S]*?</Currency>').exec(xml)
+            if (!blok)
+                return NaN
+            const deger = new RegExp('<' + etiket + '>([^<]*)</' + etiket + '>').exec(blok[0])
+            return deger ? Number(deger[1]) : NaN
+        }
 
         const istek = new XMLHttpRequest()
         istek.timeout = 8000
@@ -691,47 +661,34 @@ Item {
 
             root.kurCekiliyor = false
 
-            if (istek.status !== 200) {
-                root.kurMesaji = "Kur alınamadı (sunucu hatası). Lütfen elle girin."
+            const xml = istek.status === 200 ? istek.responseText : ""
+            const usdSatis = kurOku(xml, "USD", "ForexSelling")
+            const eurSatis = kurOku(xml, "EUR", "ForexSelling")
+            if (!(usdSatis > 0) || !(eurSatis > 0)) {
+                root.kurMesaji = "Kur alınamadı, elle girin."
                 root.kurMesajiHata = true
                 return
             }
 
-            try {
-                const veri = JSON.parse(istek.responseText)
-                const usdTry = veri && veri.rates ? Number(veri.rates.TRY) : NaN
-                const eur = veri && veri.rates ? Number(veri.rates.EUR) : NaN
-
-                if (!isFinite(usdTry) || usdTry <= 0 || !isFinite(eur) || eur <= 0) {
-                    root.kurMesaji = "Kur verisi okunamadı. Lütfen elle girin."
-                    root.kurMesajiHata = true
-                    return
-                }
-
-                const eurTry = usdTry / eur
-
-                root.usdKur = usdTry
-                root.eurKur = eurTry
-                usdKurAlani.text = usdTry.toFixed(4)
-                eurKurAlani.text = eurTry.toFixed(4)
-                root.kurMesaji = "Kurlar güncellendi (open.er-api.com)."
-                root.kurMesajiHata = false
-            } catch (e) {
-                root.kurMesaji = "Kur verisi okunamadı. Lütfen elle girin."
-                root.kurMesajiHata = true
-            }
+            root.usdAlis = kurOku(xml, "USD", "ForexBuying") || 0
+            root.eurAlis = kurOku(xml, "EUR", "ForexBuying") || 0
+            root.usdKur = usdSatis
+            root.eurKur = eurSatis
+            usdKurBicimi.ayarla(usdSatis)
+            eurKurBicimi.ayarla(eurSatis)
+            root.kurMesaji = "TCMB kurları güncellendi."
+            root.kurMesajiHata = false
         }
 
         try {
-            istek.open("GET", "https://open.er-api.com/v6/latest/USD")
+            istek.open("GET", "https://www.tcmb.gov.tr/kurlar/today.xml")
             istek.send()
         } catch (e) {
             root.kurCekiliyor = false
-            root.kurMesaji = "Kur alınamadı (bağlantı hatası). Lütfen elle girin."
+            root.kurMesaji = "Kur alınamadı, elle girin."
             root.kurMesajiHata = true
         }
     }
-
     // TL tutarini secili teklif para birimine cevirir. Kur girilmemisse (0)
     // TL olarak birakir -- yanlislikla 0'a bolme veya anlamsiz deger olmasin.
     function tlDenCevir(tlTutar) {
@@ -764,6 +721,32 @@ Item {
         if (dilCombo.currentText === "EN" && k.aciklamaEn && k.aciklamaEn.trim().length > 0)
             return k.aciklamaEn
         return tr
+    }
+
+    // Sepet satirinda duzenlenen aciklama, secili dilin alanina yazilir; teklif
+    // kaydedilince (kalemAciklamasi uzerinden) PDF'e bu metin gider.
+    function kalemAciklamasiniGuncelle(dizinIndex, metin) {
+        if (root.formKilitli || dizinIndex < 0 || dizinIndex >= root.sepet.length)
+            return
+        const yeniMetin = metin.trim()
+        const kalem = root.sepet[dizinIndex]
+        if (yeniMetin === root.kalemAciklamasi(kalem))
+            return
+        // Bos birakilirsa satir yeniden cizilip eski aciklama geri gelir.
+        if (yeniMetin.length === 0) {
+            root.sepet = root.sepet.slice()
+            return
+        }
+        const yeniSepet = root.sepet.slice()
+        const guncel = Object.assign({}, kalem)
+        if (dilCombo.currentText === "EN") {
+            guncel.aciklamaEn = yeniMetin
+        } else {
+            guncel.aciklamaTr = yeniMetin
+            guncel.aciklama = yeniMetin
+        }
+        yeniSepet[dizinIndex] = guncel
+        root.sepet = yeniSepet
     }
 
     // Sepetteki Maliyet/Fiyat kutulari secili para biriminde gosterilir, ama
@@ -901,6 +884,22 @@ Item {
         sozlesmeDialogu.open()
     }
 
+    // Detay ekraninda acik (kayitli) teklifin PDF'ini veya uretim PDF'ini uretip acar.
+    function kayitliPdfAc(uretim) {
+        const teklifId = root.duzenlenenKaynakTeklifId
+        if (teklifId <= 0)
+            return
+        const sonuc = uretim ? database.uretimPdfOlustur(teklifId) : database.teklifPdfOlustur(teklifId)
+        if (sonuc.basarili) {
+            bilgiMesaji.color = Theme.basariAcik
+            bilgiMesaji.text = (uretim ? "Üretim PDF: " : "PDF: ") + sonuc.dosyaYolu
+            Qt.openUrlExternally("file:///" + sonuc.dosyaYolu)
+        } else {
+            bilgiMesaji.color = Theme.tehlikeAcik
+            bilgiMesaji.text = "PDF oluşturulamadı: " + sonuc.hata
+        }
+    }
+
     function sepeteEkle(kalem) {
         const yeniSepet = root.sepet.slice()
         // Ayni urun zaten sepette varsa yeni bir satir eklemek yerine
@@ -980,6 +979,10 @@ Item {
 
     function paraFormat(deger) {
         return deger.toLocaleString(Qt.locale("tr_TR"), 'f', 2)
+    }
+
+    function kurFormat(deger) {
+        return deger.toLocaleString(Qt.locale("tr_TR"), 'f', 4)
     }
 
     Rectangle {
@@ -1115,33 +1118,18 @@ Item {
                 Label {
                     visible: root.teklifKilitli
                     text: root.revizyonIzinli
-                          ? "🔒  " + root.teklifDurumu + " — bu teklifin kendisi değişmez; yaptığınız değişiklikler \"Teklifi Kaydet\" ile yeni revizyon olarak kaydedilir."
-                          : root.uretimBilgisiKilitli
-                          ? "🔒  " + root.teklifDurumu + " — bu teklif değiştirilemez."
-                          : "🔒  " + root.teklifDurumu + " — teklif değiştirilemez; yalnızca teslim tarihi, üretim notu ve sepetteki ürünlerin üretim durumu/notu güncellenebilir."
+                          ? "🔒  " + root.teklifDurumu + " — kaydedince yeni revizyon oluşur"
+                          : "🔒  " + root.teklifDurumu
                     font.family: Theme.fontAilesi
                     font.pixelSize: Theme.fontBoyutKucuk
                     color: Theme.metinSoluk
                 }
-                // Revize edilmis teklif kilitli DEGILDIR (tekrar revize edilebilir),
-                // ama artik gecerli degildir: yerine daha yeni bir revizyon gecmistir.
-                // Kullanici eski bir surumu actigini bilmeli.
                 Label {
                     visible: root.teklifDurumu === "Revize Edildi"
-                    text: "⟳  Bu teklif revize edildi — artık geçerli değil; PDF'i yeniden üretilirse üstüne \"geçerli değildir\" bandı basılır."
+                    text: "⟳  Revize edildi, geçerli değil"
                     font.family: Theme.fontAilesi
                     font.pixelSize: Theme.fontBoyutKucuk
                     color: Theme.uyariAcik
-                }
-                // Kopya modu: kullanici bunun kaynak teklifi DEGISTIRMEDIGINI, yeni
-                // ve bagimsiz bir teklif hazirladigini her an gorsun.
-                Label {
-                    visible: root.kopyaModu
-                    text: "⧉  Teklif #" + root.kopyaKaynakTeklifId + " kopyalandı — kaynak teklif hiç değişmez. "
-                          + "Kaydedince bağımsız, yeni bir teklif oluşur (revizyon değil)."
-                    font.family: Theme.fontAilesi
-                    font.pixelSize: Theme.fontBoyutKucuk
-                    color: Theme.vurguAcik
                 }
             }
 
@@ -1154,7 +1142,7 @@ Item {
                 etiket: "Teklif Notu"
                 notMetni: root.musteriNotu
                 renk: Theme.vurgu
-                ipucu: "Büro ve satış personeli için iç not. Teklif ve üretim PDF'ine basılmaz."
+                ipucu: "İç not, PDF'e basılmaz"
                 onClicked: musteriNotuDialogu.open()
             }
 
@@ -1163,7 +1151,7 @@ Item {
                 etiket: "Üretim Notu"
                 notMetni: root.uretimNotu
                 renk: Theme.basari
-                ipucu: "Üretim personeli için not. Üretim PDF'ine basılır."
+                ipucu: "Üretim PDF'ine basılır"
                 onClicked: uretimNotuDialogu.open()
             }
         }
@@ -1205,7 +1193,7 @@ Item {
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: 4
-                                Label { text: "🏢  FİRMA"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                                Label { text: "FİRMA"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
                                 Rectangle {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: Theme.girdiYuksekligi
@@ -1470,7 +1458,7 @@ Item {
                                 Layout.minimumWidth: 100
                                 Layout.maximumWidth: 100
                                 spacing: 4
-                                Label { text: "💳  İNDİRİM %"; color: Theme.metinIkincil; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; elide: Text.ElideRight; Layout.maximumWidth: 100 }
+                                Label { text: "İNDİRİM %"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; elide: Text.ElideRight; Layout.maximumWidth: 100 }
                                 UcretAlani { id: indirimAlaniWrap; baslangicDegeri: 0; birim: "%" }
                             }
                             ColumnLayout {
@@ -1478,7 +1466,7 @@ Item {
                                 Layout.minimumWidth: 100
                                 Layout.maximumWidth: 100
                                 spacing: 4
-                                Label { text: "KDV %"; color: Theme.metinIkincil; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                                Label { text: "KDV %"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
                                 UcretAlani { id: kdvAlaniWrap; baslangicDegeri: 20; birim: "%" }
                             }
                         }
@@ -1490,7 +1478,7 @@ Item {
                                 Layout.minimumWidth: 100
                                 Layout.maximumWidth: 100
                                 spacing: 4
-                                Label { text: "PAKETLEME"; color: Theme.metinIkincil; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; elide: Text.ElideRight; Layout.maximumWidth: 100 }
+                                Label { text: "PAKETLEME"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; elide: Text.ElideRight; Layout.maximumWidth: 100 }
                                 UcretAlani { id: paketlemeAlaniWrap; baslangicDegeri: 0; birim: "TL" }
                             }
                             ColumnLayout {
@@ -1498,7 +1486,7 @@ Item {
                                 Layout.minimumWidth: 100
                                 Layout.maximumWidth: 100
                                 spacing: 4
-                                Label { text: "TAŞIMA"; color: Theme.metinIkincil; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                                Label { text: "TAŞIMA"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
                                 UcretAlani { id: tasimaAlaniWrap; baslangicDegeri: 0; birim: "TL" }
                             }
                         }
@@ -1526,7 +1514,7 @@ Item {
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 4
-                            Label { text: "🚚  TESLİMAT ŞEKLİ"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                            Label { text: "TESLİMAT ŞEKLİ"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
                             Rectangle {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: Theme.girdiYuksekligi
@@ -1559,7 +1547,7 @@ Item {
                             Layout.minimumWidth: 130
                             Layout.maximumWidth: 130
                             spacing: 4
-                            Label { text: "TESLİM TARİHİ"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                            Label { text: "PLANLANAN TESLİM"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
                             Rectangle {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: Theme.girdiYuksekligi
@@ -1656,7 +1644,7 @@ Item {
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 4
-                            Label { text: "🌐  DİL"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                            Label { text: "DİL"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
                             Rectangle {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: Theme.girdiYuksekligi
@@ -1664,23 +1652,14 @@ Item {
                                 color: Theme.arkaplan
                                 border.width: 1
                                 border.color: Theme.kenarlik
-                                ComboBox {
+                                TemaComboBox {
                                     id: dilCombo
                                     anchors.fill: parent
-                                    background: null
                                     model: ["TR", "EN"]
                                     // Dil degisince urun arama sonuclarini (ve dolayisiyla
                                     // aciklamalari) hemen yeniden cek -- kullanici tekrar
                                     // yazmak zorunda kalmasin.
                                     onCurrentTextChanged: root.urunAramaTazele()
-                                    contentItem: Text {
-                                        text: dilCombo.displayText
-                                        color: Theme.metinBirincil
-                                        font.family: Theme.fontAilesi
-                                        font.pixelSize: Theme.fontBoyutNormal
-                                        verticalAlignment: Text.AlignVCenter
-                                        leftPadding: 12
-                                    }
                                 }
                             }
                         }
@@ -1696,10 +1675,9 @@ Item {
                                 color: Theme.arkaplan
                                 border.width: 1
                                 border.color: Theme.kenarlik
-                                ComboBox {
+                                TemaComboBox {
                                     id: paraBirimiCombo
                                     anchors.fill: parent
-                                    background: null
                                     model: ["TL", "USD", "EUR"]
                                     // TL disi bir para birimine gecildiginde, kur henuz
                                     // girilmemisse (0) otomatik olarak internetten cekmeyi
@@ -1712,14 +1690,6 @@ Item {
                                             root.guncelKuruCek()
                                         else if (paraBirimiCombo.currentText === "EUR" && root.eurKur <= 0)
                                             root.guncelKuruCek()
-                                    }
-                                    contentItem: Text {
-                                        text: paraBirimiCombo.displayText
-                                        color: Theme.metinBirincil
-                                        font.family: Theme.fontAilesi
-                                        font.pixelSize: Theme.fontBoyutNormal
-                                        verticalAlignment: Text.AlignVCenter
-                                        leftPadding: 12
                                     }
                                 }
                             }
@@ -1756,7 +1726,7 @@ Item {
                     anchors.margins: 14
                     spacing: 8
 
-                    BolumBasligi { baslik: "🔍  ÜRÜN ARA" }
+                    BolumBasligi { baslik: "ÜRÜN ARA" }
 
                     Rectangle {
                         Layout.fillWidth: true
@@ -1933,7 +1903,7 @@ Item {
                         Layout.fillWidth: true
                         spacing: 8
                         Rectangle { width: 4; height: 14; radius: 2; color: Theme.vurgu }
-                        Label { text: "🛒  SEPET"; color: Theme.metinIkincil; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1.2; font.bold: true }
+                        Label { text: "SEPET"; color: Theme.metinIkincil; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1.2; font.bold: true }
                         Label {
                             text: root.sepet.length > 0 ? ("(" + root.sepet.length + ")") : ""
                             color: Theme.metinCokSoluk
@@ -2074,7 +2044,7 @@ Item {
                         Label {
                             anchors.centerIn: parent
                             visible: root.sepet.length === 0
-                            text: "Sepet boş. Soldan ürün seçerek ekleyin."
+                            text: "Sepet boş"
                             color: Theme.metinCokSoluk
                             font.family: Theme.fontAilesi
                             font.pixelSize: Theme.fontBoyutNormal
@@ -2242,17 +2212,34 @@ Item {
                                     }
                                 }
 
-                                Label {
+                                // Teklife ozel aciklama: secili dilde duzenlenir, katalogu degistirmez.
+                                TextField {
+                                    id: aciklamaGirdisi
+                                    readOnly: root.formKilitli
                                     text: root.kalemAciklamasi(sepetSatiri.modelData)
                                     color: Theme.metinBirincil
                                     font.family: Theme.fontAilesi
                                     font.pixelSize: Theme.fontBoyutKucuk
-                                    elide: Text.ElideRight
-                                    wrapMode: Text.NoWrap
-                                    maximumLineCount: 1
+                                    leftPadding: 6
+                                    rightPadding: 6
+                                    verticalAlignment: TextInput.AlignVCenter
+                                    selectByMouse: true
                                     Layout.fillWidth: true
                                     Layout.preferredWidth: 0
                                     Layout.minimumWidth: 0
+                                    Layout.preferredHeight: 30
+                                    onEditingFinished: root.kalemAciklamasiniGuncelle(sepetSatiri.index, text)
+                                    onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
+                                    Component.onCompleted: cursorPosition = 0
+                                    background: Rectangle {
+                                        radius: Theme.radiusKucuk
+                                        color: aciklamaGirdisi.activeFocus ? Theme.arkaplan : "transparent"
+                                        border.width: aciklamaGirdisi.activeFocus || (aciklamaGirdisi.hovered && !aciklamaGirdisi.readOnly) ? 1 : 0
+                                        border.color: aciklamaGirdisi.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
+                                    }
+                                    ToolTip.visible: hovered && !activeFocus && text.length > 40
+                                    ToolTip.delay: 500
+                                    ToolTip.text: text
                                 }
 
                                 SpinBox {
@@ -2375,11 +2362,7 @@ Item {
 
                                         ToolTip.visible: tamamlandiAlani.containsMouse
                                         ToolTip.delay: 400
-                                        ToolTip.text: root.uretimAlaniKilitli
-                                            ? "Teklif tamamlandı; üretim durumu değiştirilemez."
-                                            : (uretimHucresi.tamamlandi
-                                               ? "Bu ürünün üretimi tamamlandı (kaldırmak için tıklayın)."
-                                               : "Bu ürünün üretimi tamamlandı olarak işaretle.")
+                                        ToolTip.text: uretimHucresi.tamamlandi ? "Üretim tamamlandı" : "Üretim tamamlanmadı"
                                     }
 
                                     Rectangle {
@@ -2413,9 +2396,7 @@ Item {
                                         ToolTip.delay: 400
                                         ToolTip.text: uretimHucresi.kalemNotu.trim().length > 0
                                             ? uretimHucresi.kalemNotu
-                                            : (root.uretimAlaniKilitli
-                                               ? "Bu ürün için üretim notu girilmemiş."
-                                               : "Bu ürüne özel üretim notu ekle.")
+                                            : "Üretim notu"
                                     }
                                 }
 
@@ -2480,16 +2461,46 @@ Item {
                     visible: !root.kurElleDuzenleModu
 
                     Label {
-                        text: root.kurCekiliyor
-                              ? "Kur çekiliyor…"
-                              : (root.usdKur > 0 || root.eurKur > 0)
-                                ? "USD: " + root.paraFormat(root.usdKur) + " ₺" + "      " +
-                                  "EUR: " + root.paraFormat(root.eurKur) + " ₺"
-                                : "Kur bilgisi yok"
-                        color: Theme.metinBirincil
+                        visible: root.kurCekiliyor || (root.usdKur <= 0 && root.eurKur <= 0)
+                        text: root.kurCekiliyor ? "Kur çekiliyor…" : "Kur bilgisi yok"
+                        color: Theme.metinSoluk
                         font.family: Theme.fontAilesi
                         font.pixelSize: Theme.fontBoyutNormal
-                        font.bold: true
+                    }
+
+                    // Her doviz icin: satis (hesapta kullanilan) belirgin, alis soluk.
+                    Repeater {
+                        model: root.kurCekiliyor ? [] : [
+                            { kod: "USD", alis: root.usdAlis, satis: root.usdKur },
+                            { kod: "EUR", alis: root.eurAlis, satis: root.eurKur }
+                        ].filter(k => k.satis > 0)
+
+                        delegate: RowLayout {
+                            required property var modelData
+                            spacing: 8
+                            Label {
+                                text: modelData.kod
+                                color: Theme.metinSoluk
+                                font.family: Theme.fontAilesi
+                                font.pixelSize: 10
+                                font.bold: true
+                                font.letterSpacing: 1
+                            }
+                            Label {
+                                visible: modelData.alis > 0
+                                text: "Alış " + root.kurFormat(modelData.alis)
+                                color: Theme.metinSoluk
+                                font.family: Theme.fontAilesi
+                                font.pixelSize: Theme.fontBoyutKucuk
+                            }
+                            Label {
+                                text: "Satış " + root.kurFormat(modelData.satis) + " ₺"
+                                color: Theme.metinBirincil
+                                font.family: Theme.fontAilesi
+                                font.pixelSize: Theme.fontBoyutNormal
+                                font.bold: true
+                            }
+                        }
                     }
 
                     Label {
@@ -2555,7 +2566,7 @@ Item {
 
                         ColumnLayout {
                             spacing: 2
-                            Label { text: "1 USD KAÇ TL"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10 }
+                            Label { text: "USD SATIŞ KURU"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10 }
                             Rectangle {
                                 Layout.preferredWidth: 110
                                 Layout.preferredHeight: 30
@@ -2584,7 +2595,7 @@ Item {
 
                         ColumnLayout {
                             spacing: 2
-                            Label { text: "1 EUR KAÇ TL"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10 }
+                            Label { text: "EUR SATIŞ KURU"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10 }
                             Rectangle {
                                 Layout.preferredWidth: 110
                                 Layout.preferredHeight: 30
@@ -2631,10 +2642,9 @@ Item {
                     }
 
                     Label {
-                        text: root.kurMesaji.length > 0
-                              ? root.kurMesaji
-                              : "Kur elle girildi; toplamlar bu değerlere göre hesaplanacak."
-                        color: root.kurMesajiHata ? Theme.tehlike : Theme.metinCokSoluk
+                        visible: root.kurMesaji.length > 0
+                        text: root.kurMesaji
+                        color: root.kurMesajiHata ? Theme.tehlikeAcik : Theme.metinCokSoluk
                         font.family: Theme.fontAilesi
                         font.pixelSize: 10
                         font.italic: true
@@ -2738,6 +2748,49 @@ Item {
                 anchors.rightMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 8
+                    // Kayitli teklifin mevcut PDF'i / uretim PDF'i (Detay ekrani).
+                    Button {
+                        id: pdfButonu
+                        visible: root.duzenlenenKaynakTeklifId > 0
+                        Layout.preferredWidth: 72
+                        Layout.preferredHeight: 40
+                        onClicked: root.kayitliPdfAc(false)
+                        background: Rectangle {
+                            radius: Theme.radiusKucuk
+                            color: pdfButonu.hovered ? Theme.panelHover : "transparent"
+                            border.width: 1
+                            border.color: pdfButonu.hovered ? Theme.metinSoluk : Theme.kenarlik
+                        }
+                        contentItem: Text {
+                            text: "PDF"
+                            color: Theme.metinBirincil
+                            font.family: Theme.fontAilesi
+                            font.pixelSize: Theme.fontBoyutKucuk
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+                    Button {
+                        id: uretimPdfButonu
+                        visible: root.duzenlenenKaynakTeklifId > 0 && root.teklifKilitli
+                        Layout.preferredWidth: 100
+                        Layout.preferredHeight: 40
+                        onClicked: root.kayitliPdfAc(true)
+                        background: Rectangle {
+                            radius: Theme.radiusKucuk
+                            color: uretimPdfButonu.hovered ? Theme.panelHover : "transparent"
+                            border.width: 1
+                            border.color: Theme.basari
+                        }
+                        contentItem: Text {
+                            text: "Üretim PDF"
+                            color: Theme.basariAcik
+                            font.family: Theme.fontAilesi
+                            font.pixelSize: Theme.fontBoyutKucuk
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
                     Button {
                         id: sozlesmeButonu
                         text: "Satış Sözleşmesi"
@@ -2894,9 +2947,7 @@ Item {
             }
 
             bilgiMesaji.color = Theme.basariAcik
-            bilgiMesaji.text = root.teklifKilitli
-                ? "Satış sözleşmesi güncellendi; \"Teklifi Kaydet\" ile yeni revizyona yazılacak."
-                : "Satış sözleşmesi bu teklif için güncellendi; teklifi kaydedince PDF'e yazılacak."
+            bilgiMesaji.text = "Satış sözleşmesi güncellendi."
         }
     }
 
@@ -2905,8 +2956,7 @@ Item {
     NotDuzenleDialog {
         id: musteriNotuDialogu
         baslik: (root.duzenlenenKaynakTeklifId > 0 ? "Teklif #" + root.duzenlenenKaynakTeklifId + " — " : "") + "Teklif Notu"
-        bilgi: "Büro ve satış personeli için iç not. Teklif PDF'ine ve üretim PDF'ine basılmaz."
-        yerTutucu: "Müşteriyle görüşme, fiyat, takip vb. iç notlar..."
+        bilgi: "İç not, PDF'e basılmaz."
         renk: Theme.vurgu
         metin: root.musteriNotu
         saltOkunur: root.formKilitli
@@ -2916,8 +2966,7 @@ Item {
     NotDuzenleDialog {
         id: uretimNotuDialogu
         baslik: (root.duzenlenenKaynakTeklifId > 0 ? "Teklif #" + root.duzenlenenKaynakTeklifId + " — " : "") + "Üretim Notu"
-        bilgi: "Üretim personeli için not. Üretim PDF'ine basılır."
-        yerTutucu: "Ölçü, malzeme, paketleme, öncelik vb. üretime iletilecek notlar..."
+        bilgi: "Üretim PDF'ine basılır."
         renk: Theme.basari
         metin: root.uretimNotu
         saltOkunur: root.uretimAlaniKilitli
@@ -2950,8 +2999,6 @@ Item {
 
         baslik: "Ürün Üretim Notu"
         bilgi: kalemUretimNotuDialogu.kalemEtiketi
-               + "\nSadece bu ürüne ait not; üretim PDF'inde bu ürünün satırının altına basılır."
-        yerTutucu: "Bu ürüne özel ölçü, malzeme, renk, öncelik vb. notlar..."
         renk: Theme.uyari
         saltOkunur: root.uretimAlaniKilitli
         onKaydedildi: function(yeniMetin) {
@@ -2960,34 +3007,13 @@ Item {
     }
 
     // ---- Manuel urun ekleme dialogu ----
-    // WPF'teki manuel urun ekleme penceresiyle ayni bilgi kumesini toplar
-    // (kod, kategori, TR/EN aciklama, TL/USD/EUR birim fiyati, yurtici maliyet).
-    // USD/EUR alanlari sadece kayit/gorsel amacli tutulur -- sepet hesaplari
-    // (bkz. teklifVerisiOlustur) hala tek para biriminde (TL) calisir, WPF'ten
-    // gocte alinan karar bu (UrunlerimPage.qml'deki ayni not).
-    // "Kaydet" urunu kalici olarak urunler tablosuna ekler (bkz. kaydet()).
-    Dialog {
+    // "Kaydet" urunu kalici olarak urunler tablosuna ekler ve sepete koyar.
+    TemaDialog {
         id: manuelUrunDialogu
-        modal: true
+        baslik: "Manuel Ürün Ekle"
+        onayMetni: "Kaydet ve Ekle"
+        elleKapat: true
         width: 560
-        padding: 20
-        anchors.centerIn: parent
-
-        background: Rectangle {
-            color: Theme.panel
-            radius: Theme.radiusNormal
-            border.color: Theme.kenarlik
-            border.width: 1
-        }
-
-        header: Label {
-            text: "Manuel Ürün Ekle"
-            color: Theme.metinBirincil
-            font.family: Theme.fontAilesi
-            font.bold: true
-            font.pixelSize: Theme.fontBoyutOrta
-            padding: 20
-        }
 
         onOpened: {
             manuelKod.text = ""
@@ -2995,13 +3021,11 @@ Item {
             manuelAciklama.text = ""
             manuelAciklamaEn.text = ""
             manuelFiyatBicimi.temizle()
-            manuelFiyatUsdBicimi.temizle()
-            manuelFiyatEurBicimi.temizle()
             manuelMaliyetBicimi.temizle()
             manuelHataMesaji.text = ""
         }
 
-        function kaydet() {
+        onOnaylandi: {
             if (manuelAciklama.text.trim().length === 0) {
                 manuelHataMesaji.text = "Ürün açıklaması zorunludur."
                 return
@@ -3033,15 +3057,13 @@ Item {
                 aciklamaEn: manuelAciklamaEn.text,
                 adet: 1,
                 birimFiyatTl: birimFiyatTl,
-                birimFiyatUsd: manuelFiyatUsdBicimi.deger,
-                birimFiyatEur: manuelFiyatEurBicimi.deger,
                 maliyet: maliyet
             })
             manuelUrunDialogu.close()
         }
 
         contentItem: ColumnLayout {
-            spacing: 14
+            spacing: 12
 
             Label {
                 id: manuelHataMesaji
@@ -3056,106 +3078,27 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 10
-                ColumnLayout {
-                    spacing: 3
-                    Layout.fillWidth: true
-                    Label { text: "ÜRÜN KODU"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                    ManuelUrunAlani { id: manuelKod; placeholderText: "Örn: BTP-500" }
-                }
-                ColumnLayout {
-                    spacing: 3
-                    Layout.fillWidth: true
-                    Label { text: "KATEGORİ"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                    ManuelUrunAlani { id: manuelKategori; placeholderText: "Örn: Basma-Eğilme Test Cihazları" }
-                }
+                EtiketliAlan { id: manuelKod; etiket: "ÜRÜN KODU" }
+                EtiketliAlan { id: manuelKategori; etiket: "KATEGORİ" }
             }
 
-            ColumnLayout {
-                spacing: 3
-                Layout.fillWidth: true
-                Label { text: "ÜRÜN AÇIKLAMASI"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                ManuelUrunAlani { id: manuelAciklama; placeholderText: "Örn: Otomatik Beton Test Presi" }
-            }
-
-            ColumnLayout {
-                spacing: 3
-                Layout.fillWidth: true
-                Label { text: "ÜRÜN AÇIKLAMASI (İNGİLİZCE)"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                ManuelUrunAlani { id: manuelAciklamaEn; placeholderText: "Ex: Automatic Concrete Compression Test Press" }
-            }
+            EtiketliAlan { id: manuelAciklama; etiket: "ÜRÜN AÇIKLAMASI *" }
+            EtiketliAlan { id: manuelAciklamaEn; etiket: "ÜRÜN AÇIKLAMASI (İNGİLİZCE)" }
 
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 10
-                ColumnLayout {
-                    spacing: 3
-                    Layout.fillWidth: true
-                    Label { text: "BİRİM SATIŞ FİYATI (TL)"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                    ManuelUrunAlani { id: manuelFiyat; placeholderText: "0,00"; SayiBicimlendirici { id: manuelFiyatBicimi } }
+                EtiketliAlan {
+                    id: manuelFiyat
+                    etiket: "BİRİM SATIŞ FİYATI (TL)"
+                    placeholderText: "0,00"
+                    SayiBicimlendirici { id: manuelFiyatBicimi; hedef: manuelFiyat.alan }
                 }
-                ColumnLayout {
-                    spacing: 3
-                    Layout.fillWidth: true
-                    Label { text: "DOLAR BİRİM FİYATI (USD)"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                    ManuelUrunAlani { id: manuelFiyatUsd; placeholderText: "0,00"; SayiBicimlendirici { id: manuelFiyatUsdBicimi } }
-                }
-                ColumnLayout {
-                    spacing: 3
-                    Layout.fillWidth: true
-                    Label { text: "EURO BİRİM FİYATI (EUR)"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                    ManuelUrunAlani { id: manuelFiyatEur; placeholderText: "0,00"; SayiBicimlendirici { id: manuelFiyatEurBicimi } }
-                }
-            }
-
-            ColumnLayout {
-                spacing: 3
-                Layout.fillWidth: true
-                Label { text: "YURTİÇİ MALİYET BİRİM FİYATI (TL)"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                ManuelUrunAlani { id: manuelMaliyet; placeholderText: "0,00"; SayiBicimlendirici { id: manuelMaliyetBicimi } }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.topMargin: 6
-                spacing: 10
-
-                Button {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.girdiYuksekligi + 6
-                    text: "Kaydet"
-                    onClicked: manuelUrunDialogu.kaydet()
-                    background: Rectangle {
-                        radius: Theme.radiusKucuk
-                        color: parent.hovered ? Theme.vurguHover : Theme.vurgu
-                    }
-                    contentItem: Text {
-                        text: "Kaydet"
-                        color: "#ffffff"
-                        font.family: Theme.fontAilesi
-                        font.bold: true
-                        font.pixelSize: Theme.fontBoyutKucuk
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-                Button {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.girdiYuksekligi + 6
-                    text: "İptal"
-                    onClicked: manuelUrunDialogu.close()
-                    background: Rectangle {
-                        radius: Theme.radiusKucuk
-                        color: parent.hovered ? Theme.tehlikeHover : Theme.tehlike
-                    }
-                    contentItem: Text {
-                        text: "İptal"
-                        color: "#ffffff"
-                        font.family: Theme.fontAilesi
-                        font.bold: true
-                        font.pixelSize: Theme.fontBoyutKucuk
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
+                EtiketliAlan {
+                    id: manuelMaliyet
+                    etiket: "MALİYET (TL)"
+                    placeholderText: "0,00"
+                    SayiBicimlendirici { id: manuelMaliyetBicimi; hedef: manuelMaliyet.alan }
                 }
             }
         }

@@ -330,18 +330,10 @@ Item {
                     // diye kaldigi sayfa yerine 1. sayfaya donuyoruz.
                     const sayfa = root.revizyonKaynakSayfasi()
                     sayfa.sayfayiYukle(1)
-                    // Yeni revizyon her zaman "Beklemede" durumunda olusur; bu yuzden
-                    // Alınan/Biten listelerinde gorunmez -- kullaniciyi sasirtmamak
-                    // icin nerede bulacagini soyluyoruz.
-                    var mesaj = "Teklif #" + kaynakTeklifId + " revize edildi → yeni teklif #" + yeniTeklifId
-                              + (root.revizyonKaynakSekme === 1 ? "" : " (Giden Tekliflerim'de)")
-                    // Eski teklif(ler) artik gecerli degil: ayni teklifin iki surumu
-                    // birden gecerli sanilmasin diye durumlari "Revize Edildi" yapildi.
-                    // Kilitli (Kabul Edildi/Tamamlandı) teklifler isaretlenmez -- o
-                    // durumda liste bos gelir ve bu ek hic yazilmaz.
-                    if (revizeEdilenIdler && revizeEdilenIdler.length > 0)
-                        mesaj += "  •  #" + revizeEdilenIdler.join(", #") + " artık \"Revize Edildi\""
-                    sayfa.durumMesajiGoster(mesaj)
+                    // Yeni revizyon "Beklemede" durumunda olusur; Alınan/Biten
+                    // listelerinde gorunmedigi icin nerede oldugu belirtilir.
+                    sayfa.durumMesajiGoster("Revizyon kaydedildi: #" + yeniTeklifId
+                                            + (root.revizyonKaynakSekme === 1 ? "" : " (Giden Tekliflerim)"))
                 }
 
                 onKopyaKaydedildi: (yeniTeklifId, kaynakTeklifId) => {
@@ -350,12 +342,7 @@ Item {
                     // listenin ilk sayfasinda gorunur.
                     const sayfa = root.revizyonKaynakSayfasi()
                     sayfa.sayfayiYukle(1)
-                    // Kaynak teklifin durumu/icerigi degismedigi icin mesajda
-                    // "gecersizlesti" turu bir bilgi YOKTUR -- iki teklif de gecerli.
-                    // Kopya yalnizca Giden Tekliflerim'den acildigi ve yeni teklif de
-                    // orada listelendigi icin "nerede olustu" aciklamasina gerek yok.
-                    sayfa.durumMesajiGoster("Teklif #" + kaynakTeklifId + " kopyalandı → yeni teklif #" + yeniTeklifId
-                                            + "  •  #" + kaynakTeklifId + " değişmedi")
+                    sayfa.durumMesajiGoster("Kopya kaydedildi: #" + yeniTeklifId)
                 }
             }
         }

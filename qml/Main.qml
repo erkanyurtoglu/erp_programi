@@ -16,6 +16,34 @@ ApplicationWindow {
     // Giris yapan kullanicinin bilgileri (basarili girisYap() sonrasi doldurulur).
     property var oturum: null
 
+    // Sayfalardaki tum "ToolTip.text: ..." ipuclari tek bir paylasilan ToolTip
+    // ornegini kullanir; Basic stilin acik renkli kutusu yerine temaya uygun
+    // gorunumu burada bir kez veriyoruz.
+    Component {
+        id: ipucuArkaplani
+        Rectangle {
+            color: Theme.panelYukseltilmis
+            radius: Theme.radiusKucuk
+            border.width: 1
+            border.color: Theme.kenarlik
+        }
+    }
+    Component {
+        id: ipucuMetni
+        Text {
+            text: ToolTip.toolTip.text
+            color: Theme.metinBirincil
+            font.family: Theme.fontAilesi
+            font.pixelSize: Theme.fontBoyutKucuk
+            wrapMode: Text.Wrap
+        }
+    }
+    Component.onCompleted: {
+        const ipucu = ToolTip.toolTip
+        ipucu.background = ipucuArkaplani.createObject(ipucu)
+        ipucu.contentItem = ipucuMetni.createObject(ipucu)
+    }
+
     // Baglanti kurulamadiysa kullaniciyi bilgilendir; ekranin geri kalani
     // yine de yuklenir ama listeler bos gelir (Database ic loglarina bakilabilir).
     Rectangle {

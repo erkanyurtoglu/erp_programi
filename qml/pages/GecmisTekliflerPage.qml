@@ -211,11 +211,11 @@ Item {
         // Filtreli bir sekmedeysek (Alınan/Biten) ve yeni durum o filtreye uymuyorsa
         // satir bu listeden kaybolur; kullanici "kayboldu" sanmasin diye nerede
         // bulacagini soyluyoruz.
-        var mesaj = "Teklif #" + teklifId + " durumu → " + yeniDurum
+        var mesaj = "Teklif #" + teklifId + " → " + yeniDurum
         if (root.durumFiltresi !== "" && root.durumFiltresi !== yeniDurum)
-            mesaj += "  (bu teklif artık " + (yeniDurum === "Kabul Edildi" ? "Alınan Tekliflerim"
-                                            : yeniDurum === "Tamamlandı" ? "Biten Tekliflerim"
-                                            : "Giden Tekliflerim") + "'de)"
+            mesaj += " (" + (yeniDurum === "Kabul Edildi" ? "Alınan Tekliflerim"
+                             : yeniDurum === "Tamamlandı" ? "Biten Tekliflerim"
+                             : "Giden Tekliflerim") + ")"
         root.pdfMesaji = mesaj
         root.pdfMesajiHata = false
         root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
@@ -330,7 +330,7 @@ Item {
             root.pdfMesajiHata = true
             return
         }
-        root.pdfMesaji = "Teklif #" + teklifId + " sevk ve irsaliye bilgileri kaydedildi."
+        root.pdfMesaji = "Teklif #" + teklifId + " sevk bilgileri kaydedildi."
         root.pdfMesajiHata = false
         // AÇIKLAMALAR sutunu bu kayittan beslendigi icin (bkz. aciklamaMetni)
         // listeyi yenileyip yeni aciklamayi hemen gosteriyoruz.
@@ -472,22 +472,13 @@ Item {
                 border.width: 1
                 border.color: Theme.kenarlik
 
-                ComboBox {
+                TemaComboBox {
                     id: tarihCombo
                     anchors.fill: parent
-                    background: null
                     model: ["Hepsi", "1 Gün", "1 Hafta", "15 Gün", "30 Gün", "Özel Tarih"]
                     onActivated: {
                         root.secilenTarihFiltresi = currentText
                         root.sayfayiYukle(1)
-                    }
-                    contentItem: Text {
-                        text: tarihCombo.displayText
-                        color: Theme.metinBirincil
-                        font.family: Theme.fontAilesi
-                        font.pixelSize: Theme.fontBoyutNormal
-                        verticalAlignment: Text.AlignVCenter
-                        leftPadding: 12
                     }
                 }
             }
@@ -695,9 +686,7 @@ Item {
                             // Musteriye giden PDF'te bu teklif, kok teklifin numarasi
                             // uzerinden "1203/Rev.2" olarak gorunur (bkz. C++
                             // TeklifPdfOlusturucu::teklifNoMetni).
-                            ToolTip.text: "Ana teklif: #" + satir.modelData.anaTeklifId
-                                          + "\nPDF'teki teklif no: " + satir.modelData.anaTeklifId
-                                          + "/Rev." + satir.modelData.revizyonNo
+                            ToolTip.text: satir.modelData.anaTeklifId + "/Rev." + satir.modelData.revizyonNo
                             MouseArea {
                                 id: revRozetAlani
                                 anchors.fill: parent
@@ -721,7 +710,7 @@ Item {
 
                             ToolTip.visible: kopyaIziAlani.containsMouse
                             ToolTip.delay: 300
-                            ToolTip.text: "Teklif #" + satir.modelData.kopyaKaynakTeklifId + " kopyalanarak oluşturuldu"
+                            ToolTip.text: "#" + satir.modelData.kopyaKaynakTeklifId + " kopyası"
                             MouseArea {
                                 id: kopyaIziAlani
                                 anchors.fill: parent
@@ -825,10 +814,10 @@ Item {
                             radius: 5
                             color: {
                                 const d = satir.modelData.durum
-                                if (d === "Tamamlandı" || d === "Kabul Edildi") return "#0f2417"
-                                if (d === "Beklemede") return "#1e2a3f"
-                                if (d === "Reddedildi") return "#3f1620"
-                                if (d === "Revize Edildi") return "#2e2310"
+                                if (d === "Tamamlandı" || d === "Kabul Edildi") return Theme.basariZemin
+                                if (d === "Beklemede") return Theme.vurguZeminSoluk
+                                if (d === "Reddedildi") return Theme.tehlikeZemin
+                                if (d === "Revize Edildi") return Theme.uyariZemin
                                 return Theme.panel
                             }
                             border.width: 1
@@ -875,25 +864,18 @@ Item {
                                 }
                             }
 
-                            ToolTip.visible: durumAlani.containsMouse
+                            ToolTip.visible: durumAlani.containsMouse && ToolTip.text.length > 0
+                            ToolTip.delay: 300
                             ToolTip.text: {
                                 const d = satir.modelData.durum
                                 if (d === "Reddedildi" && satir.modelData.redSebebi.length > 0)
-                                    return "Red sebebi: " + satir.modelData.redSebebi + "\nDurumu değiştirmek için tıklayın"
+                                    return "Red sebebi: " + satir.modelData.redSebebi
                                 // Revize edilmis teklif artik gecerli degildir; yerine gecen
                                 // (zincirin en son) teklifin numarasi C++ tarafindan gelir.
                                 if (root.revizeEdilmisMi(satir.modelData))
-                                    return "Bu teklif revize edildi, artık geçerli değil.\n"
-                                         + "Yerine geçen teklif: #" + satir.modelData.guncelTeklifId
-                                         + " (Rev." + satir.modelData.guncelRevizyonNo + ")\n"
-                                         + "Durumu değiştirilemez; kabul/red işlemi güncel teklif üzerinden yapılır.\n"
-                                         + "PDF'i yeniden üretilirse üstüne \"geçerli değildir\" bandı basılır."
-                                // Durumu "Revize Edildi" ama yerine gecen revizyon silinmis:
-                                // kayit yeniden zincirin sonu, yani tekrar islenebilir.
-                                if (d === "Revize Edildi")
-                                    return "Bu teklifi geçersiz kılan revizyon silinmiş.\n"
-                                         + "Teklif yeniden geçerli; durumu değiştirmek için tıklayın"
-                                return "Durumu değiştirmek için tıklayın"
+                                    return "Güncel teklif: #" + satir.modelData.guncelTeklifId
+                                         + " (Rev." + satir.modelData.guncelRevizyonNo + ")"
+                                return ""
                             }
                             MouseArea {
                                 id: durumAlani
@@ -927,8 +909,7 @@ Item {
                                     background: Rectangle { color: "transparent" }
                                     contentItem: Text {
                                         id: revizeBilgisiMetni
-                                        text: "Bu teklif revize edildi\n(yerine #" + satir.modelData.guncelTeklifId
-                                              + " geçti).\nDurumu değiştirilemez —\nişlemi güncel teklif\nüzerinden yapın."
+                                        text: "Güncel teklif: #" + satir.modelData.guncelTeklifId
                                         color: Theme.uyariAcik
                                         font.family: Theme.fontAilesi
                                         font.pixelSize: Theme.fontBoyutKucuk
@@ -1079,8 +1060,7 @@ Item {
                             onClicked: root.kopyaIstendi(satir.modelData.teklifId)
                             ToolTip.visible: hovered
                             ToolTip.delay: 500
-                            ToolTip.text: "Bu teklifin içeriğiyle yeni bir teklif hazırla (farklı firmaya verilebilir).\n"
-                                          + "Teklif #" + satir.modelData.teklifId + " hiç değişmez; revizyon oluşmaz."
+                            ToolTip.text: "Yeni teklif olarak kopyala"
                             background: Rectangle {
                                 radius: 5
                                 color: kopyaButonu.hovered ? Theme.panelHover : "transparent"
@@ -1139,8 +1119,8 @@ Item {
                             ToolTip.visible: hovered
                             ToolTip.delay: 500
                             ToolTip.text: satir.modelData.uretimPdfTarihi.length > 0
-                                          ? "Üretim PDF'i " + satir.modelData.uretimPdfTarihi + " tarihinde alındı; tekrar oluştur"
-                                          : "Fiyatsız üretim PDF'i oluştur"
+                                          ? "Üretim PDF'i (son: " + satir.modelData.uretimPdfTarihi + ")"
+                                          : "Üretim PDF'i"
                             background: Rectangle {
                                 radius: 5
                                 color: uretimButonu.hovered ? Theme.panelHover : "transparent"
@@ -1169,14 +1149,9 @@ Item {
                             Layout.preferredWidth: Math.max(70, Math.ceil(irsaliyeMetni.implicitWidth) + 20)
                             Layout.preferredHeight: root.hizalanmisYukseklik(Math.max(28, irsaliyeMetni.implicitHeight + 10))
                             onClicked: root.irsaliyeAc(satir.modelData)
-                            ToolTip.visible: hovered
-                            ToolTip.delay: 500
-                            ToolTip.text: satir.modelData.durum === "Tamamlandı"
-                                          ? "Sevk ve irsaliye bilgilerini görüntüle (tamamlanmış teklif, değiştirilemez)"
-                                          : "Fatura / irsaliye bilgilerini ve sipariş şartlarını doldur"
                             background: Rectangle {
                                 radius: 5
-                                color: irsaliyeButonu.hovered ? "#3a2a10" : "transparent"
+                                color: irsaliyeButonu.hovered ? Theme.uyariZeminHover : "transparent"
                                 border.color: Theme.uyari
                                 border.width: 1
                             }
@@ -1198,10 +1173,14 @@ Item {
                             text: "Sil"
                             Layout.preferredWidth: Math.max(50, Math.ceil(silMetni.implicitWidth) + 20)
                             Layout.preferredHeight: root.hizalanmisYukseklik(Math.max(28, silMetni.implicitHeight + 10))
-                            onClicked: silOnayDialogu.acilacakTeklifId = satir.modelData.teklifId
+                            onClicked: {
+                                const id = satir.modelData.teklifId
+                                sifreDialogu.iste("Teklifi Sil", "Teklif #" + id + " kalıcı olarak silinsin mi?",
+                                                  "Sil", true, function() { root.teklifiSil(id) })
+                            }
                             background: Rectangle {
                                 radius: 5
-                                color: silButonu.hovered ? "#3f1d24" : "transparent"
+                                color: silButonu.hovered ? Theme.tehlikeZeminHover : "transparent"
                                 border.color: silButonu.hovered ? Theme.tehlikeHover : Theme.kenarlik
                                 border.width: 1
                             }
@@ -1285,9 +1264,7 @@ Item {
         id: notGoruntuleDialogu
         saltOkunur: true
         renk: root.teklifNotuSekmesi ? Theme.vurgu : Theme.basari
-        bilgi: root.teklifNotuSekmesi
-               ? "Büro ve satış personeli için iç not. PDF'lere basılmaz."
-               : "Üretim personeli için not. Üretim PDF'ine basılır."
+        bilgi: root.teklifNotuSekmesi ? "İç not, PDF'e basılmaz." : "Üretim PDF'ine basılır."
     }
 
     // "İrsaliye" butonunun actigi sevk/irsaliye formu. Pencere kendisi kaydetmez;
@@ -1297,75 +1274,34 @@ Item {
         onKaydedildi: (sevk) => root.sevkBilgileriniKaydet(sevkDialogu.teklifId, sevk)
     }
 
-    // Silme onayi (WPF'teki sifre dogrulamali onay penceresinin basitlestirilmis hali;
-    // sifre onayi bir sonraki adimda eklenecek).
-    Dialog {
-        id: silOnayDialogu
-        property int acilacakTeklifId: -1
-        title: "Teklifi Sil"
-        modal: true
-        width: 320
-        anchors.centerIn: parent
-        standardButtons: Dialog.Yes | Dialog.No
-        visible: acilacakTeklifId !== -1
+    // Silme yonetici sifresiyle onaylanir (WPF'teki gibi).
+    SifreOnayDialog { id: sifreDialogu }
 
-        background: Rectangle {
-            color: Theme.panel
-            radius: Theme.radiusNormal
-            border.color: Theme.kenarlik
-            border.width: 1
+    function teklifiSil(teklifId) {
+        if (!database.teklifSil(teklifId)) {
+            root.pdfMesaji = "Teklif #" + teklifId + " silinemedi."
+            root.pdfMesajiHata = true
         }
-
-        contentItem: Label {
-            text: "Teklif #" + silOnayDialogu.acilacakTeklifId + " kalıcı olarak silinecek. Emin misiniz?"
-            color: Theme.metinBirincil
-            font.family: Theme.fontAilesi
-            font.pixelSize: Theme.fontBoyutNormal
-            wrapMode: Text.WordWrap
-            width: silOnayDialogu.availableWidth
-        }
-
-        onAccepted: {
-            if (!database.teklifSil(acilacakTeklifId)) {
-                root.pdfMesaji = "Teklif #" + acilacakTeklifId + " silinemedi."
-                root.pdfMesajiHata = true
-            }
-            acilacakTeklifId = -1
-            root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
-        }
-        onRejected: acilacakTeklifId = -1
+        root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
     }
 
-    // Durum degisikligi onayi. "Reddedildi" disindaki her gecis buradan gecer --
-    // islem geri alinabilir olsa da satiri bulundugu sekmeden dusurebildigi icin
-    // yanlislikla tiklanmaya karsi kisa bir onay istiyoruz.
-    Dialog {
+    // Durum degisikligi onayi. "Reddedildi" disindaki her gecis buradan gecer.
+    TemaDialog {
         id: durumOnayDialogu
         property int hedefTeklifId: -1
         property string eskiDurum: ""
         property string yeniDurum: ""
-        title: "Durumu Değiştir"
-        modal: true
-        width: 380
-        anchors.centerIn: parent
-        standardButtons: Dialog.Ok | Dialog.Cancel
-
-        background: Rectangle {
-            color: Theme.panel
-            radius: Theme.radiusNormal
-            border.color: Theme.kenarlik
-            border.width: 1
-        }
+        baslik: "Durumu Değiştir"
+        onayMetni: "Değiştir"
+        width: 400
 
         contentItem: Label {
-            text: "Teklif #" + durumOnayDialogu.hedefTeklifId + " durumu\n\""
-                  + durumOnayDialogu.eskiDurum + "\" → \"" + durumOnayDialogu.yeniDurum
-                  + "\"\n\nolarak değiştirilecek. Onaylıyor musunuz?"
+            text: "Teklif #" + durumOnayDialogu.hedefTeklifId + ": "
+                  + durumOnayDialogu.eskiDurum + " → " + durumOnayDialogu.yeniDurum
             color: Theme.metinBirincil
             font.family: Theme.fontAilesi
             font.pixelSize: Theme.fontBoyutNormal
             wrapMode: Text.WordWrap
-            width: durumOnayDialogu.availableWidth
         }
 
         onAccepted: {
@@ -1376,24 +1312,14 @@ Item {
     }
 
     // Bir teklifin tum durum degisimleri (kim, ne zaman, hangi durumdan hangisine).
-    // Durum ileri geri degisebildigi icin teklifler tablosundaki tarih alanlari her
-    // seferinde ustune yazilir; degisimin izi burada kalir.
-    Dialog {
+    TemaDialog {
         id: gecmisDialogu
         property int hedefTeklifId: -1
         property var kayitlar: []
-        title: "Teklif #" + gecmisDialogu.hedefTeklifId + " - Durum Geçmişi"
-        modal: true
+        baslik: "Teklif #" + gecmisDialogu.hedefTeklifId + " — Durum Geçmişi"
+        onayGorunur: false
+        iptalMetni: "Kapat"
         width: 480
-        anchors.centerIn: parent
-        standardButtons: Dialog.Close
-
-        background: Rectangle {
-            color: Theme.panel
-            radius: Theme.radiusNormal
-            border.color: Theme.kenarlik
-            border.width: 1
-        }
 
         contentItem: ColumnLayout {
             spacing: 8
@@ -1401,7 +1327,7 @@ Item {
             Label {
                 visible: gecmisDialogu.kayitlar.length === 0
                 Layout.fillWidth: true
-                text: "Bu teklif için kayıtlı durum değişikliği yok."
+                text: "Kayıtlı durum değişikliği yok."
                 color: Theme.metinSoluk
                 font.family: Theme.fontAilesi
                 font.pixelSize: Theme.fontBoyutKucuk
@@ -1454,25 +1380,15 @@ Item {
         }
     }
 
-    // Reddetme sebebi (opsiyonel) girisi. Sadece "Beklemede" satirlarindan degil,
-    // durum menusunden "Reddedildi" secildiginde de acilir -- yani kabul edilmis
-    // ya da tamamlanmis bir teklif de sebebiyle birlikte reddedilebilir.
-    Dialog {
+    // Red sebebi (istege bagli) girisi; durum menusunden "Reddedildi" secilince acilir.
+    TemaDialog {
         id: reddetDialogu
         property int hedefTeklifId: -1
         property string eskiDurum: ""
-        title: "Teklifi Reddet"
-        modal: true
-        width: 360
-        anchors.centerIn: parent
-        standardButtons: Dialog.Ok | Dialog.Cancel
-
-        background: Rectangle {
-            color: Theme.panel
-            radius: Theme.radiusNormal
-            border.color: Theme.kenarlik
-            border.width: 1
-        }
+        baslik: "Teklif #" + reddetDialogu.hedefTeklifId + " — Reddet"
+        onayMetni: "Reddet"
+        tehlikeli: true
+        width: 420
 
         onAccepted: {
             root.durumUygula(reddetDialogu.hedefTeklifId, "Reddedildi", redSebebiGirisi.text)
@@ -1481,23 +1397,13 @@ Item {
         onRejected: reddetDialogu.hedefTeklifId = -1
 
         contentItem: ColumnLayout {
-            spacing: 8
+            spacing: 6
             Label {
-                // Kabul edilmis/tamamlanmis bir teklif geri cekiliyorsa kullanici
-                // hangi durumdan donduguunu gorsun.
-                visible: reddetDialogu.eskiDurum.length > 0 && reddetDialogu.eskiDurum !== "Beklemede"
-                text: "Bu teklif şu an \"" + reddetDialogu.eskiDurum + "\" durumunda; reddedilmiş olarak işaretlenecek."
+                text: "RED SEBEBİ"
                 color: Theme.metinSoluk
                 font.family: Theme.fontAilesi
-                font.pixelSize: Theme.fontBoyutKucuk
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
-            Label {
-                text: "Müşteri neden reddetti? (opsiyonel)"
-                color: Theme.metinBirincil
-                font.family: Theme.fontAilesi
-                font.pixelSize: Theme.fontBoyutNormal
+                font.pixelSize: 10
+                font.letterSpacing: 1
             }
             TextArea {
                 id: redSebebiGirisi
@@ -1505,9 +1411,16 @@ Item {
                 Layout.preferredHeight: 90
                 wrapMode: TextArea.Wrap
                 color: Theme.metinBirincil
+                font.family: Theme.fontAilesi
+                font.pixelSize: Theme.fontBoyutNormal
                 placeholderTextColor: Theme.metinCokSoluk
-                placeholderText: "Örn: Fiyat yüksek bulundu, rakip firma tercih edildi..."
-                background: Rectangle { color: Theme.arkaplan; radius: Theme.radiusKucuk; border.width: 1; border.color: Theme.kenarlik }
+                placeholderText: "İsteğe bağlı"
+                background: Rectangle {
+                    color: Theme.arkaplan
+                    radius: Theme.radiusKucuk
+                    border.width: 1
+                    border.color: redSebebiGirisi.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
+                }
             }
         }
     }

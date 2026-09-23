@@ -239,7 +239,7 @@ Dialog {
                 readOnly: kok.saltOkunur
                 color: Theme.metinBirincil
                 placeholderTextColor: Theme.metinCokSoluk
-                placeholderText: kok.saltOkunur ? "" : "Sevkiyatla ilgili notlar; teklif listesindeki AÇIKLAMALAR sütununda görünür."
+                placeholderText: kok.saltOkunur ? "" : "Sevkiyat açıklaması"
                 font.family: Theme.fontAilesi
                 font.pixelSize: Theme.fontBoyutNormal
                 wrapMode: TextArea.Wrap
@@ -307,28 +307,40 @@ Dialog {
     }
 
     header: ColumnLayout {
-        spacing: 2
+        spacing: 4
 
-        Label {
-            text: "🚚  Sevk ve İrsaliye Bilgileri"
-            color: Theme.metinBirincil
-            font.family: Theme.fontAilesi
-            font.bold: true
-            font.pixelSize: Theme.fontBoyutOrta
+        RowLayout {
             Layout.leftMargin: 20
-            Layout.topMargin: 20
+            Layout.rightMargin: 20
+            Layout.topMargin: 18
+            spacing: 8
+            Rectangle {
+                Layout.preferredWidth: 4
+                Layout.preferredHeight: 16
+                radius: 2
+                color: Theme.uyari
+            }
+            Label {
+                Layout.fillWidth: true
+                text: "Sevk ve İrsaliye Bilgileri"
+                color: Theme.metinBirincil
+                font.family: Theme.fontAilesi
+                font.bold: true
+                font.pixelSize: Theme.fontBoyutOrta
+                elide: Text.ElideRight
+            }
         }
 
         Label {
             text: "Teklif #" + kok.teklifId
                   + (kok.firmaAdi.length > 0 ? "  •  " + kok.firmaAdi : "")
-                  + (kok.saltOkunur ? "  •  tamamlanmış teklif, yalnızca görüntüleniyor" : "")
-            color: kok.saltOkunur ? Theme.uyariAcik : Theme.metinSoluk
+                  + (kok.saltOkunur ? "  •  Salt okunur" : "")
+            color: Theme.metinSoluk
             font.family: Theme.fontAilesi
             font.pixelSize: Theme.fontBoyutKucuk
             elide: Text.ElideRight
             Layout.fillWidth: true
-            Layout.leftMargin: 20
+            Layout.leftMargin: 32
             Layout.rightMargin: 20
         }
     }
@@ -436,7 +448,7 @@ Dialog {
                 }
                 background: Rectangle {
                     radius: Theme.radiusKucuk
-                    color: kaydetButonu.hovered ? "#1bbd57" : Theme.basari
+                    color: kaydetButonu.hovered ? Theme.vurguHover : Theme.vurgu
                 }
                 contentItem: Text {
                     text: kaydetButonu.text

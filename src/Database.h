@@ -43,6 +43,11 @@ public:
     //        duzenleme yetkisi olup olmadigini belirtir (roller birlesik/OR'lanmis halde).
     Q_INVOKABLE QVariantMap girisYap(const QString &kullaniciAdi, const QString &sifre);
 
+    // Silme / kayit duzenleme onayi: girilen sifre, aktif ve "Yönetici" (veya goc
+    // donemindeki "Göç - Geçici Tam Yetkili") rolundeki herhangi bir kullanicinin
+    // sifresiyle eslesiyorsa true (WPF'teki AdminPassword korumasinin karsiligi).
+    Q_INVOKABLE bool yoneticiSifresiDogrula(const QString &sifre);
+
     // Gecmis Teklifler ekrani icin filtrelenmis + sayfalanmis liste. "Giden Tekliflerim"
     // durumdan bagimsiz TUM kayitlari gosterir (durumFiltresi bos birakilir); "Alinan
     // Tekliflerim" / "Biten Tekliflerim" sekmeleri ayni metodu durumFiltresi ile cagirir

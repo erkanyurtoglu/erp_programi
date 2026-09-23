@@ -38,12 +38,20 @@ QtObject {
 
     // --- Durum renkleri ---
     readonly property color basari: "#16a34a"
+    readonly property color basariHover: "#1bbd57"
     readonly property color basariAcik: "#4ade80"
     readonly property color tehlike: "#dc2626"
     readonly property color tehlikeHover: "#ef4444"
     readonly property color tehlikeAcik: "#f87171"
     readonly property color uyari: "#f59e0b"
     readonly property color uyariAcik: "#fbbf24"
+
+    // Durum rozetleri ve hover dolgulari icin koyu zeminler
+    readonly property color basariZemin: "#0f2417"
+    readonly property color tehlikeZemin: "#3f1620"
+    readonly property color tehlikeZeminHover: "#3f1d24"
+    readonly property color uyariZemin: "#2e2310"
+    readonly property color uyariZeminHover: "#3a2a10"
 
     // --- Tipografi ---
     readonly property string fontAilesi: "Segoe UI"

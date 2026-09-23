@@ -305,6 +305,35 @@ QVariantMap Database::girisYap(const QString &kullaniciAdi, const QString &sifre
     return sonuc;
 }
 
+bool Database::yoneticiSifresiDogrula(const QString &sifre)
+{
+    if (sifre.isEmpty() || !baglantiHazir())
+        return false;
+
+    QSqlQuery query(m_db);
+    query.prepare(
+        "SELECT DISTINCT k.SifreHash "
+        "FROM dbo.kullanicilar k "
+        "JOIN dbo.kullanici_rolleri kr ON kr.KullaniciId = k.KullaniciId "
+        "JOIN dbo.roller r ON r.RolId = kr.RolId "
+        "WHERE k.AktifMi = 1 AND r.RolAdi IN (N'Yönetici', N'Göç - Geçici Tam Yetkili')");
+    if (!query.exec())
+    {
+        qWarning() << "yoneticiSifresiDogrula sorgusu basarisiz:" << query.lastError().text();
+        return false;
+    }
+
+    // girisYap ile ayni kural: hashli ya da (henuz yukseltilmemis) duz metin.
+    const QString girilenHash = sifreyiHashle(sifre);
+    while (query.next())
+    {
+        const QString depolanan = query.value(0).toString();
+        if (depolanan == girilenHash || depolanan == sifre)
+            return true;
+    }
+    return false;
+}
+
 QVariantList Database::kullaniciModulleriniGetir(int kullaniciId)
 {
     QVariantList moduller;
@@ -1329,8 +1358,7 @@ bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QSt
             qWarning() << "teklifDurumGuncelle: revize edilmis teklifin durumu degistirilemez:"
                        << teklifId << "-> yerine gecen:" << yerineGecen;
             m_sonHataMesaji = QString::fromUtf8(
-                                  "Teklif #%1 revize edildi; yerine #%2 geçti. Bu eski sürümün durumu "
-                                  "değiştirilemez — işlemi güncel teklif üzerinden yapın.")
+                                  "Teklif #%1 revize edildi, durumu değiştirilemez. Güncel teklif: #%2")
                                   .arg(teklifId)
                                   .arg(yerineGecen);
             return false;
@@ -1378,6 +1406,17 @@ bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QSt
     {
         qWarning() << "teklifDurumGuncelle basarisiz:" << query.lastError().text();
         return false;
+    }
+
+    // WPF'teki "Tamamla" ile ayni: teklif tamamlaninca tum kalemlerin uretimi de
+    // tamamlanmis sayilir (uretim PDF'inde ✓ gorunsun).
+    if (durum == "Tamamlandı")
+    {
+        QSqlQuery kalemler(m_db);
+        kalemler.prepare("UPDATE dbo.teklif_kalemleri SET Tamamlandi = 1 WHERE TeklifId = :teklifId");
+        kalemler.bindValue(":teklifId", teklifId);
+        if (!kalemler.exec())
+            qWarning() << "Kalemler tamamlandi olarak isaretlenemedi:" << kalemler.lastError().text();
     }
 
     durumDegisiminiLogla(teklifId, eskiDurum, durum, redSebebi, kullaniciId);
@@ -1633,8 +1672,7 @@ QVariantMap Database::musteriSil(int musteriId)
         // teklifler.MusteriId icin ON DELETE CASCADE tanimli degil, bilerek:
         // bir musteri yanlislikla silinince tekliflerin de silinmesini istemeyiz).
         qWarning() << "Musteri silinemedi:" << query.lastError().text();
-        sonuc["hata"] = "Bu müşteri silinemedi. Muhtemelen bu müşteriye ait kayıtlı teklifler var; "
-                        "önce o teklifleri silmeniz veya başka bir müşteriye taşımanız gerekir.";
+        sonuc["hata"] = "Müşteri silinemedi: bu müşteriye ait teklifler var.";
         return sonuc;
     }
     sonuc["basarili"] = true;
@@ -1824,7 +1862,7 @@ QVariantMap Database::urunSil(int urunId)
     {
         // Muhtemel sebep: bu urune ait teklif_kalemleri var (FK kisitlamasi).
         qWarning() << "Urun silinemedi:" << query.lastError().text();
-        sonuc["hata"] = "Bu ürün silinemedi. Muhtemelen bu ürünü içeren kayıtlı teklifler var.";
+        sonuc["hata"] = "Ürün silinemedi: bu ürünü içeren teklifler var.";
         return sonuc;
     }
     sonuc["basarili"] = true;

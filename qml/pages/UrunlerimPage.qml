@@ -14,16 +14,20 @@ import erp_programi
 Item {
     id: root
 
-    // Dialog formlarinda tekrar eden alan stili.
-    component FormAlani: TextField {
-        Layout.fillWidth: true
-        color: Theme.metinBirincil
-        placeholderTextColor: Theme.metinCokSoluk
-        font.family: Theme.fontAilesi
-        background: Rectangle { color: Theme.arkaplan; radius: Theme.radiusKucuk; border.width: 1; border.color: Theme.kenarlik }
-    }
-
     readonly property int sayfaBoyutu: 50
+
+    function formuAc(kayit) {
+        duzenlemeDialogu.urunId = kayit ? kayit.urunId : 0
+        duzenlemeDialogu.baslik = kayit ? "Ürün Düzenle" : "Ürün Ekle"
+        hataMesaji.text = ""
+        urunKoduAlani.text = kayit ? kayit.urunKodu : ""
+        kategoriAlani.text = kayit ? kayit.kategori : ""
+        aciklamaAlani.text = kayit ? kayit.urunAciklamasi : ""
+        aciklamaEnAlani.text = kayit ? kayit.urunAciklamasiEn : ""
+        birimFiyatBicimi.ayarla(kayit ? kayit.birimFiyat : 0)
+        maliyetBicimi.ayarla(kayit ? kayit.maliyet : 0)
+        duzenlemeDialogu.open()
+    }
 
     property var sayfaSonucu: ({ kayitlar: [], toplamKayit: 0, toplamSayfa: 1, mevcutSayfa: 1 })
     property var kayitlarListesi: []
@@ -100,19 +104,8 @@ Item {
                 id: ekleButonu
                 text: "+ Ürün Ekle"
                 Layout.preferredHeight: 38
-                onClicked: {
-                    duzenlemeDialogu.urunId = 0
-                    duzenlemeDialogu.title = "Ürün Ekle"
-                    hataMesaji.text = ""
-                    urunKoduAlani.text = ""
-                    kategoriAlani.text = ""
-                    aciklamaAlani.text = ""
-                    aciklamaEnAlani.text = ""
-                    birimFiyatBicimi.ayarla(0)
-                    maliyetBicimi.ayarla(0)
-                    duzenlemeDialogu.open()
-                }
-                background: Rectangle { radius: Theme.radiusKucuk; color: Theme.vurgu }
+                onClicked: root.formuAc(null)
+                background: Rectangle { radius: Theme.radiusKucuk; color: ekleButonu.hovered ? Theme.vurguHover : Theme.vurgu }
                 contentItem: Text {
                     text: ekleButonu.text
                     color: "#ffffff"
@@ -267,23 +260,13 @@ Item {
                         spacing: 6
 
                         Button {
+                            id: detayButonu
                             text: "Detay"
                             Layout.preferredWidth: 58
                             Layout.preferredHeight: 28
-                            onClicked: {
-                                duzenlemeDialogu.urunId = satir.modelData.urunId
-                                duzenlemeDialogu.title = "Ürün Düzenle"
-                                hataMesaji.text = ""
-                                urunKoduAlani.text = satir.modelData.urunKodu
-                                kategoriAlani.text = satir.modelData.kategori
-                                aciklamaAlani.text = satir.modelData.urunAciklamasi
-                                aciklamaEnAlani.text = satir.modelData.urunAciklamasiEn
-                                birimFiyatBicimi.ayarla(satir.modelData.birimFiyat)
-                                maliyetBicimi.ayarla(satir.modelData.maliyet)
-                                duzenlemeDialogu.open()
-                            }
-                            background: Rectangle { radius: 5; color: "transparent"; border.width: 1; border.color: Theme.kenarlikVurgu }
-                            contentItem: Text { text: "Detay"; color: Theme.vurguAcik; font.family: Theme.fontAilesi; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                            onClicked: root.formuAc(satir.modelData)
+                            background: Rectangle { radius: 5; color: detayButonu.hovered ? Theme.panelHover : "transparent"; border.width: 1; border.color: Theme.kenarlikVurgu }
+                            contentItem: Text { text: "Detay"; color: Theme.vurguAcik; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                         }
 
                         Button {
@@ -292,12 +275,15 @@ Item {
                             Layout.preferredWidth: 50
                             Layout.preferredHeight: 28
                             onClicked: {
-                                silOnayDialogu.hedefId = satir.modelData.urunId
-                                silOnayDialogu.open()
+                                const id = satir.modelData.urunId
+                                const ad = satir.modelData.urunKodu.length > 0
+                                           ? satir.modelData.urunKodu : satir.modelData.urunAciklamasi
+                                sifreDialogu.iste("Ürünü Sil", "\"" + ad + "\" kalıcı olarak silinsin mi?",
+                                                  "Sil", true, function() { root.urunSil(id) })
                             }
                             background: Rectangle {
                                 radius: 5
-                                color: silButonu.hovered ? "#3f1d24" : "transparent"
+                                color: silButonu.hovered ? Theme.tehlikeZeminHover : "transparent"
                                 border.width: 1
                                 border.color: silButonu.hovered ? Theme.tehlikeHover : Theme.kenarlik
                             }
@@ -340,23 +326,12 @@ Item {
     }
 
     // ---- Ekle / Duzenle dialogu (ayni form, urunId=0 ise "ekle" davranir) ----
-    Dialog {
+    TemaDialog {
         id: duzenlemeDialogu
         property int urunId: 0
-        modal: true
-        width: 440
-        anchors.centerIn: parent
-        standardButtons: Dialog.Save | Dialog.Cancel
-
-        background: Rectangle { color: Theme.panel; radius: Theme.radiusNormal; border.color: Theme.kenarlik; border.width: 1 }
-        header: Label {
-            text: duzenlemeDialogu.title
-            color: Theme.metinBirincil
-            font.family: Theme.fontAilesi
-            font.bold: true
-            font.pixelSize: Theme.fontBoyutOrta
-            padding: 16
-        }
+        width: 580
+        onayMetni: "Kaydet"
+        elleKapat: true
 
         function formAlani() {
             return {
@@ -369,75 +344,69 @@ Item {
             }
         }
 
-        onAccepted: {
+        // Kayitli urunde degisiklik yonetici sifresiyle onaylanir (yeni kayitta sorulmaz).
+        onOnaylandi: {
+            if (duzenlemeDialogu.urunId > 0)
+                sifreDialogu.iste("Değişiklikleri Kaydet", "", "Kaydet", false, function() { duzenlemeDialogu.kaydet() })
+            else
+                duzenlemeDialogu.kaydet()
+        }
+
+        function kaydet() {
             const veri = formAlani()
             const sonuc = duzenlemeDialogu.urunId > 0
                 ? database.urunGuncelle(duzenlemeDialogu.urunId, veri)
                 : database.urunEkle(veri)
-            if (sonuc.basarili) {
-                hataMesaji.text = ""
-                root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
-            } else {
-                // Save'e basilinca dialog zaten kapanmis oluyor; hata mesaji gorunsun
-                // ve girilen bilgiler kaybolmasin diye yeniden aciyoruz.
+            if (!sonuc.basarili) {
                 hataMesaji.text = sonuc.hata
-                duzenlemeDialogu.open()
+                return
             }
+            hataMesaji.text = ""
+            duzenlemeDialogu.close()
+            root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
         }
 
         contentItem: ColumnLayout {
-            spacing: 10
+            spacing: 12
 
             Label { id: hataMesaji; color: Theme.tehlikeAcik; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; visible: text.length > 0; Layout.fillWidth: true; wrapMode: Text.WordWrap }
 
             RowLayout {
                 Layout.fillWidth: true
-                FormAlani { id: urunKoduAlani; placeholderText: "Ürün Kodu" }
-                FormAlani { id: kategoriAlani; placeholderText: "Kategori" }
+                spacing: 10
+                EtiketliAlan { id: urunKoduAlani; etiket: "ÜRÜN KODU" }
+                EtiketliAlan { id: kategoriAlani; etiket: "KATEGORİ" }
             }
-            FormAlani { id: aciklamaAlani; placeholderText: "Ürün Açıklaması *" }
-            FormAlani { id: aciklamaEnAlani; placeholderText: "Ürün Açıklaması (İngilizce)" }
+            EtiketliAlan { id: aciklamaAlani; etiket: "ÜRÜN AÇIKLAMASI *" }
+            EtiketliAlan { id: aciklamaEnAlani; etiket: "ÜRÜN AÇIKLAMASI (İNGİLİZCE)" }
             RowLayout {
                 Layout.fillWidth: true
-                FormAlani { id: birimFiyatAlani; placeholderText: "Birim Satış Fiyatı (TL)"; SayiBicimlendirici { id: birimFiyatBicimi } }
-                FormAlani { id: maliyetAlani; placeholderText: "Maliyet (TL)"; SayiBicimlendirici { id: maliyetBicimi } }
+                spacing: 10
+                EtiketliAlan {
+                    id: birimFiyatAlani
+                    etiket: "BİRİM SATIŞ FİYATI (TL)"
+                    placeholderText: "0,00"
+                    SayiBicimlendirici { id: birimFiyatBicimi; hedef: birimFiyatAlani.alan }
+                }
+                EtiketliAlan {
+                    id: maliyetAlani
+                    etiket: "MALİYET (TL)"
+                    placeholderText: "0,00"
+                    SayiBicimlendirici { id: maliyetBicimi; hedef: maliyetAlani.alan }
+                }
             }
         }
     }
 
-    Dialog {
-        id: silOnayDialogu
-        property int hedefId: -1
-        title: "Ürünü Sil"
-        modal: true
-        width: 320
-        anchors.centerIn: parent
-        standardButtons: Dialog.Yes | Dialog.No
-        // NOT: "visible: hedefId !== -1" binding'i kullanilmiyor -- Dialog kapaninca
-        // visible'i kendisi false yapip binding'i kiriyor, ikinci "Sil" tiklamasinda
-        // pencere hic acilmiyordu. Acma islemi butondan open() ile yapiliyor.
+    SifreOnayDialog { id: sifreDialogu }
 
-        background: Rectangle { color: Theme.panel; radius: Theme.radiusNormal; border.color: Theme.kenarlik; border.width: 1 }
-
-        contentItem: Label {
-            text: "Bu ürün kalıcı olarak silinecek. Bu ürünü içeren teklifler varsa silme işlemi başarısız olur. Emin misiniz?"
-            color: Theme.metinBirincil
-            font.family: Theme.fontAilesi
-            font.pixelSize: Theme.fontBoyutNormal
-            wrapMode: Text.WordWrap
-            width: silOnayDialogu.availableWidth
+    function urunSil(urunId) {
+        const sonuc = database.urunSil(urunId)
+        if (sonuc.basarili) {
+            silHataMesaji.text = ""
+            root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
+        } else {
+            silHataMesaji.text = sonuc.hata
         }
-
-        onAccepted: {
-            const sonuc = database.urunSil(hedefId)
-            hedefId = -1
-            if (sonuc.basarili) {
-                silHataMesaji.text = ""
-                root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
-            } else {
-                silHataMesaji.text = sonuc.hata
-            }
-        }
-        onRejected: hedefId = -1
     }
 }

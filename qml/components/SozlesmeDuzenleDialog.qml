@@ -54,13 +54,25 @@ Dialog {
             metinAlani.forceActiveFocus()
     }
 
-    header: Label {
-        text: "Satış Sözleşmesi"
-        color: Theme.metinBirincil
-        font.family: Theme.fontAilesi
-        font.bold: true
-        font.pixelSize: Theme.fontBoyutOrta
-        padding: 20
+    header: RowLayout {
+        spacing: 8
+        Item { Layout.preferredWidth: 12 }
+        Rectangle {
+            Layout.topMargin: 18
+            Layout.preferredWidth: 4
+            Layout.preferredHeight: 16
+            radius: 2
+            color: Theme.vurgu
+        }
+        Label {
+            Layout.topMargin: 18
+            Layout.fillWidth: true
+            text: "Satış Sözleşmesi"
+            color: Theme.metinBirincil
+            font.family: Theme.fontAilesi
+            font.bold: true
+            font.pixelSize: Theme.fontBoyutOrta
+        }
     }
 
     contentItem: ColumnLayout {
@@ -139,13 +151,14 @@ Dialog {
                 onClicked: kok.close()
                 background: Rectangle {
                     radius: Theme.radiusKucuk
-                    color: iptalButonu.hovered ? Theme.tehlikeHover : Theme.tehlike
+                    color: iptalButonu.hovered ? Theme.panelHover : "transparent"
+                    border.width: 1
+                    border.color: iptalButonu.hovered ? Theme.metinSoluk : Theme.kenarlik
                 }
                 contentItem: Text {
                     text: iptalButonu.text
-                    color: "#ffffff"
+                    color: Theme.metinIkincil
                     font.family: Theme.fontAilesi
-                    font.bold: true
                     font.pixelSize: Theme.fontBoyutKucuk
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
