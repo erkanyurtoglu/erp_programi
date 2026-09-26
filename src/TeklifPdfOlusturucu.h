@@ -6,18 +6,50 @@
 #include <QString>
 #include <QMarginsF>
 #include <QDate>
+#include <memory>
+
+class QWebEnginePage;
 
 // TeklifPdfOlusturucu: Teklif/Proforma ve Satis Sozlesmesi PDF'lerinin HTML
 // sablonunu doldurup basma isinin TAMAMINI ustlenir. Veritabaniyla hicbir
 // ilgisi yoktur -- Database sinifi sorgulari calistirip hazir veriyi
 // (QVariantMap) buraya devreder, bu sinif sadece HTML uretip QtWebEngine
 // (QWebEnginePage::printToPdf) ile PDF'e basar.
+//
+// ONIZLEME / INDIRME: *Uret fonksiyonlari PDF'i kullanicinin klasorune DEGIL,
+// gecici onizleme klasorune (onizlemeKlasoru) basar. Kullanici onizleme
+// penceresinde "İndir"e basarsa onizlemeyiKaydet ile kayitKlasoru'ne
+// kopyalanir; basmazsa pencere kapanirken onizlemeyiSil ile silinir. Boylece
+// her PDF goruntulemesi Belgelerim'e dosya birakmaz.
 class TeklifPdfOlusturucu : public QObject
 {
     Q_OBJECT
 
 public:
     explicit TeklifPdfOlusturucu(QObject *parent = nullptr);
+    ~TeklifPdfOlusturucu() override;
+
+    // PDF basmakta kullanilan QtWebEngine sayfasini simdiden olusturur. Ilk
+    // sayfa olusturulurken Chromium (tarayici sureci, profil, GPU) ayaga
+    // kalkar -- olcumde ~1.8 sn ve bu sirada arayuz donar. Program acilirken
+    // bir kez cagrilir (main.cpp), boylece ilk PDF butonunda beklenmez. Sayfa
+    // tum PDF'lerde tekrar kullanilir. Cagrilmasa da htmlyiPdfeBas kendisi cagirir.
+    void motoruHazirla() const;
+
+    // Indirilen PDF'lerin klasoru: Belgelerim/Liya ERP Teklifler.
+    static QString kayitKlasoru();
+
+    // Onizleme icin basilan gecici PDF'lerin klasoru (%TEMP%/LiyaERP_Onizleme).
+    static QString onizlemeKlasoru();
+
+    // Onizleme PDF'ini (*Uret'in dondurdugu dosyaYolu) kayitKlasoru'ne
+    // "dosyaAdi" adiyla kopyalar; ayni adda dosya varsa uzerine yazar.
+    // Kaynak onizleme klasorunun disindaysa reddeder.
+    // Donen: {basarili (bool), dosyaYolu (kaydedilen yol), klasor, hata}.
+    static QVariantMap onizlemeyiKaydet(const QString &onizlemeYolu, const QString &dosyaAdi);
+
+    // Onizleme PDF'ini siler (onizleme klasoru disindaki yollara dokunmaz).
+    static void onizlemeyiSil(const QString &onizlemeYolu);
 
     // "veri" anahtarlari (Database::teklifPdfOlustur tarafindan doldurulur):
     //   firmaAdresi, ilgiliKisi, ilgiliKisiTelefonu, ilgiliKisiEposta,
@@ -37,7 +69,8 @@ public:
     //   sozlesmeMetni (string, OPSIYONEL): teklifin son sayfasindaki satis
     //             sozlesmesi maddeleri (duz metin, bkz. varsayilanSozlesmeMetni).
     //             Bos birakilirsa dilin varsayilan metni kullanilir.
-    // Donen: {basarili (bool), dosyaYolu (string), hata (string)}.
+    // Donen: {basarili (bool), dosyaYolu (onizleme PDF'i), dosyaAdi (indirilince
+    // verilecek ad), hata (string)}.
     QVariantMap teklifPdfUret(int teklifId, const QString &firmaAdi, const QVariantMap &veri);
 
     // Teklif PDF'inin son sayfasindaki satis sozlesmesi maddelerinin FABRIKA
@@ -78,7 +111,7 @@ public:
     //   firmaAdi, firmaAdresi, ilgiliKisi, teslimatSekli, teslimatYeri,
     //   paraBirimi, dil (TR/EN), genelToplam (double),
     //   kalemler (QVariantList<QVariantMap{aciklama, adet, indirimliBirimFiyat, toplamTutar}>)
-    // Donen: {basarili (bool), dosyaYolu (string), hata (string)}.
+    // Donen: {basarili (bool), dosyaYolu (onizleme PDF'i), dosyaAdi, hata (string)}.
     QVariantMap satisSozlesmesiUret(const QVariantMap &veri);
 
     // Teknik ekibe verilecek URETIM PDF'i. teklifPdfUret ile ayni "veri"
@@ -88,10 +121,22 @@ public:
     //   - teklifin diline bakilmaksizin HER ZAMAN Turkce basilir (EN teklifte
     //     kalem aciklamasi icin katalogdaki TR metin -- "urunAciklamasiTr" -- kullanilir),
     //   - bilgi blogunda kabul tarihi, planlanan teslim tarihi, teslimat
-    //     sekli/yeri; tablonun altinda uretim notu (varsa) yer alir. Teklif notu basilmaz.
+    //     sekli/yeri; tablonun altinda uretim notu (varsa) yer alir. Teklif notu,
+    //     musterinin ilgili kisi/telefon bilgisi ve "kac kalem bitti" ozeti basilmaz.
     // Ek "veri" anahtarlari: uretimNotu, teslimatTarihi, kabulTarihi (string, dd.MM.yyyy).
-    // Donen: {basarili (bool), dosyaYolu (string), hata (string)}.
+    // Donen: {basarili (bool), dosyaYolu (onizleme PDF'i), dosyaAdi, hata (string)}.
     QVariantMap uretimPdfUret(int teklifId, const QString &firmaAdi, const QVariantMap &veri);
+
+    // TEKLIF NUMARASI -- PDF'lerde VE programin her yerinde (liste, mesajlar,
+    // bkz. Database::teklifNoGetir) gosterilen tek numara. Bir revizyon
+    // veritabaninda yeni bir TeklifId ile durur, ama kok numara uzerinden
+    // "1203/Rev.2" seklinde gosterilir -- aksi halde revizyon ayri bir teklif
+    // gibi gorunur ve ikisi ayni anda gecerli sanilirdi. Revizyon olmayan
+    // tekliflerde sadece "1203" yazilir.
+    // dosyaAdiIcin=true, dosya adinda kullanilamayan "/" yerine "-" koyar
+    // ("Teklif_1203-Rev2_Firma.pdf").
+    // veri anahtarlari: kokTeklifNo (int), revizyonNo (int) -- bkz. Database::pdfVerisiniOku.
+    static QString teklifNoMetni(int teklifId, const QVariantMap &veri, bool dosyaAdiIcin = false);
 
 private:
     // HTML sablon dosyasini diskten okur. Debug derlemede once proje kaynak
@@ -128,6 +173,15 @@ private:
     bool htmlyiPdfeBas(const QString &html, const QString &dosyaYolu, QString &hataOut,
                         QMarginsF kenarBosluklariMm = QMarginsF(15, 15, 15, 15)) const;
 
+    // "html"i onizleme klasorune benzersiz adla basar ve *Uret'lerin ortak
+    // donus haritasini ({basarili, dosyaYolu, dosyaAdi, hata}) hazirlar.
+    // Ayni HTML daha once basildiysa onbellekteki PDF kopyalanir.
+    QVariantMap onizlemeyeBas(const QString &html, const QString &dosyaAdi,
+                               QMarginsF kenarBosluklariMm) const;
+
+    // motoruHazirla ile olusturulan, tum PDF'lerde tekrar kullanilan sayfa.
+    mutable std::unique_ptr<QWebEnginePage> m_sayfa;
+
     // TR locale (nokta/virgul) ile sayiyi bicimlendirip, "paraBirimi"ne (TL/USD/EUR)
     // gore dogru sembolu (₺/$/€) sonuna ekler -- ekrandaki (TeklifVerPage.qml
     // paraFormat + paraBirimiSembol) ile ayni gosterim kurali.
@@ -135,14 +189,4 @@ private:
 
     // Dosya adindaki yasak karakterleri "_" yapar.
     static QString dosyaAdiTemizle(const QString &ad);
-
-    // PDF'e basilacak TEKLIF NUMARASI. Bir revizyon veritabaninda yeni bir
-    // TeklifId ile durur, ama belgede musterinin bildigi KOK numara uzerinden
-    // "1203/Rev.2" seklinde gosterilir -- aksi halde revizyon, musteriye ayri
-    // bir teklif gibi gorunur ve ikisi ayni anda gecerli sanilirdi. Revizyon
-    // olmayan tekliflerde eskisi gibi sadece "1203" yazilir.
-    // dosyaAdiIcin=true, dosya adinda kullanilamayan "/" yerine "-" koyar
-    // ("Teklif_1203-Rev2_Firma.pdf").
-    // veri anahtarlari: kokTeklifNo (int), revizyonNo (int) -- bkz. Database::pdfVerisiniOku.
-    static QString teklifNoMetni(int teklifId, const QVariantMap &veri, bool dosyaAdiIcin = false);
 };

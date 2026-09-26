@@ -40,8 +40,13 @@ Item {
     // degisiklikler yalnizca kaydedilecek revizyona gider.
     property bool revizyonIzinli: false
 
+    // TAMAMLANMIS teklif hic revize edilemez: is bitmistir, detay her yerden salt
+    // goruntulemedir. Yanlislikla tamamlandiysa once "Beklemede"ye geri alinir
+    // (ayni kural C++ tarafinda Database::teklifKaydet'te de uygulanir).
+    readonly property bool revizyonAcik: root.revizyonIzinli && root.teklifDurumu !== "Tamamlandı"
+
     // Ekrandaki alanlarin salt okunur olup olmadigi.
-    readonly property bool formKilitli: root.teklifKilitli && !root.revizyonIzinli
+    readonly property bool formKilitli: root.teklifKilitli && !root.revizyonAcik
 
     // Kilitli teklifin detayi (Alınan/Biten Tekliflerim) salt goruntulemedir:
     // sepete urun eklenemeyecegi icin soldaki "Ürün Ara" paneli hic gosterilmez,
@@ -54,7 +59,7 @@ Item {
             return
         database.urunAraBaslat(urunAramaKutusu.text, 40, dilCombo.currentText)
     }
-    readonly property bool uretimAlaniKilitli: root.uretimBilgisiKilitli && !root.revizyonIzinli
+    readonly property bool uretimAlaniKilitli: root.uretimBilgisiKilitli && !root.revizyonAcik
 
     // Revizyon modunda geri butonuna basilinca; SatisModuluPage bunu dinleyip
     // gelinen listeye geri doner.
@@ -65,6 +70,10 @@ Item {
     // yuzunden "Revize Edildi" durumuna alinan ESKI tekliflerin id listesi
     // (kilitli teklifler isaretlenmedigi icin bos da olabilir).
     signal revizyonKaydedildi(int yeniTeklifId, int kaynakTeklifId, var revizeEdilenIdler)
+
+    // Duzeltme (bkz. kaydetSecimDialogu) basariyla kaydedilince yayinlanir: ayni
+    // teklif yerinde guncellendi, yeni TeklifId olusmadi.
+    signal duzeltmeKaydedildi(int teklifId)
 
     // Kopya basariyla kaydedilince yayinlanir (bkz. kopyalamayaBasla). Revizyondan
     // ayri bir sinyal: kaynak teklifte hicbir degisiklik olmadigi icin gosterilecek
@@ -210,6 +219,78 @@ Item {
         }
     }
 
+    // Duzeltme/revizyon secim penceresindeki (kaydetSecimDialogu) radyo kart.
+    component SecimKarti: Rectangle {
+        id: kart
+        property string baslik: ""
+        property string aciklama: ""
+        property bool secili: false
+        signal secildi()
+
+        Layout.fillWidth: true
+        implicitHeight: kartIcerik.implicitHeight + 24
+        radius: Theme.radiusKucuk
+        color: kart.secili ? Theme.panelHover : (kartFare.containsMouse ? Theme.panelHover : Theme.arkaplan)
+        border.width: kart.secili ? 2 : 1
+        border.color: kart.secili ? Theme.vurgu : Theme.kenarlik
+
+        MouseArea {
+            id: kartFare
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: kart.secildi()
+        }
+
+        RowLayout {
+            id: kartIcerik
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: 12
+            anchors.rightMargin: 12
+            spacing: 12
+
+            Rectangle {
+                Layout.alignment: Qt.AlignTop
+                Layout.topMargin: 2
+                Layout.preferredWidth: 16
+                Layout.preferredHeight: 16
+                radius: 8
+                color: "transparent"
+                border.width: 2
+                border.color: kart.secili ? Theme.vurgu : Theme.metinSoluk
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 8
+                    height: 8
+                    radius: 4
+                    color: Theme.vurgu
+                    visible: kart.secili
+                }
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+                Label {
+                    text: kart.baslik
+                    color: Theme.metinBirincil
+                    font.family: Theme.fontAilesi
+                    font.pixelSize: Theme.fontBoyutNormal
+                    font.bold: true
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: kart.aciklama
+                    color: Theme.metinIkincil
+                    font.family: Theme.fontAilesi
+                    font.pixelSize: Theme.fontBoyutKucuk
+                    wrapMode: Text.WordWrap
+                }
+            }
+        }
+    }
+
     component Ozet: ColumnLayout {
         property string baslik: ""
         property string deger: ""
@@ -268,6 +349,9 @@ Item {
     // ekranin normal "yeni teklif" davranisi HICBIR SEKILDE degismez.
     property int duzenlenenAnaTeklifId: 0
     property int duzenlenenKaynakTeklifId: 0
+    // Acik teklifin kullaniciya gosterilen numarasi ("1203", "1203/Rev.2").
+    // *TeklifId'ler sistemin ic anahtaridir; baslikta ve mesajlarda hep bu yazar.
+    property string duzenlenenTeklifNo: ""
 
     // --- Kopyala akisi (Giden/Alınan/Biten Tekliflerim'deki "Kopya" butonu) ---
     // Satis personeli ayni icerikli teklifi farkli firmalara verebiliyor. Kopya,
@@ -278,6 +362,7 @@ Item {
     // kaynaga yerinde yazma yapan hicbir yol tetiklenmez); tek fark, kaydedilirken
     // teklifKaydet()'e izlenebilirlik icin gonderilen bu id.
     property int kopyaKaynakTeklifId: 0
+    property string kopyaKaynakTeklifNo: ""
     readonly property bool kopyaModu: root.kopyaKaynakTeklifId > 0
 
     // Ekran, sol menude maddesi olmayan bir ALT SAYFA olarak mi acildi? (Detay ya
@@ -328,7 +413,7 @@ Item {
             return
         if (database.teklifTeslimatTarihiGuncelle(root.duzenlenenKaynakTeklifId, yeniTarih)) {
             bilgiMesaji.color = Theme.basariAcik
-            bilgiMesaji.text = "Teklif #" + root.duzenlenenKaynakTeklifId + " planlanan teslim tarihi "
+            bilgiMesaji.text = "Teklif " + root.duzenlenenTeklifNo + " planlanan teslim tarihi "
                                + (yeniTarih.length > 0 ? root.tarihGoster(yeniTarih) + " olarak kaydedildi." : "kaldırıldı.")
         } else {
             bilgiMesaji.color = Theme.tehlikeAcik
@@ -346,7 +431,7 @@ Item {
             return
         if (database.teklifMusteriNotuGuncelle(root.duzenlenenKaynakTeklifId, yeniNot)) {
             bilgiMesaji.color = Theme.basariAcik
-            bilgiMesaji.text = "Teklif #" + root.duzenlenenKaynakTeklifId + " teklif notu kaydedildi."
+            bilgiMesaji.text = "Teklif " + root.duzenlenenTeklifNo + " teklif notu kaydedildi."
         } else {
             bilgiMesaji.color = Theme.tehlikeAcik
             bilgiMesaji.text = "Teklif notu kaydedilemedi."
@@ -362,7 +447,7 @@ Item {
             return
         if (database.teklifUretimNotuGuncelle(root.duzenlenenKaynakTeklifId, yeniNot)) {
             bilgiMesaji.color = Theme.basariAcik
-            bilgiMesaji.text = "Teklif #" + root.duzenlenenKaynakTeklifId + " üretim notu kaydedildi."
+            bilgiMesaji.text = "Teklif " + root.duzenlenenTeklifNo + " üretim notu kaydedildi."
         } else {
             bilgiMesaji.color = Theme.tehlikeAcik
             bilgiMesaji.text = "Üretim notu kaydedilemedi."
@@ -457,7 +542,9 @@ Item {
 
         root.duzenlenenAnaTeklifId = veri.anaTeklifId
         root.duzenlenenKaynakTeklifId = veri.teklifId
+        root.duzenlenenTeklifNo = veri.teklifNo
         root.kopyaKaynakTeklifId = 0
+        root.kopyaKaynakTeklifNo = ""
     }
 
     // Listelerdeki "Kopya" butonundan cagrilir (bkz. SatisModuluPage.qml).
@@ -492,7 +579,9 @@ Item {
 
         root.duzenlenenAnaTeklifId = 0
         root.duzenlenenKaynakTeklifId = 0
+        root.duzenlenenTeklifNo = ""
         root.kopyaKaynakTeklifId = veri.teklifId
+        root.kopyaKaynakTeklifNo = veri.teklifNo
 
         // Satir bazli uretim takibi kaynak teklifin KENDI uretimine aittir:
         // kopya bastan bagimsiz yeni bir teklif oldugu icin hicbir kalem
@@ -579,7 +668,7 @@ Item {
         // kalir ve "Satış Sözleşmesi" penceresi varsayilan metinle acilir.
         root.sozlesmeMetni = veri.sozlesmeMetni !== undefined ? veri.sozlesmeMetni : ""
 
-        // Hangi teklifte oldugumuz zaten basliktan ("#2264 Teklif Bilgileri") ve
+        // Hangi teklifte oldugumuz zaten basliktan ("Teklif 1203/Rev.2 Bilgileri") ve
         // geri butonundan belli; ayrica bir "yuklendi" bildirimi gosterilmiyor.
         // Bilgi kutusu, onceki bir hatadan kalan metni tasimasin diye temizlenir.
         // (Kopya akisi bunun uzerine kendi aciklama mesajini yazar.)
@@ -593,7 +682,9 @@ Item {
     function duzenlemeyiIptalEt() {
         root.duzenlenenAnaTeklifId = 0
         root.duzenlenenKaynakTeklifId = 0
+        root.duzenlenenTeklifNo = ""
         root.kopyaKaynakTeklifId = 0
+        root.kopyaKaynakTeklifNo = ""
         root.sozlesmeMetni = ""
 
         root.sepet = []
@@ -615,6 +706,8 @@ Item {
         kdvAlaniWrap.ayarla(20)
         paketlemeAlaniWrap.ayarla(0)
         tasimaAlaniWrap.ayarla(0)
+        dilCombo.currentIndex = 0
+        paraBirimiCombo.currentIndex = 0
 
         bilgiMesaji.text = ""
     }
@@ -734,7 +827,7 @@ Item {
             return
         // Bos birakilirsa satir yeniden cizilip eski aciklama geri gelir.
         if (yeniMetin.length === 0) {
-            root.sepet = root.sepet.slice()
+            root.sepetiDegistir(root.sepet.slice())
             return
         }
         const yeniSepet = root.sepet.slice()
@@ -746,7 +839,7 @@ Item {
             guncel.aciklama = yeniMetin
         }
         yeniSepet[dizinIndex] = guncel
-        root.sepet = yeniSepet
+        root.sepetiDegistir(yeniSepet)
     }
 
     // Sepetteki Maliyet/Fiyat kutulari secili para biriminde gosterilir, ama
@@ -828,7 +921,11 @@ Item {
                 toplamTutar: root.tlDenCevir(indirimliBirim * k.adet),
                 maliyetFiyati: root.tlDenCevir(k.maliyet),
                 paraBirimi: secilenParaBirimi,
-                kur: kur
+                kur: kur,
+                // Satir bazli uretim bilgisi: revizyon ve duzeltmede kayitli
+                // tekliften gelir ve korunur; yeni teklifte/kopyada zaten bostur.
+                tamamlandi: k.tamamlandi === true,
+                uretimNotu: k.uretimNotu || ""
             }
         })
 
@@ -881,23 +978,42 @@ Item {
         sozlesmeDialogu.metin = root.sozlesmeMetni.length > 0
             ? root.sozlesmeMetni
             : database.teklifSozlesmeMetniGetir(root.duzenlenenKaynakTeklifId, dil)
+        // Pencere maddeleri PDF'teki gibi gosterir: [DOVIZ]/[NAKLIYE_*] satirlari
+        // ve {{...}} alanlari formdaki guncel secimlere gore doldurulur.
+        sozlesmeDialogu.teklifVerisi = root.teklifVerisiOlustur()
         sozlesmeDialogu.open()
     }
 
-    // Detay ekraninda acik (kayitli) teklifin PDF'ini veya uretim PDF'ini uretip acar.
+    // Detay ekraninda acik (kayitli) teklifin PDF'ini veya uretim PDF'ini
+    // onizlemede acar (indirmek kullaniciya birakilir).
     function kayitliPdfAc(uretim) {
         const teklifId = root.duzenlenenKaynakTeklifId
         if (teklifId <= 0)
             return
-        const sonuc = uretim ? database.uretimPdfOlustur(teklifId) : database.teklifPdfOlustur(teklifId)
-        if (sonuc.basarili) {
-            bilgiMesaji.color = Theme.basariAcik
-            bilgiMesaji.text = (uretim ? "Üretim PDF: " : "PDF: ") + sonuc.dosyaYolu
-            Qt.openUrlExternally("file:///" + sonuc.dosyaYolu)
-        } else {
-            bilgiMesaji.color = Theme.tehlikeAcik
-            bilgiMesaji.text = "PDF oluşturulamadı: " + sonuc.hata
+        PdfOnizleme.ac(uretim ? "uretim" : "teklif", teklifId,
+                       (uretim ? "Üretim · Teklif " : "Teklif ") + root.duzenlenenTeklifNo)
+    }
+
+    // Sepet dizisi her degisiklikte yenisiyle degistirilir; ListView de model
+    // sifirlandigi icin kaydirmayi basa (1. satira) alir. Duzenleme sirasinda
+    // kullanicinin baktigi yer kaybolmasin diye sepet guncellemeleri buradan
+    // gecer: gosterilecekIndex verilirse o satir gorunur alana getirilir,
+    // verilmezse onceki kaydirma konumu korunur.
+    function sepetiDegistir(yeniSepet, gosterilecekIndex) {
+        const eskiY = sepetListesi.contentY
+        root.sepet = yeniSepet
+        sepetListesi.forceLayout()
+        if (gosterilecekIndex !== undefined && gosterilecekIndex >= 0
+                && gosterilecekIndex < yeniSepet.length) {
+            sepetListesi.positionViewAtIndex(gosterilecekIndex, ListView.Contain)
+            return
         }
+        // Satirlar sabit yukseklikte oldugu icin icerik yuksekligi dogrudan
+        // hesaplanir (model yeni sifirlandiginda contentHeight tahmini olabilir).
+        const icerikYuksekligi = Math.max(0, yeniSepet.length * sepetListesi.satirAraligi
+                                             - sepetListesi.spacing)
+        const enFazla = Math.max(0, icerikYuksekligi - sepetListesi.height)
+        sepetListesi.contentY = Math.max(0, Math.min(enFazla, eskiY))
     }
 
     function sepeteEkle(kalem) {
@@ -909,18 +1025,18 @@ Item {
             if (mevcutIndex !== -1) {
                 yeniSepet[mevcutIndex] = Object.assign({}, yeniSepet[mevcutIndex])
                 yeniSepet[mevcutIndex].adet += kalem.adet
-                root.sepet = yeniSepet
+                root.sepetiDegistir(yeniSepet, mevcutIndex)
                 return
             }
         }
         yeniSepet.push(kalem)
-        root.sepet = yeniSepet
+        root.sepetiDegistir(yeniSepet, yeniSepet.length - 1)
     }
 
     function sepettenCikar(dizinIndex) {
         const yeniSepet = root.sepet.slice()
         yeniSepet.splice(dizinIndex, 1)
-        root.sepet = yeniSepet
+        root.sepetiDegistir(yeniSepet)
     }
 
     // --- Sepet satirlarini surukleyerek siralama ---
@@ -949,7 +1065,7 @@ Item {
         const yeniSepet = root.sepet.slice()
         const tasinan = yeniSepet.splice(kaynakIndex, 1)[0]
         yeniSepet.splice(hedefIndex, 0, tasinan)
-        root.sepet = yeniSepet
+        root.sepetiDegistir(yeniSepet)
     }
 
     // Sepet satirindaki adet/maliyet/birim fiyat elle degistirildiginde cagrilir --
@@ -959,7 +1075,7 @@ Item {
         const yeniSepet = root.sepet.slice()
         yeniSepet[dizinIndex] = Object.assign({}, yeniSepet[dizinIndex])
         yeniSepet[dizinIndex][alanAdi] = deger
-        root.sepet = yeniSepet
+        root.sepetiDegistir(yeniSepet)
     }
 
     // --- Canli hesaplamalar ---
@@ -1102,12 +1218,12 @@ Item {
                 spacing: 2
                 Label {
                     // Mevcut bir teklif acikken baslik teklifin kendisini soyler
-                    // ("#2264 Teklif Bilgileri"); hangi teklifte oldugumuz tek bakista
+                    // ("Teklif 1203/Rev.2 Bilgileri"); hangi teklifte oldugumuz tek bakista
                     // bellidir, bu yuzden ayrica bir rozet/aciklama satiri tasinmiyor.
                     text: root.duzenlenenAnaTeklifId > 0
-                        ? "#" + root.duzenlenenKaynakTeklifId + " Teklif Bilgileri"
+                        ? "Teklif " + root.duzenlenenTeklifNo + " Bilgileri"
                         : root.kopyaModu
-                        ? "#" + root.kopyaKaynakTeklifId + " Kopyası — Yeni Teklif"
+                        ? "Teklif " + root.kopyaKaynakTeklifNo + " Kopyası — Yeni Teklif"
                         : "Teklif Oluştur"
                     font.family: Theme.fontAilesi
                     font.pixelSize: Theme.fontBoyutBaslik
@@ -1117,7 +1233,7 @@ Item {
                 // Kilitli teklifte formun neden degistirilemedigini acikca soyler.
                 Label {
                     visible: root.teklifKilitli
-                    text: root.revizyonIzinli
+                    text: root.revizyonAcik
                           ? "🔒  " + root.teklifDurumu + " — kaydedince yeni revizyon oluşur"
                           : "🔒  " + root.teklifDurumu
                     font.family: Theme.fontAilesi
@@ -2842,57 +2958,20 @@ Item {
                                 return
                             }
 
-                            const revizyonMuydu = root.duzenlenenAnaTeklifId > 0
-                            const kopyaMiydi = root.kopyaModu
-                            const kopyaKaynagi = root.kopyaKaynakTeklifId
-                            const sonuc = database.teklifKaydet(root.teklifVerisiOlustur())
-                            if (sonuc.basarili) {
-                                bilgiMesaji.color = Theme.basariAcik
-                                const onEk = revizyonMuydu
-                                    ? "Teklif #" + sonuc.teklifId + " (Teklif #" + root.duzenlenenKaynakTeklifId + " revizyonu) kaydedildi. "
-                                    : kopyaMiydi
-                                    ? "Teklif #" + sonuc.teklifId + " (Teklif #" + kopyaKaynagi + " kopyası) kaydedildi. "
-                                    : "Teklif #" + sonuc.teklifId + " kaydedildi. "
-                                bilgiMesaji.text = onEk + "PDF hazırlanıyor..."
-
-                                const pdfSonuc = database.teklifPdfOlustur(sonuc.teklifId)
-                                if (pdfSonuc.basarili) {
-                                    bilgiMesaji.text = onEk + "PDF: " + pdfSonuc.dosyaYolu
-                                    Qt.openUrlExternally("file:///" + pdfSonuc.dosyaYolu)
-                                } else {
-                                    bilgiMesaji.text = onEk + "ancak PDF oluşturulamadı: " + pdfSonuc.hata
-                                }
-
-                                if (revizyonMuydu) {
-                                    // Revizyon akisi: formu tamamen bosaltip gelinen
-                                    // listeye geri don (SatisModuluPage dinliyor).
-                                    const kaynakTeklifId = root.duzenlenenKaynakTeklifId
-                                    root.duzenlemeyiIptalEt()
-                                    root.revizyonKaydedildi(sonuc.teklifId, kaynakTeklifId,
-                                                            sonuc.revizeEdilenTeklifIdler || [])
-                                } else if (kopyaMiydi) {
-                                    // Kopya akisi da bir ALT SAYFA'da yasar: formu
-                                    // bosaltip gelinen listeye donuyoruz. Kaynak
-                                    // teklifte hicbir degisiklik olmadigi icin
-                                    // "revize edildi" bilgisi gonderilmez.
-                                    root.duzenlemeyiIptalEt()
-                                    root.kopyaKaydedildi(sonuc.teklifId, kopyaKaynagi)
-                                } else {
-                                    root.sepet = []
-                                    root.secilenMusteriId = 0
-                                    root.secilenFirmaAdi = ""
-                                    ilgiliKisiAlani.text = ""
-                                    ilgiliKisiTelAlani.text = ""
-                                    ilgiliKisiEpostaAlani.text = ""
-                                    // Tarih ve not teklife ozeldir; sonraki teklife tasinmaz.
-                                    root.teslimatTarihi = ""
-                                    root.musteriNotu = ""
-                                    root.uretimNotu = ""
-                                }
-                            } else {
-                                bilgiMesaji.color = Theme.tehlikeAcik
-                                bilgiMesaji.text = sonuc.hata
+                            // Kayitli bir teklif acikken iki ayri niyet vardir: kendi
+                            // giris hatasini DUZELTMEK (ayni teklif) ya da musteriye
+                            // gitmis teklifin YENI SURUMUNU cikarmak (revizyon). Duzeltme
+                            // yalnizca "Beklemede" + guncel teklifte mumkundur; degilse
+                            // soru sorulmaz, eskisi gibi dogrudan revizyon kaydedilir.
+                            // Revizyonda da sebep istenir; duzeltme mumkun degilse pencere
+                            // yalnizca revizyon secenegiyle acilir.
+                            if (root.duzenlenenAnaTeklifId > 0) {
+                                kaydetSecimDialogu.sadeceRevizyon =
+                                        !database.teklifDuzeltilebilirMi(root.duzenlenenKaynakTeklifId)
+                                kaydetSecimDialogu.open()
+                                return
                             }
+                            root.teklifiKaydet("", "")
                         }
                         background: Rectangle {
                             radius: Theme.radiusKucuk
@@ -2911,6 +2990,217 @@ Item {
                 }
             }
         }
+
+    // "Teklifi Kaydet"in asil isi. duzeltmeSebebi doluysa acik teklif YERINDE
+    // duzeltilir (Database::teklifDuzelt); bossa yeni teklif / revizyon / kopya
+    // olarak kaydedilir (Database::teklifKaydet). revizyonSebebi, revizyonda
+    // Teklif Gecmisi'ne yazilir.
+    // PDF onizlemesi yalnizca musteriye gidecek YENI bir belge ciktiginda
+    // (yeni teklif, revizyon, kopya) kendiliginden acilir; duzeltmede acilmaz --
+    // istenirse listedeki "PDF" butonuyla bakilir. Dosya ancak onizlemede
+    // "İndir"e basilinca kaydedilir.
+    function teklifiKaydet(duzeltmeSebebi, revizyonSebebi) {
+        const duzeltmeMiydi = duzeltmeSebebi.length > 0
+        const revizyonMuydu = !duzeltmeMiydi && root.duzenlenenAnaTeklifId > 0
+        const kopyaMiydi = root.kopyaModu
+        const kopyaKaynagi = root.kopyaKaynakTeklifId
+        const kopyaKaynakNo = root.kopyaKaynakTeklifNo
+        const kaynakTeklifNo = root.duzenlenenTeklifNo
+        const veri = root.teklifVerisiOlustur()
+        veri.revizyonSebebi = revizyonSebebi || ""
+        const sonuc = duzeltmeMiydi
+            ? database.teklifDuzelt(root.duzenlenenKaynakTeklifId, veri, duzeltmeSebebi)
+            : database.teklifKaydet(veri)
+        if (sonuc.basarili) {
+            bilgiMesaji.color = Theme.basariAcik
+            const onEk = duzeltmeMiydi
+                ? "Teklif " + sonuc.teklifNo + " düzeltildi. "
+                : revizyonMuydu
+                ? "Teklif " + sonuc.teklifNo + " (Teklif " + kaynakTeklifNo + " revizyonu) kaydedildi. "
+                : kopyaMiydi
+                ? "Teklif " + sonuc.teklifNo + " (Teklif " + kopyaKaynakNo + " kopyası) kaydedildi. "
+                : "Teklif " + sonuc.teklifNo + " kaydedildi. "
+            bilgiMesaji.text = onEk
+
+            if (!duzeltmeMiydi)
+                PdfOnizleme.ac("teklif", sonuc.teklifId, "Teklif " + sonuc.teklifNo)
+
+            if (duzeltmeMiydi) {
+                // Duzeltme: ayni teklif guncellendi; formu bosaltip
+                // gelinen listeye don (SatisModuluPage dinliyor).
+                root.duzenlemeyiIptalEt()
+                root.duzeltmeKaydedildi(sonuc.teklifId)
+            } else if (revizyonMuydu) {
+                // Revizyon akisi: formu tamamen bosaltip gelinen
+                // listeye geri don (SatisModuluPage dinliyor).
+                const kaynakTeklifId = root.duzenlenenKaynakTeklifId
+                root.duzenlemeyiIptalEt()
+                root.revizyonKaydedildi(sonuc.teklifId, kaynakTeklifId,
+                                        sonuc.revizeEdilenTeklifIdler || [])
+            } else if (kopyaMiydi) {
+                // Kopya akisi da bir ALT SAYFA'da yasar: formu
+                // bosaltip gelinen listeye donuyoruz. Kaynak
+                // teklifte hicbir degisiklik olmadigi icin
+                // "revize edildi" bilgisi gonderilmez.
+                root.duzenlemeyiIptalEt()
+                root.kopyaKaydedildi(sonuc.teklifId, kopyaKaynagi)
+            } else {
+                // Yeni teklif: formu tamamen bos haline dondur
+                // (ticari sartlar ve teslimat bilgileri dahil).
+                // duzenlemeyiIptalEt bilgi mesajini da sildigi icin
+                // kayit/PDF sonucu geri yazilir.
+                const sonucMesaji = bilgiMesaji.text
+                root.duzenlemeyiIptalEt()
+                bilgiMesaji.color = Theme.basariAcik
+                bilgiMesaji.text = sonucMesaji
+            }
+        } else {
+            bilgiMesaji.color = Theme.tehlikeAcik
+            bilgiMesaji.text = sonuc.hata
+        }
+    }
+
+    // ---- Duzeltme mi, revizyon mu? ----
+    // Kayitli ve duzeltilebilir (Beklemede + guncel) bir teklifte "Teklifi Kaydet"
+    // bunu acar. Varsayilan secim YOKTUR: yanlislikla musteriye gitmis bir teklifin
+    // ustune yazilmasin, kullanici niyetini acikca belirtsin. Duzeltmede sebep
+    // zorunludur; teklifin onceki hali sebeple birlikte gecmise saklanir.
+    TemaDialog {
+        id: kaydetSecimDialogu
+        baslik: "Teklif " + root.duzenlenenTeklifNo
+                + (kaydetSecimDialogu.sadeceRevizyon ? " — Yeni revizyon" : " — Nasıl kaydedilsin?")
+        onayMetni: kaydetSecimDialogu.secim === "duzeltme" ? "Düzeltmeyi Kaydet"
+                 : kaydetSecimDialogu.secim === "revizyon" ? "Revizyon Oluştur"
+                 : "Kaydet"
+        onayEtkin: (kaydetSecimDialogu.secim === "revizyon" && revizyonSebebiGirisi.text.trim().length > 0)
+                   || (kaydetSecimDialogu.secim === "duzeltme" && duzeltmeSebebiGirisi.text.trim().length > 0)
+        width: 560
+
+        // "" (secilmedi) | "duzeltme" | "revizyon"
+        property string secim: ""
+        // Teklif duzeltilemiyorsa (Beklemede degil / guncel degil) yalnizca
+        // revizyon secenegi gosterilir ve secili gelir.
+        property bool sadeceRevizyon: false
+
+        onOpened: {
+            kaydetSecimDialogu.secim = kaydetSecimDialogu.sadeceRevizyon ? "revizyon" : ""
+            duzeltmeSebebiGirisi.text = ""
+            revizyonSebebiGirisi.text = ""
+            if (kaydetSecimDialogu.sadeceRevizyon)
+                revizyonSebebiGirisi.forceActiveFocus()
+        }
+        onAccepted: {
+            if (kaydetSecimDialogu.secim === "duzeltme")
+                root.teklifiKaydet(duzeltmeSebebiGirisi.text.trim(), "")
+            else
+                root.teklifiKaydet("", revizyonSebebiGirisi.text.trim())
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 10
+
+            SecimKarti {
+                visible: !kaydetSecimDialogu.sadeceRevizyon
+                secili: kaydetSecimDialogu.secim === "duzeltme"
+                onSecildi: {
+                    kaydetSecimDialogu.secim = "duzeltme"
+                    duzeltmeSebebiGirisi.forceActiveFocus()
+                }
+                baslik: "Düzeltme — hatayı düzelt"
+                aciklama: "Yanlış girilmiş bilgiyi (firma, ilgili kişi, KDV, indirim, fiyat…) düzeltir. "
+                          + "Teklif " + root.duzenlenenTeklifNo + " aynı numarayla güncellenir, revizyon oluşmaz. "
+                          + "Önceki hali sebebiyle birlikte teklif geçmişinde saklanır."
+            }
+
+            ColumnLayout {
+                visible: kaydetSecimDialogu.secim === "duzeltme"
+                Layout.fillWidth: true
+                Layout.leftMargin: 40
+                spacing: 6
+                Label {
+                    text: "DÜZELTME SEBEBİ *"
+                    color: Theme.metinSoluk
+                    font.family: Theme.fontAilesi
+                    font.pixelSize: 10
+                    font.letterSpacing: 1
+                }
+                TextField {
+                    id: duzeltmeSebebiGirisi
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.girdiYuksekligi
+                    maximumLength: 500
+                    color: Theme.metinBirincil
+                    font.family: Theme.fontAilesi
+                    font.pixelSize: Theme.fontBoyutNormal
+                    placeholderTextColor: Theme.metinCokSoluk
+                    placeholderText: "Örn: KDV oranı yanlış girilmişti"
+                    background: Rectangle {
+                        color: Theme.arkaplan
+                        radius: Theme.radiusKucuk
+                        border.width: 1
+                        border.color: duzeltmeSebebiGirisi.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
+                    }
+                    onAccepted: if (kaydetSecimDialogu.onayEtkin) kaydetSecimDialogu.accept()
+                }
+            }
+
+            SecimKarti {
+                secili: kaydetSecimDialogu.secim === "revizyon"
+                onSecildi: {
+                    kaydetSecimDialogu.secim = "revizyon"
+                    revizyonSebebiGirisi.forceActiveFocus()
+                }
+                baslik: "Yeni revizyon — teklifin yeni sürümü"
+                aciklama: "Teklif müşteriye gönderildiyse ve fiyat, miktar ya da şartlar değiştiyse. "
+                          + "Yeni bir revizyon (…/Rev.N) oluşur, Teklif " + root.duzenlenenTeklifNo
+                          + " \"Revize Edildi\" olarak işaretlenir. Sebep her iki teklifin geçmişinde görünür."
+            }
+
+            ColumnLayout {
+                visible: kaydetSecimDialogu.secim === "revizyon"
+                Layout.fillWidth: true
+                Layout.leftMargin: 40
+                spacing: 6
+                Label {
+                    text: "REVİZYON SEBEBİ *"
+                    color: Theme.metinSoluk
+                    font.family: Theme.fontAilesi
+                    font.pixelSize: 10
+                    font.letterSpacing: 1
+                }
+                TextField {
+                    id: revizyonSebebiGirisi
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.girdiYuksekligi
+                    // Durum gecmisi Aciklama sutunu 500 karakter; on ek metnine yer kalsin.
+                    maximumLength: 400
+                    color: Theme.metinBirincil
+                    font.family: Theme.fontAilesi
+                    font.pixelSize: Theme.fontBoyutNormal
+                    placeholderTextColor: Theme.metinCokSoluk
+                    placeholderText: "Örn: Müşteri adet artırdı, fiyat güncellendi"
+                    background: Rectangle {
+                        color: Theme.arkaplan
+                        radius: Theme.radiusKucuk
+                        border.width: 1
+                        border.color: revizyonSebebiGirisi.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
+                    }
+                    onAccepted: if (kaydetSecimDialogu.onayEtkin) kaydetSecimDialogu.accept()
+                }
+            }
+
+            Label {
+                visible: !kaydetSecimDialogu.sadeceRevizyon
+                Layout.fillWidth: true
+                Layout.topMargin: 2
+                text: "İpucu: Teklif müşteriye henüz gönderilmediyse düzeltme, gönderildiyse revizyon seçin."
+                color: Theme.metinSoluk
+                font.family: Theme.fontAilesi
+                font.pixelSize: Theme.fontBoyutKucuk
+                wrapMode: Text.WordWrap
+            }
+        }
+    }
 
     // ---- Satis sozlesmesi duzenleme penceresi ----
     // "Satış Sözleşmesi" butonu bunu acar; PDF'in son sayfasindaki maddeler
@@ -2937,7 +3227,7 @@ Item {
                                                                     root.sozlesmeMetni)
                 if (yazildi) {
                     bilgiMesaji.color = Theme.basariAcik
-                    bilgiMesaji.text = "Teklif #" + root.duzenlenenKaynakTeklifId
+                    bilgiMesaji.text = "Teklif " + root.duzenlenenTeklifNo
                                        + " satış sözleşmesi güncellendi."
                 } else {
                     bilgiMesaji.color = Theme.tehlikeAcik
@@ -2955,7 +3245,7 @@ Item {
     // Baslik satirindaki not butonlari bunlari acar (bkz. components/NotDuzenleDialog.qml).
     NotDuzenleDialog {
         id: musteriNotuDialogu
-        baslik: (root.duzenlenenKaynakTeklifId > 0 ? "Teklif #" + root.duzenlenenKaynakTeklifId + " — " : "") + "Teklif Notu"
+        baslik: (root.duzenlenenKaynakTeklifId > 0 ? "Teklif " + root.duzenlenenTeklifNo + " — " : "") + "Teklif Notu"
         bilgi: "İç not, PDF'e basılmaz."
         renk: Theme.vurgu
         metin: root.musteriNotu
@@ -2965,7 +3255,7 @@ Item {
 
     NotDuzenleDialog {
         id: uretimNotuDialogu
-        baslik: (root.duzenlenenKaynakTeklifId > 0 ? "Teklif #" + root.duzenlenenKaynakTeklifId + " — " : "") + "Üretim Notu"
+        baslik: (root.duzenlenenKaynakTeklifId > 0 ? "Teklif " + root.duzenlenenTeklifNo + " — " : "") + "Üretim Notu"
         bilgi: "Üretim PDF'ine basılır."
         renk: Theme.basari
         metin: root.uretimNotu

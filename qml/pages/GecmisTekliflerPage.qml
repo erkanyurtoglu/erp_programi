@@ -86,7 +86,7 @@ Item {
     readonly property int sutunBosluk: 8
     readonly property int sutunKenarBosluk: 12
     // Teklif no + revizyon rozeti + not ikonu.
-    readonly property int sutunTeklifNo: 96
+    readonly property int sutunTeklifNo: 110
     // Teklif / Kabul / Planlanan Teslim / Teslim / Uretim PDF tarihlerinin her biri.
     readonly property int sutunTarih: 80
     readonly property int sutunPersonel: 104
@@ -176,6 +176,14 @@ Item {
     // sebebi sorulur, diger gecislerde kisa bir onay penceresi acilir -- zira bu
     // islem satiri bulundugu sekmeden tamamen dusurebilir (ornegin Alınan
     // Tekliflerim'deki bir teklif "Reddedildi" yapilinca artik o listede gorunmez).
+    // Kullaniciya gosterilen numara ("1203", "1203/Rev.2"). teklifId sistemin ic
+    // anahtaridir: islemler onunla yapilir ama ekrana/mesaja hic yazilmaz.
+    // Satir o an listede yoksa (ornegin sayfa bu arada yenilendiyse) veritabanina sorulur.
+    function teklifNo(teklifId) {
+        const kayit = root.kayitlarListesi.find(k => k.teklifId === teklifId)
+        return kayit ? kayit.teklifNo : database.teklifNoGetir(teklifId)
+    }
+
     function durumDegistirmeyiBaslat(teklifId, eskiDurum, yeniDurum) {
         if (yeniDurum === "Reddedildi") {
             redSebebiGirisi.text = ""
@@ -200,7 +208,7 @@ Item {
             const sebep = database.sonHataMesaji()
             root.pdfMesaji = sebep && sebep.length > 0
                              ? sebep
-                             : "Teklif #" + teklifId + " durumu güncellenemedi."
+                             : "Teklif " + root.teklifNo(teklifId) + " durumu güncellenemedi."
             root.pdfMesajiHata = true
             // Engel bir yarista (baska kullanici bu arada revizyon kaydetmis olabilir)
             // dogmus olabilir; listeyi yenileyerek satiri guncel haliyle gosteriyoruz.
@@ -211,7 +219,7 @@ Item {
         // Filtreli bir sekmedeysek (Alınan/Biten) ve yeni durum o filtreye uymuyorsa
         // satir bu listeden kaybolur; kullanici "kayboldu" sanmasin diye nerede
         // bulacagini soyluyoruz.
-        var mesaj = "Teklif #" + teklifId + " → " + yeniDurum
+        var mesaj = "Teklif " + root.teklifNo(teklifId) + " → " + yeniDurum
         if (root.durumFiltresi !== "" && root.durumFiltresi !== yeniDurum)
             mesaj += " (" + (yeniDurum === "Kabul Edildi" ? "Alınan Tekliflerim"
                              : yeniDurum === "Tamamlandı" ? "Biten Tekliflerim"
@@ -272,30 +280,24 @@ Item {
         root.pdfMesajiHata = false
     }
 
+    // PDF onizlemede acilir (uretim hatasi da orada yazar); klasore kaydetmek
+    // onizlemedeki "İndir" ile olur.
     function pdfOlusturVeAc(teklifId) {
-        const sonuc = database.teklifPdfOlustur(teklifId)
-        if (sonuc.basarili) {
-            root.pdfMesaji = "Teklif #" + teklifId + " PDF: " + sonuc.dosyaYolu
-            root.pdfMesajiHata = false
-            Qt.openUrlExternally("file:///" + sonuc.dosyaYolu)
-        } else {
-            root.pdfMesaji = "Teklif #" + teklifId + " için PDF oluşturulamadı: " + sonuc.hata
-            root.pdfMesajiHata = true
-        }
+        PdfOnizleme.ac("teklif", teklifId, "Teklif " + root.teklifNo(teklifId))
     }
 
-    // Teknik ekip icin fiyatsiz uretim PDF'i. Basarili olursa teklifin "Üretim PDF"
-    // tarihi dolar; bunun listede hemen gorunmesi icin sayfa yenilenir.
+    // Teknik ekip icin fiyatsiz uretim PDF'i. Teklifin "Üretim PDF" tarihi
+    // onizlemede degil, "İndir"e basilinca dolar (asagidaki Connections).
     function uretimPdfOlusturVeAc(teklifId) {
-        const sonuc = database.uretimPdfOlustur(teklifId)
-        if (sonuc.basarili) {
-            root.pdfMesaji = "Teklif #" + teklifId + " üretim PDF: " + sonuc.dosyaYolu
-            root.pdfMesajiHata = false
-            Qt.openUrlExternally("file:///" + sonuc.dosyaYolu)
-            root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
-        } else {
-            root.pdfMesaji = "Teklif #" + teklifId + " için üretim PDF'i oluşturulamadı: " + sonuc.hata
-            root.pdfMesajiHata = true
+        PdfOnizleme.ac("uretim", teklifId, "Üretim · Teklif " + root.teklifNo(teklifId))
+    }
+
+    // Uretim PDF'i indirildiyse "Üretim PDF" tarihi degisti; listede hemen gorunsun.
+    Connections {
+        target: PdfOnizleme
+        function onKaydedildi(pdf, dosyaYolu) {
+            if (pdf.tur === "uretim")
+                root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
         }
     }
 
@@ -312,11 +314,12 @@ Item {
     function irsaliyeAc(kayit) {
         const sonuc = database.sevkBilgileriGetir(kayit.teklifId)
         if (!sonuc.basarili) {
-            root.pdfMesaji = "Teklif #" + kayit.teklifId + " sevk bilgileri açılamadı: " + sonuc.hata
+            root.pdfMesaji = "Teklif " + kayit.teklifNo + " sevk bilgileri açılamadı: " + sonuc.hata
             root.pdfMesajiHata = true
             return
         }
         sevkDialogu.teklifId = kayit.teklifId
+        sevkDialogu.teklifNo = kayit.teklifNo
         sevkDialogu.firmaAdi = kayit.firmaAdi
         sevkDialogu.saltOkunur = kayit.durum === "Tamamlandı"
         sevkDialogu.veri = sonuc
@@ -326,11 +329,11 @@ Item {
     function sevkBilgileriniKaydet(teklifId, sevk) {
         const sonuc = database.sevkBilgileriKaydet(teklifId, sevk)
         if (!sonuc.basarili) {
-            root.pdfMesaji = "Teklif #" + teklifId + " sevk bilgileri kaydedilemedi: " + sonuc.hata
+            root.pdfMesaji = "Teklif " + root.teklifNo(teklifId) + " sevk bilgileri kaydedilemedi: " + sonuc.hata
             root.pdfMesajiHata = true
             return
         }
-        root.pdfMesaji = "Teklif #" + teklifId + " sevk bilgileri kaydedildi."
+        root.pdfMesaji = "Teklif " + root.teklifNo(teklifId) + " sevk bilgileri kaydedildi."
         root.pdfMesajiHata = false
         // AÇIKLAMALAR sutunu bu kayittan beslendigi icin (bkz. aciklamaMetni)
         // listeyi yenileyip yeni aciklamayi hemen gosteriyoruz.
@@ -355,7 +358,7 @@ Item {
     }
 
     function notuGoster(kayit) {
-        notGoruntuleDialogu.baslik = "Teklif #" + kayit.teklifId + " — "
+        notGoruntuleDialogu.baslik = "Teklif " + kayit.teklifNo + " — "
                                      + (root.teklifNotuSekmesi ? "Teklif Notu" : "Üretim Notu")
         notGoruntuleDialogu.metin = root.satirNotu(kayit)
         notGoruntuleDialogu.open()
@@ -652,8 +655,11 @@ Item {
                         Layout.fillHeight: true
                         spacing: 4
 
+                        // Teklif No: kok numara + (revizyonsa) yanindaki "Rev.N"
+                        // rozeti; birlikte PDF'teki "1203/Rev.2" ile ayni numarayi
+                        // okutur. Sistemin ic kayit numarasi (teklifId) gosterilmez.
                         Text {
-                            text: satir.modelData.teklifId
+                            text: satir.modelData.kokTeklifNo
                             color: Theme.metinBirincil
                             font.family: Theme.fontAilesi
                             font.pixelSize: Theme.fontBoyutNormal
@@ -661,7 +667,7 @@ Item {
                             Layout.fillHeight: true
                         }
 
-                        // Bu satir bir revizyonsa (RevizyonNo > 0) kucuk bir "R{n}"
+                        // Bu satir bir revizyonsa (RevizyonNo > 0) kucuk bir "Rev.{n}"
                         // rozeti gosterir; orijinal teklifler icin gizli.
                         Rectangle {
                             visible: satir.modelData.revizyonNo > 0
@@ -675,7 +681,7 @@ Item {
                             Text {
                                 id: revRozetMetni
                                 anchors.centerIn: parent
-                                text: "R" + satir.modelData.revizyonNo
+                                text: "Rev." + satir.modelData.revizyonNo
                                 color: Theme.vurguAcik
                                 font.family: Theme.fontAilesi
                                 font.pixelSize: 9
@@ -683,10 +689,7 @@ Item {
                             }
 
                             ToolTip.visible: revRozetAlani.containsMouse
-                            // Musteriye giden PDF'te bu teklif, kok teklifin numarasi
-                            // uzerinden "1203/Rev.2" olarak gorunur (bkz. C++
-                            // TeklifPdfOlusturucu::teklifNoMetni).
-                            ToolTip.text: satir.modelData.anaTeklifId + "/Rev." + satir.modelData.revizyonNo
+                            ToolTip.text: "Teklif No: " + satir.modelData.teklifNo
                             MouseArea {
                                 id: revRozetAlani
                                 anchors.fill: parent
@@ -710,7 +713,7 @@ Item {
 
                             ToolTip.visible: kopyaIziAlani.containsMouse
                             ToolTip.delay: 300
-                            ToolTip.text: "#" + satir.modelData.kopyaKaynakTeklifId + " kopyası"
+                            ToolTip.text: "Teklif " + satir.modelData.kopyaKaynakTeklifNo + " kopyası"
                             MouseArea {
                                 id: kopyaIziAlani
                                 anchors.fill: parent
@@ -873,8 +876,7 @@ Item {
                                 // Revize edilmis teklif artik gecerli degildir; yerine gecen
                                 // (zincirin en son) teklifin numarasi C++ tarafindan gelir.
                                 if (root.revizeEdilmisMi(satir.modelData))
-                                    return "Güncel teklif: #" + satir.modelData.guncelTeklifId
-                                         + " (Rev." + satir.modelData.guncelRevizyonNo + ")"
+                                    return "Güncel teklif: " + satir.modelData.guncelTeklifNo
                                 return ""
                             }
                             MouseArea {
@@ -909,7 +911,7 @@ Item {
                                     background: Rectangle { color: "transparent" }
                                     contentItem: Text {
                                         id: revizeBilgisiMetni
-                                        text: "Güncel teklif: #" + satir.modelData.guncelTeklifId
+                                        text: "Güncel teklif: " + satir.modelData.guncelTeklifNo
                                         color: Theme.uyariAcik
                                         font.family: Theme.fontAilesi
                                         font.pixelSize: Theme.fontBoyutKucuk
@@ -951,7 +953,7 @@ Item {
 
                                 MenuItem {
                                     id: gecmisMenuOgesi
-                                    text: "Durum Geçmişi..."
+                                    text: "Teklif Geçmişi..."
                                     height: 32
                                     onTriggered: root.durumGecmisiniAc(satir.modelData.teklifId)
                                     background: Rectangle {
@@ -1175,7 +1177,7 @@ Item {
                             Layout.preferredHeight: root.hizalanmisYukseklik(Math.max(28, silMetni.implicitHeight + 10))
                             onClicked: {
                                 const id = satir.modelData.teklifId
-                                sifreDialogu.iste("Teklifi Sil", "Teklif #" + id + " kalıcı olarak silinsin mi?",
+                                sifreDialogu.iste("Teklifi Sil", "Teklif " + satir.modelData.teklifNo + " kalıcı olarak silinsin mi?",
                                                   "Sil", true, function() { root.teklifiSil(id) })
                             }
                             background: Rectangle {
@@ -1279,7 +1281,7 @@ Item {
 
     function teklifiSil(teklifId) {
         if (!database.teklifSil(teklifId)) {
-            root.pdfMesaji = "Teklif #" + teklifId + " silinemedi."
+            root.pdfMesaji = "Teklif " + root.teklifNo(teklifId) + " silinemedi."
             root.pdfMesajiHata = true
         }
         root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
@@ -1296,7 +1298,7 @@ Item {
         width: 400
 
         contentItem: Label {
-            text: "Teklif #" + durumOnayDialogu.hedefTeklifId + ": "
+            text: "Teklif " + root.teklifNo(durumOnayDialogu.hedefTeklifId) + ": "
                   + durumOnayDialogu.eskiDurum + " → " + durumOnayDialogu.yeniDurum
             color: Theme.metinBirincil
             font.family: Theme.fontAilesi
@@ -1311,23 +1313,46 @@ Item {
         onRejected: durumOnayDialogu.hedefTeklifId = -1
     }
 
-    // Bir teklifin tum durum degisimleri (kim, ne zaman, hangi durumdan hangisine).
+    // Teklifin REVIZYON ZINCIRININ tamaminin gecmisi (olusturma, revizyonlar,
+    // durum degisimleri, duzeltmeler), eskiden yeniye tek zaman cizelgesi.
+    // Hangi surumden acilirsa acilsin ayni akis gorunur; o surumun satirlari
+    // vurgulanir.
     TemaDialog {
         id: gecmisDialogu
         property int hedefTeklifId: -1
         property var kayitlar: []
-        baslik: "Teklif #" + gecmisDialogu.hedefTeklifId + " — Durum Geçmişi"
+        // Zincirin ilk satiri kok teklifin olusturulmasidir.
+        baslik: "Teklif " + (gecmisDialogu.kayitlar.length > 0 && gecmisDialogu.kayitlar[0].teklifNo
+                             ? gecmisDialogu.kayitlar[0].teklifNo
+                             : root.teklifNo(gecmisDialogu.hedefTeklifId)) + " — Teklif Geçmişi"
         onayGorunur: false
         iptalMetni: "Kapat"
-        width: 480
+        width: 620
+
+        function renk(tur) {
+            if (tur === "duzeltme") return Theme.uyariAcik
+            if (tur === "revizyon" || tur === "olusturma") return Theme.vurgu
+            return Theme.metinBirincil
+        }
 
         contentItem: ColumnLayout {
             spacing: 8
 
             Label {
+                Layout.fillWidth: true
+                visible: gecmisDialogu.kayitlar.length > 0
+                text: "Tüm revizyonlar dahil, eskiden yeniye. Açtığınız sürümün (Teklif "
+                      + root.teklifNo(gecmisDialogu.hedefTeklifId) + ") satırları vurgulu."
+                color: Theme.metinSoluk
+                font.family: Theme.fontAilesi
+                font.pixelSize: Theme.fontBoyutKucuk
+                wrapMode: Text.WordWrap
+            }
+
+            Label {
                 visible: gecmisDialogu.kayitlar.length === 0
                 Layout.fillWidth: true
-                text: "Kayıtlı durum değişikliği yok."
+                text: "Kayıtlı geçmiş yok."
                 color: Theme.metinSoluk
                 font.family: Theme.fontAilesi
                 font.pixelSize: Theme.fontBoyutKucuk
@@ -1335,44 +1360,84 @@ Item {
             }
 
             ListView {
+                id: gecmisListesi
                 visible: gecmisDialogu.kayitlar.length > 0
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.min(300, gecmisDialogu.kayitlar.length * 56)
+                Layout.preferredHeight: Math.min(440, contentHeight)
                 clip: true
                 spacing: 4
                 model: gecmisDialogu.kayitlar
+                ScrollBar.vertical: ScrollBar { policy: gecmisListesi.contentHeight > gecmisListesi.height
+                                                        ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded }
 
                 delegate: Rectangle {
                     id: gecmisSatiri
                     required property var modelData
-                    width: ListView.view.width
-                    height: 52
+                    readonly property bool buSurum: gecmisSatiri.modelData.teklifId === gecmisDialogu.hedefTeklifId
+                    width: ListView.view.width - 10
+                    height: satirIcerigi.implicitHeight + 16
                     radius: Theme.radiusKucuk
                     color: Theme.arkaplan
                     border.width: 1
-                    border.color: Theme.kenarlik
+                    border.color: gecmisSatiri.buSurum ? Theme.kenarlikVurgu : Theme.kenarlik
 
-                    Column {
-                        anchors.fill: parent
+                    RowLayout {
+                        id: satirIcerigi
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
                         anchors.margins: 8
-                        spacing: 2
+                        spacing: 10
 
-                        Text {
-                            text: (gecmisSatiri.modelData.eskiDurum.length > 0 ? gecmisSatiri.modelData.eskiDurum : "—")
-                                  + "  →  " + gecmisSatiri.modelData.yeniDurum
-                            color: Theme.metinBirincil
-                            font.family: Theme.fontAilesi
-                            font.pixelSize: Theme.fontBoyutNormal
+                        // Olayin ait oldugu surum
+                        Rectangle {
+                            Layout.alignment: Qt.AlignTop
+                            Layout.preferredWidth: 76
+                            Layout.preferredHeight: 22
+                            radius: Theme.radiusKucuk
+                            color: "transparent"
+                            border.width: 1
+                            border.color: gecmisSatiri.buSurum ? Theme.kenarlikVurgu : Theme.kenarlik
+                            Text {
+                                anchors.centerIn: parent
+                                text: gecmisSatiri.modelData.teklifNo
+                                color: gecmisSatiri.buSurum ? Theme.metinBirincil : Theme.metinSoluk
+                                font.family: Theme.fontAilesi
+                                font.pixelSize: Theme.fontBoyutKucuk
+                                font.bold: gecmisSatiri.buSurum
+                            }
                         }
-                        Text {
-                            text: gecmisSatiri.modelData.tarih
-                                  + (gecmisSatiri.modelData.personel.length > 0 ? "  •  " + gecmisSatiri.modelData.personel : "")
-                                  + (gecmisSatiri.modelData.aciklama.length > 0 ? "  •  " + gecmisSatiri.modelData.aciklama : "")
-                            color: Theme.metinSoluk
-                            font.family: Theme.fontAilesi
-                            font.pixelSize: Theme.fontBoyutKucuk
-                            elide: Text.ElideRight
-                            width: parent.width
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: (gecmisSatiri.modelData.tur === "duzeltme" ? "✎  " : "")
+                                      + gecmisSatiri.modelData.baslik
+                                color: gecmisDialogu.renk(gecmisSatiri.modelData.tur)
+                                font.family: Theme.fontAilesi
+                                font.pixelSize: Theme.fontBoyutNormal
+                                wrapMode: Text.WordWrap
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: gecmisSatiri.modelData.tarih
+                                      + (gecmisSatiri.modelData.personel.length > 0 ? "  •  " + gecmisSatiri.modelData.personel : "")
+                                color: Theme.metinSoluk
+                                font.family: Theme.fontAilesi
+                                font.pixelSize: Theme.fontBoyutKucuk
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                visible: gecmisSatiri.modelData.aciklama.length > 0
+                                text: gecmisSatiri.modelData.aciklama
+                                color: Theme.metinBirincil
+                                font.family: Theme.fontAilesi
+                                font.pixelSize: Theme.fontBoyutKucuk
+                                wrapMode: Text.WordWrap
+                            }
                         }
                     }
                 }
@@ -1385,7 +1450,7 @@ Item {
         id: reddetDialogu
         property int hedefTeklifId: -1
         property string eskiDurum: ""
-        baslik: "Teklif #" + reddetDialogu.hedefTeklifId + " — Reddet"
+        baslik: "Teklif " + root.teklifNo(reddetDialogu.hedefTeklifId) + " — Reddet"
         onayMetni: "Reddet"
         tehlikeli: true
         width: 420

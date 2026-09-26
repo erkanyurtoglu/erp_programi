@@ -18,9 +18,139 @@
 #include <QMarginsF>
 #include <QTemporaryFile>
 #include <QUrl>
+#include <QFileInfo>
+#include <QCryptographicHash>
+
+TeklifPdfOlusturucu::~TeklifPdfOlusturucu() = default;
 
 TeklifPdfOlusturucu::TeklifPdfOlusturucu(QObject *parent) : QObject(parent)
 {
+    // Program cokerse/kapatilirsa onizleme penceresi dosyasini silemeden
+    // kalabilir; bir gunden eski artiklari acilista temizle. (Yeni olanlara
+    // dokunulmaz: ayni anda acik baska bir program ornegi kullaniyor olabilir.)
+    QDir klasor(onizlemeKlasoru());
+    const QDateTime sinir = QDateTime::currentDateTime().addDays(-1);
+    const QFileInfoList dosyalar = klasor.entryInfoList(QStringList() << "*.pdf", QDir::Files);
+    for (const QFileInfo &dosya : dosyalar)
+    {
+        if (dosya.lastModified() < sinir)
+            QFile::remove(dosya.absoluteFilePath());
+    }
+}
+
+QString TeklifPdfOlusturucu::kayitKlasoru()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/Liya ERP Teklifler";
+}
+
+QString TeklifPdfOlusturucu::onizlemeKlasoru()
+{
+    return QDir::tempPath() + "/LiyaERP_Onizleme";
+}
+
+// "yol" onizleme klasorunun dogrudan icinde mi? QML'den gelen yollarla
+// kullanicinin baska dosyalarina dokunulmasin diye her kopyala/sil oncesi bakilir.
+static bool onizlemeKlasorundeMi(const QString &yol)
+{
+    if (yol.isEmpty())
+        return false;
+    const QString klasor = QDir::cleanPath(QFileInfo(TeklifPdfOlusturucu::onizlemeKlasoru()).absoluteFilePath());
+    const QString ust = QDir::cleanPath(QFileInfo(yol).absolutePath());
+    return ust.compare(klasor, Qt::CaseInsensitive) == 0;
+}
+
+QVariantMap TeklifPdfOlusturucu::onizlemeyiKaydet(const QString &onizlemeYolu, const QString &dosyaAdi)
+{
+    QVariantMap sonuc;
+    sonuc["basarili"] = false;
+    sonuc["dosyaYolu"] = QString();
+    sonuc["klasor"] = kayitKlasoru();
+    sonuc["hata"] = QString();
+
+    const QString ad = dosyaAdiTemizle(QFileInfo(dosyaAdi).fileName());
+    if (!onizlemeKlasorundeMi(onizlemeYolu) || !QFileInfo::exists(onizlemeYolu) || ad.isEmpty())
+    {
+        sonuc["hata"] = QStringLiteral("Önizleme dosyası bulunamadı, PDF'i yeniden açıp tekrar deneyin.");
+        return sonuc;
+    }
+
+    QDir().mkpath(kayitKlasoru());
+    const QString hedef = kayitKlasoru() + "/" + ad;
+    // QFile::copy var olan dosyanin uzerine yazmaz. Silinemiyorsa dosya buyuk
+    // ihtimalle bir PDF okuyucuda acik (Windows kilitliyor).
+    if (QFileInfo::exists(hedef) && !QFile::remove(hedef))
+    {
+        sonuc["hata"] = QStringLiteral("%1 başka bir programda açık olabilir; kapatıp tekrar deneyin.").arg(ad);
+        return sonuc;
+    }
+    if (!QFile::copy(onizlemeYolu, hedef))
+    {
+        sonuc["hata"] = QStringLiteral("PDF klasöre kopyalanamadı: %1").arg(hedef);
+        return sonuc;
+    }
+
+    sonuc["basarili"] = true;
+    sonuc["dosyaYolu"] = hedef;
+    return sonuc;
+}
+
+void TeklifPdfOlusturucu::onizlemeyiSil(const QString &onizlemeYolu)
+{
+    if (onizlemeKlasorundeMi(onizlemeYolu))
+        QFile::remove(onizlemeYolu);
+}
+
+QVariantMap TeklifPdfOlusturucu::onizlemeyeBas(const QString &html, const QString &dosyaAdi,
+                                                QMarginsF kenarBosluklariMm) const
+{
+    QVariantMap sonuc;
+    sonuc["basarili"] = false;
+    sonuc["dosyaYolu"] = QString();
+    sonuc["dosyaAdi"] = dosyaAdi;
+    sonuc["hata"] = QString();
+
+    QDir().mkpath(onizlemeKlasoru());
+    // Zaman damgali ad: ayni teklifin onceki onizlemesi silinememis olsa da
+    // (ornegin hala okunuyorsa) yenisi onunla cakismaz.
+    const QString dosyaYolu = QStringLiteral("%1/%2_%3")
+        .arg(onizlemeKlasoru(), QString::number(QDateTime::currentMSecsSinceEpoch()), dosyaAdi);
+
+    // ONBELLEK: PDF'e basmak islemin en yavas kismi (~1.5 sn). Ayni HTML (yani
+    // teklifte hicbir sey degismemis, ayni gun) daha once basildiysa o PDF
+    // kopyalanir. Teklifteki en kucuk degisiklik HTML'i, dolayisiyla ozeti
+    // degistirir. Onbellek dosyalari da onizleme klasorunde durur ve bir
+    // gunden eskileri acilista silinir (bkz. yapici).
+    QCryptographicHash ozet(QCryptographicHash::Sha1);
+    ozet.addData(html.toUtf8());
+    ozet.addData(QStringLiteral("|%1,%2,%3,%4").arg(kenarBosluklariMm.left()).arg(kenarBosluklariMm.top())
+                     .arg(kenarBosluklariMm.right()).arg(kenarBosluklariMm.bottom()).toUtf8());
+    const QString onbellekYolu = QStringLiteral("%1/onbellek_%2.pdf")
+        .arg(onizlemeKlasoru(), QString::fromLatin1(ozet.result().toHex()));
+
+    if (!QFileInfo::exists(onbellekYolu))
+    {
+        // Once gecici ada basilir: yarim kalan bir baski onbellekte "hazir" sanilmasin.
+        const QString basilanYol = onbellekYolu + QStringLiteral(".yaziliyor");
+        QFile::remove(basilanYol);
+        QString basHata;
+        if (!htmlyiPdfeBas(html, basilanYol, basHata, kenarBosluklariMm)
+            || !QFile::rename(basilanYol, onbellekYolu))
+        {
+            QFile::remove(basilanYol);
+            sonuc["hata"] = basHata.isEmpty() ? QStringLiteral("PDF onbellege yazilamadi.") : basHata;
+            return sonuc;
+        }
+    }
+
+    if (!QFile::copy(onbellekYolu, dosyaYolu))
+    {
+        sonuc["hata"] = QStringLiteral("Onizleme dosyasi olusturulamadi: %1").arg(dosyaYolu);
+        return sonuc;
+    }
+
+    sonuc["basarili"] = true;
+    sonuc["dosyaYolu"] = dosyaYolu;
+    return sonuc;
 }
 
 QString TeklifPdfOlusturucu::sabloniOku(const QString &dosyaAdi, QString &hataOut) const
@@ -360,12 +490,16 @@ bool TeklifPdfOlusturucu::htmlyiPdfeBas(const QString &html, const QString &dosy
     geciciDosya.close();
     const QUrl geciciUrl = QUrl::fromLocalFile(geciciDosya.fileName());
 
-    QWebEnginePage sayfa;
+    motoruHazirla();
+    QWebEnginePage *sayfa = m_sayfa.get();
     bool basariliMi = false;
     bool tamamlandiMi = false;
     QEventLoop dongu;
 
-    QObject::connect(&sayfa, &QWebEnginePage::loadFinished, &sayfa, [&](bool yukleBasarili) {
+    // Sayfa tum PDF'lerde tekrar kullanildigi icin baglantilar bu cagriya
+    // ozeldir ve sonda koparilir.
+    const QMetaObject::Connection yuklemeBaglantisi =
+        QObject::connect(sayfa, &QWebEnginePage::loadFinished, &dongu, [&](bool yukleBasarili) {
         if (!yukleBasarili)
         {
             hataOut = "PDF sablonu (HTML) yuklenemedi.";
@@ -375,30 +509,33 @@ bool TeklifPdfOlusturucu::htmlyiPdfeBas(const QString &html, const QString &dosy
         }
         QPageLayout duzen(QPageSize(QPageSize::A4), QPageLayout::Portrait,
                            kenarBosluklariMm, QPageLayout::Millimeter);
-        QObject::connect(&sayfa, &QWebEnginePage::pdfPrintingFinished, &sayfa,
+        sayfa->printToPdf(dosyaYolu, duzen);
+    });
+    const QMetaObject::Connection basmaBaglantisi =
+        QObject::connect(sayfa, &QWebEnginePage::pdfPrintingFinished, &dongu,
                           [&](const QString &, bool basari) {
-            basariliMi = basari;
-            if (!basari)
-                hataOut = "PDF dosyaya yazilamadi.";
-            tamamlandiMi = true;
-            dongu.quit();
-        });
-        sayfa.printToPdf(dosyaYolu, duzen);
+        basariliMi = basari;
+        if (!basari)
+            hataOut = "PDF dosyaya yazilamadi.";
+        tamamlandiMi = true;
+        dongu.quit();
     });
 
     // Chromium sureci takilir/cokerse sinyaller hic gelmeyebilir; o durumda donguden
     // hic cikilmaz ve PDF butonu bir daha calismazdi.
+    bool zamanAsimiOldu = false;
     QTimer zamanAsimi;
     zamanAsimi.setSingleShot(true);
     QObject::connect(&zamanAsimi, &QTimer::timeout, &dongu, [&]() {
         if (tamamlandiMi)
             return;
         hataOut = "PDF oluşturma zaman aşımına uğradı.";
+        zamanAsimiOldu = true;
         tamamlandiMi = true;
         dongu.quit();
     });
 
-    sayfa.load(geciciUrl);
+    sayfa->load(geciciUrl);
     if (!tamamlandiMi)
     {
         zamanAsimi.start(60 * 1000);
@@ -407,7 +544,19 @@ bool TeklifPdfOlusturucu::htmlyiPdfeBas(const QString &html, const QString &dosy
         // yazilmasi) engellenir. Pencere yine de cizilmeye devam eder.
         dongu.exec(QEventLoop::ExcludeUserInputEvents);
     }
+
+    QObject::disconnect(yuklemeBaglantisi);
+    QObject::disconnect(basmaBaglantisi);
+    // Takilan sayfa bir sonraki PDF'i de bozmasin: atilir, sonraki cagri yenisini acar.
+    if (zamanAsimiOldu)
+        m_sayfa.reset();
     return basariliMi;
+}
+
+void TeklifPdfOlusturucu::motoruHazirla() const
+{
+    if (!m_sayfa)
+        m_sayfa = std::make_unique<QWebEnginePage>();
 }
 
 QString TeklifPdfOlusturucu::paraFormati(double tutar, const QString &paraBirimi)
@@ -629,24 +778,13 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
 
     const QString html = yerKoyucuDoldur(sablon, degerler);
 
-    const QString klasor = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/Liya ERP Teklifler";
-    QDir().mkpath(klasor);
-    const QString dosyaYolu = QStringLiteral("%1/Teklif_%2_%3.pdf")
-        .arg(klasor, teklifNoMetni(teklifId, veri, true), dosyaAdiTemizle(firmaAdi));
+    const QString dosyaAdi = QStringLiteral("Teklif_%1_%2.pdf")
+        .arg(teklifNoMetni(teklifId, veri, true), dosyaAdiTemizle(firmaAdi));
 
     // Kenar bosluklari 0: sablonun kendi CSS padding'i (25mm ust/alt, 15mm sol/sag)
     // gercek bosluk gorevi goruyor, boylece antetli kagit (teklifSayfa.pdf) bantlari
     // sayfa kenarina tam dayanabiliyor.
-    QString basHata;
-    if (!htmlyiPdfeBas(html, dosyaYolu, basHata, QMarginsF(0, 0, 0, 0)))
-    {
-        sonuc["hata"] = basHata;
-        return sonuc;
-    }
-
-    sonuc["basarili"] = true;
-    sonuc["dosyaYolu"] = dosyaYolu;
-    return sonuc;
+    return onizlemeyeBas(html, dosyaAdi, QMarginsF(0, 0, 0, 0));
 }
 
 QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firmaAdi, const QVariantMap &veri)
@@ -718,7 +856,6 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
     QString kalemSatirlariHtml;
     int satirNo = 0;
     int toplamAdet = 0;
-    int tamamlananKalem = 0;
     for (const QVariant &kalemVar : kalemler)
     {
         const QVariantMap k = kalemVar.toMap();
@@ -733,8 +870,6 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
             ? katalogTr : k.value("urunAciklamasi").toString();
 
         const bool tamamlandi = k.value("tamamlandi").toBool();
-        if (tamamlandi)
-            ++tamamlananKalem;
         const QString kalemNotu = k.value("uretimNotu").toString().trimmed();
 
         // Tamamlanmis satir zebra yerine acik yesil zeminle isaretlenir --
@@ -758,10 +893,11 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
         kalemSatirlariHtml += QStringLiteral("<td class='kalem-not'>%1</td></tr>")
             .arg(kalemNotu.toHtmlEscaped());
     }
+    // Durum hucresi bos: "kac kalem bitti" ozeti formda yer almaz, her satirin
+    // kendi kutusu yeterli.
     kalemSatirlariHtml += QStringLiteral("<tr><td></td><td></td><td class='sag'><b>Toplam Adet:</b></td>"
-                                         "<td class='sag'><b>%1</b></td>"
-                                         "<td class='durum'><b>%2/%3</b></td><td></td></tr>")
-        .arg(toplamAdet).arg(tamamlananKalem).arg(satirNo);
+                                         "<td class='sag'><b>%1</b></td><td></td><td></td></tr>")
+        .arg(toplamAdet);
 
     const QString kalemBaslikHtml = QStringLiteral(
         "<th>No</th><th>Ürün Kodu</th><th>Açıklama</th><th class='sag'>Adet</th>"
@@ -778,17 +914,15 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
     const QString firmaAdresi = veri.value("firmaAdresi").toString();
     if (!firmaAdresi.trimmed().isEmpty())
         solBlokHtml += QStringLiteral("<div>%1</div>").arg(firmaAdresi.toHtmlEscaped());
-    solBlokHtml += satir(QStringLiteral("İlgili Kişi"), veri.value("ilgiliKisi").toString());
-    solBlokHtml += satir(QStringLiteral("Telefon"), veri.value("ilgiliKisiTelefonu").toString());
+    // Musterinin ilgili kisisi ve telefonu bilincli olarak BASILMAZ: uretim
+    // ekibinin musteriyle dogrudan bir isi yok.
     solBlokHtml += satir(QStringLiteral("Teslimat Şekli"), veri.value("teslimatSekli").toString());
     solBlokHtml += satir(QStringLiteral("Teslimat Yeri"), veri.value("teslimatYeri").toString());
 
-    // Teklif No, musteriye giden teklif PDF'iyle AYNI numarayi tasir ("1203/Rev.2");
-    // revizyonlarda ayrica sistemdeki kayit numarasi da yazilir, cunku uretim
-    // ekibi teklifi programda bu id ile bulur.
+    // Teklif No, musteriye giden teklif PDF'iyle ve programdaki listeyle AYNI
+    // numarayi tasir ("1203/Rev.2"); program da teklifi bu numarayla bulur, bu
+    // yuzden ayrica bir sistem kayit numarasi basilmaz.
     QString sagBlokHtml = satir(QStringLiteral("Teklif No"), teklifNoMetni(teklifId, veri));
-    if (veri.value("revizyonNo", 0).toInt() > 0)
-        sagBlokHtml += satir(QStringLiteral("Sistem Kaydı"), QStringLiteral("#%1").arg(teklifId));
     sagBlokHtml += satir(QStringLiteral("Teklif Tarihi"), veri.value("olusturmaTarihi").toString());
     sagBlokHtml += satir(QStringLiteral("Kabul Tarihi"), veri.value("kabulTarihi").toString());
     // Planlanan teslim tarihi uretimin en kritik bilgisi: girilmemisse de
@@ -797,12 +931,6 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
     sagBlokHtml += QStringLiteral("<div><b>Planlanan Teslim Tarihi:</b> %1</div>")
         .arg(teslimatTarihi.isEmpty() ? QStringLiteral("Belirtilmedi") : teslimatTarihi);
     sagBlokHtml += satir(QStringLiteral("Teklifi Yapan"), veri.value("personelAdSoyad").toString());
-    // Satir bazli durumlarin ozeti: formun basinda isin nerede oldugu gorulsun.
-    if (satirNo > 0)
-    {
-        sagBlokHtml += QStringLiteral("<div><b>Üretim Durumu:</b> %1 / %2 kalem tamamlandı</div>")
-            .arg(tamamlananKalem).arg(satirNo);
-    }
     sagBlokHtml += satir(QStringLiteral("Üretim Formu Tarihi"),
                          QDateTime::currentDateTime().toString(QStringLiteral("dd.MM.yyyy HH:mm")));
 
@@ -844,21 +972,10 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
 
     const QString html = yerKoyucuDoldur(sablon, degerler);
 
-    const QString klasor = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/Liya ERP Teklifler";
-    QDir().mkpath(klasor);
-    const QString dosyaYolu = QStringLiteral("%1/Uretim_%2_%3.pdf")
-        .arg(klasor, teklifNoMetni(teklifId, veri, true), dosyaAdiTemizle(firmaAdi));
+    const QString dosyaAdi = QStringLiteral("Uretim_%1_%2.pdf")
+        .arg(teklifNoMetni(teklifId, veri, true), dosyaAdiTemizle(firmaAdi));
 
-    QString basHata;
-    if (!htmlyiPdfeBas(html, dosyaYolu, basHata, QMarginsF(0, 0, 0, 0)))
-    {
-        sonuc["hata"] = basHata;
-        return sonuc;
-    }
-
-    sonuc["basarili"] = true;
-    sonuc["dosyaYolu"] = dosyaYolu;
-    return sonuc;
+    return onizlemeyeBas(html, dosyaAdi, QMarginsF(0, 0, 0, 0));
 }
 
 QVariantMap TeklifPdfOlusturucu::satisSozlesmesiUret(const QVariantMap &veri)
@@ -939,19 +1056,8 @@ QVariantMap TeklifPdfOlusturucu::satisSozlesmesiUret(const QVariantMap &veri)
 
     const QString html = yerKoyucuDoldur(sablon, degerler);
 
-    const QString klasor = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/Liya ERP Teklifler";
-    QDir().mkpath(klasor);
-    const QString dosyaYolu = QStringLiteral("%1/Satis_Sozlesmesi_%2_%3.pdf")
-        .arg(klasor, dosyaAdiTemizle(firmaAdi), QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
+    const QString dosyaAdi = QStringLiteral("Satis_Sozlesmesi_%1_%2.pdf")
+        .arg(dosyaAdiTemizle(firmaAdi), QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
 
-    QString basHata;
-    if (!htmlyiPdfeBas(html, dosyaYolu, basHata))
-    {
-        sonuc["hata"] = basHata;
-        return sonuc;
-    }
-
-    sonuc["basarili"] = true;
-    sonuc["dosyaYolu"] = dosyaYolu;
-    return sonuc;
+    return onizlemeyeBas(html, dosyaAdi, QMarginsF(15, 15, 15, 15));
 }

@@ -316,9 +316,10 @@ Item {
                                 : "Giden Tekliflerim"
 
                 // Kabul edilmis / tamamlanmis teklifin kendisi hic degismez. Giden
-                // Tekliflerim'den (1) acildiginda yine de revize edilebilir (yeni
-                // revizyon olusur); Alınan (2) / Biten (3) listelerinden acilan
-                // detay salt goruntulemedir (bkz. TeklifVerPage.revizyonIzinli).
+                // Tekliflerim'den (1) acilan KABUL EDILMIS teklif yine de revize
+                // edilebilir (yeni revizyon olusur); tamamlanmis teklif hicbir yerden
+                // revize edilemez. Alınan (2) / Biten (3) listelerinden acilan
+                // detay salt goruntulemedir (bkz. TeklifVerPage.revizyonAcik).
                 revizyonIzinli: root.revizyonKaynakSekme === 1
 
                 onGeriDonuldu: root.revizyondanDon()
@@ -332,8 +333,15 @@ Item {
                     sayfa.sayfayiYukle(1)
                     // Yeni revizyon "Beklemede" durumunda olusur; Alınan/Biten
                     // listelerinde gorunmedigi icin nerede oldugu belirtilir.
-                    sayfa.durumMesajiGoster("Revizyon kaydedildi: #" + yeniTeklifId
+                    sayfa.durumMesajiGoster("Revizyon kaydedildi: Teklif " + database.teklifNoGetir(yeniTeklifId)
                                             + (root.revizyonKaynakSekme === 1 ? "" : " (Giden Tekliflerim)"))
+                }
+
+                // Duzeltme ayni teklifi yerinde gunceller: yeni satir olusmaz,
+                // teklif listede kaldigi yerdedir -- o sayfa tazelenir.
+                onDuzeltmeKaydedildi: (teklifId) => {
+                    root.revizyondanDon()
+                    root.revizyonKaynakSayfasi().durumMesajiGoster("Teklif " + database.teklifNoGetir(teklifId) + " düzeltildi.")
                 }
 
                 onKopyaKaydedildi: (yeniTeklifId, kaynakTeklifId) => {
@@ -342,7 +350,7 @@ Item {
                     // listenin ilk sayfasinda gorunur.
                     const sayfa = root.revizyonKaynakSayfasi()
                     sayfa.sayfayiYukle(1)
-                    sayfa.durumMesajiGoster("Kopya kaydedildi: #" + yeniTeklifId)
+                    sayfa.durumMesajiGoster("Kopya kaydedildi: Teklif " + database.teklifNoGetir(yeniTeklifId))
                 }
             }
         }

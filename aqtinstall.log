@@ -219,3 +219,4 @@
 2026-09-01 11:45:37,932 - aqt.updater - INFO - updater 16808 Patching C:\Qt\6.7.3\msvc2019_64\lib\Qt6Xmld.prl
 2026-09-01 11:45:37,932 - aqt.main - INFO - installer 16808 Finished installation
 2026-09-01 11:45:37,932 - aqt.main - INFO - installer 16808 Time elapsed: 106.11491530 second
+2026-09-26 16:47:46,491 - aqt.helper - DEBUG - helper 3548 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_673/Updates.xml.sha256

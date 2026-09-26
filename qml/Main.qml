@@ -70,6 +70,17 @@ ApplicationWindow {
         initialItem: girisBileseni
     }
 
+    // Tum sayfalarin ortak PDF onizleme penceresi (bkz. PdfOnizleme.qml).
+    PdfOnizlemeDialog {
+        id: pdfOnizlemeDialogu
+    }
+    Connections {
+        target: PdfOnizleme
+        function onAcIstendi(tur, teklifId, baslik) {
+            pdfOnizlemeDialogu.ac(tur, teklifId, baslik)
+        }
+    }
+
     Component {
         id: girisBileseni
         GirisPage {

@@ -20,6 +20,8 @@ Dialog {
     id: kok
 
     property int teklifId: 0
+    // Ekranda gosterilen numara ("1203/Rev.2"); teklifId yalnizca kayit icindir.
+    property string teklifNo: ""
     property string firmaAdi: ""
 
     // Tamamlanmis teklifte sevk bilgileri kilitlidir (bkz.
@@ -332,7 +334,7 @@ Dialog {
         }
 
         Label {
-            text: "Teklif #" + kok.teklifId
+            text: "Teklif " + kok.teklifNo
                   + (kok.firmaAdi.length > 0 ? "  •  " + kok.firmaAdi : "")
                   + (kok.saltOkunur ? "  •  Salt okunur" : "")
             color: Theme.metinSoluk

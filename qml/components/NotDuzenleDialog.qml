@@ -13,7 +13,7 @@ import erp_programi
 Dialog {
     id: kok
 
-    // Pencere basligi ("Teklif Notu", "Teklif #2264 — Üretim Notu" vb.).
+    // Pencere basligi ("Teklif Notu", "Teklif 1203/Rev.2 — Üretim Notu" vb.).
     property string baslik: ""
 
     // Notun kime gorundugunu soyleyen kisa bilgi satiri (PDF'e basilir/basilmaz).

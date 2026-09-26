@@ -61,6 +61,13 @@ public:
     // Her kayitta ayrica "kopyaKaynakTeklifId" (int, 0 ise elle olusturulmus)
     // bulunur: bu teklif baska bir teklifin KOPYASI olarak olusturulduysa
     // kaynagin TeklifId'si (bkz. teklifKaydet / db/07_teklif_kopya_kaynagi.sql).
+    // KULLANICIYA GOSTERILEN NUMARALAR: her kayitta "kokTeklifNo" (int, revizyon
+    // eki olmadan), "teklifNo", "guncelTeklifNo"
+    // ve "kopyaKaynakTeklifNo" (string, "1203" / "1203/Rev.2"; kopya degilse bos)
+    // bulunur. Ekranda YALNIZCA bunlar gosterilir; *TeklifId alanlari sistemin ic
+    // anahtaridir ve sadece islem yapmak icin kullanilir (bkz. teklifNoGetir).
+    // "arama" bir Teklif No ise ("1203", "1203/Rev.2", "1203/2", "1203 R2")
+    // numaraya gore bulunur: "1203" kok teklifi ve tum revizyonlarini getirir.
     // "toplamKayit" (int), "toplamSayfa" (int), "mevcutSayfa" (int).
     Q_INVOKABLE QVariantMap gecmisTekliflerGetir(const QString &arama,
                                                   const QString &tarihFiltresi,
@@ -69,6 +76,16 @@ public:
                                                   int sayfaNo,
                                                   int sayfaBoyutu = 50,
                                                   const QString &durumFiltresi = QString());
+
+    // TEKLIF NO: kullanicinin gordugu tek numara. Musteriye giden PDF'teki,
+    // listedeki ve mesajlardaki numara hep budur: orijinal teklifte "1203",
+    // revizyonda kok teklifin numarasi + revizyon ("1203/Rev.2"). Numara
+    // dbo.teklifler.TeklifNo'da tutulur ve TeklifId'den BAGIMSIZDIR: yeni teklif
+    // en buyuk numara + 1 alir, revizyon numara harcamaz -- boylece numaralar
+    // atlamaz (bkz. teklifKaydet, db/10_teklif_no.sql). TeklifId sistemin ic
+    // anahtaridir ve kullaniciya hic gosterilmez.
+    // Teklif bulunamazsa id'nin kendisi doner.
+    Q_INVOKABLE QString teklifNoGetir(int teklifId);
 
     // Tek bir teklifi kalicalarak siler. Basariliysa true doner.
     Q_INVOKABLE bool teklifSil(int teklifId);
@@ -106,7 +123,7 @@ public:
     //             tamamlandi (bool, OPSIYONEL; satirin uretimi bitti mi) ve
     //             uretimNotu (string, OPSIYONEL; o satira ozel uretim notu) --
     //             ikisi de verilmezse 0/NULL kaydedilir. Bunlar yalnizca
-    //             REVIZYON akisinda dolu gelir: teklifin yeni surumu, eski
+    //             REVIZYON (ve teklifDuzelt) akisinda dolu gelir: teklifin yeni surumu, eski
     //             surumunun uretim durumunu devralir; "Kopya" akisinda QML
     //             tarafi bilincli olarak sifirlar}>),
     //   anaTeklifId (int, OPSIYONEL): >0 verilirse bu YENI teklif, o teklifin
@@ -127,6 +144,9 @@ public:
     //             KopyaKaynakTeklifId sutunu veritabaninda yoksa (07 numarali
     //             script calistirilmamissa) kayit normal sekilde olusur, sadece
     //             iz tutulmaz.
+    //   revizyonSebebi (string, OPSIYONEL): revizyonda eski teklif(ler)in
+    //             "Revize Edildi" satirina ve yeni revizyonun ilk satirina
+    //             (teklif_durum_gecmisi.Aciklama) eklenir; Teklif Gecmisi'nde gorunur.
     //
     // REVIZYON = ESKISINI GECERSIZ KILAR: bir revizyon kaydedildiginde ayni koke
     // bagli ONCEKI teklifler (kok + eski revizyonlar) "Revize Edildi" durumuna
@@ -134,10 +154,40 @@ public:
     // anda gecerliymis gibi gorunmez; eski kayit listede ayirt edilir ve PDF'i
     // yeniden uretilirse ustune "gecerli degildir" bandi basilir. Kilitli
     // (Kabul Edildi / Tamamlandı) teklifler bu isaretlemenin DISINDADIR.
-    // Donen QVariantMap: "basarili" (bool), "teklifId" (int), "hata" (string),
-    //   "revizeEdilenTeklifIdler" (QVariantList<int>, bu kayit yuzunden
+    //
+    // TAMAMLANMIS IS REVIZE EDILEMEZ: zincirde "Tamamlandı" durumunda bir teklif
+    // varsa revizyon reddedilir; once durum "Beklemede"ye geri alinmalidir.
+    // Donen QVariantMap: "basarili" (bool), "teklifId" (int), "teklifNo" (string),
+    //   "hata" (string), "revizeEdilenTeklifIdler" (QVariantList<int>, bu kayit yuzunden
     //   "Revize Edildi" durumuna alinan eski tekliflerin id'leri; bos olabilir).
     Q_INVOKABLE QVariantMap teklifKaydet(const QVariantMap &teklif);
+
+    // DUZELTME (revizyon DEGIL): kullanicinin kendi giris hatasini (yanlis firma,
+    // yanlis KDV/indirim, yanlis ilgili kisi...) mevcut teklifin USTUNE yazar.
+    // Ayni TeklifId korunur, RevizyonNo artmaz, eski surum "Revize Edildi" olmaz.
+    // "teklif" haritasi teklifKaydet ile AYNI sekildedir (anaTeklifId /
+    // kopyaKaynakTeklifId yok sayilir); kalemler ve toplamlar bastan yazilir.
+    //
+    // Yalnizca durumu "Beklemede" olan ve revizyon zincirinin en guncel uyesi
+    // olan teklif duzeltilebilir. Kabul edilmis/tamamlanmis (kilitli),
+    // reddedilmis ya da yerine yeni revizyon gecmis teklif yalnizca REVIZYON ile
+    // degisir -- aksi halde musterinin elindeki belgeyle sistemdeki kayit sessizce
+    // ayrisirdi.
+    //
+    // IZ ZORUNLUDUR: ustune yazmadan hemen once teklifin tam hali (baslik +
+    // kalemler + toplamlar) sebep, kullanici ve zamanla birlikte
+    // dbo.teklif_duzeltme_gecmisi'ne yazilir -- ayni transaction icinde. Bu tablo
+    // yoksa (db/09_teklif_duzeltme_gecmisi.sql calistirilmamissa) veya iz
+    // yazilamazsa duzeltme HIC yapilmaz. sebep bos olamaz.
+    // Donen QVariantMap: "basarili" (bool), "teklifId" (int), "teklifNo" (string),
+    //   "hata" (string).
+    Q_INVOKABLE QVariantMap teklifDuzelt(int teklifId, const QVariantMap &teklif,
+                                         const QString &sebep);
+
+    // Teklif Ver ekrani "Teklifi Kaydet"e basildiginda Duzeltme secenegini sunup
+    // sunmayacagini buradan ogrenir (kurallar teklifDuzelt ile aynidir). Izin
+    // yoksa sonHataMesaji() sebebi tasir.
+    Q_INVOKABLE bool teklifDuzeltilebilirMi(int teklifId);
 
     // Giden/Alınan/Biten Tekliflerim'deki "Detay" butonu icin: bir teklifin
     // KAYITLI TUM verisini, Teklif Ver ekranini (TeklifVerPage.duzenlemeyeBasla)
@@ -146,7 +196,8 @@ public:
     // anaTeklifId ile bir REVIZYON olarak gonderilir.
     // Donen QVariantMap anahtarlari: "basarili" (bool), "hata" (string),
     //   "teklifId", "anaTeklifId" (int, kok teklif; revizyon degilse teklifId'nin
-    //   kendisi), "revizyonNo" (int), "musteriId" (int), "musteriAdi",
+    //   kendisi), "revizyonNo" (int), "teklifNo" (string, ekranda gosterilen
+    //   numara), "musteriId" (int), "musteriAdi",
     //   "genelIndirimOrani", "kdvOrani", "paraBirimi", "dil", "ilgiliKisi",
     //   "ilgiliKisiTelefonu", "ilgiliKisiEposta", "teslimatSekli", "teslimatYeri",
     //   "paketlemeUcretiTl", "tasimaUcretiTl", "kur" (double, TL'ye cevirmek icin),
@@ -236,9 +287,14 @@ public:
                                          const QString &redSebebi = QString(),
                                          int kullaniciId = 0);
 
-    // Bir teklifin durum degisim gecmisi (en yeni ustte). Her eleman:
-    // {"eskiDurum", "yeniDurum", "aciklama", "personel", "tarih"} (hepsi string).
-    // Tablo henuz olusturulmadiysa bos liste doner (hata degil).
+    // Teklifin ait oldugu REVIZYON ZINCIRININ tamaminin gecmisi (kok + tum
+    // revizyonlar), eskiden yeniye tek zaman cizelgesinde: olusturma/revizyon,
+    // durum degisimleri ve duzeltmeler (bkz. teklifDuzelt). Otomatik
+    // "→ Revize Edildi" kayitlari ayri satir olmaz; sebep olan revizyonun
+    // satirinda gosterilir. Her eleman:
+    // {"tur" ("olusturma" | "revizyon" | "durum" | "duzeltme"), "teklifId" (int),
+    //  "teklifNo" (hangi surum, "1/Rev.2"), "baslik", "aciklama", "personel", "tarih"}.
+    // Tablolardan biri henuz olusturulmadiysa o kisim bos gelir (hata degil).
     Q_INVOKABLE QVariantList teklifDurumGecmisiGetir(int teklifId);
 
     // QML'deki durum menusunun beslendigi tek kaynak; boylece gecerli durum
@@ -319,17 +375,30 @@ public:
 
     // Teklif Ver + Giden Tekliflerim ekranlarindan PDF uretimi. SQL sorgularini burada
     // calistirir, sonucu TeklifPdfOlusturucu'ya devreder (HTML/PDF uretiminin tamami
-    // orada); dosya Belgelerim/Liya ERP Teklifler altina kaydedilir.
-    // Donen: {basarili, dosyaYolu, hata}.
+    // orada). PDF ONIZLEME klasorune basilir; kullanicinin klasorune ancak
+    // onizlemede "İndir"e basilinca (pdfKaydet) kopyalanir.
+    // Donen: {basarili, dosyaYolu (onizleme), dosyaAdi, tur ("teklif"), teklifId, hata}.
     Q_INVOKABLE QVariantMap teklifPdfOlustur(int teklifId);
 
     // Alınan/Biten Tekliflerim'deki "Üretim" butonu: teknik ekibe verilecek
     // FIYATSIZ PDF (kapak ve sozlesme sayfasi yok; firma/teslimat/tarih bilgileri,
-    // urun kodu/aciklama/adet ve uretim notu var; teklif notu YOK). Basariliysa teklifin
-    // UretimPdfTarihi alani simdiki zamanla doldurulur -- bu alan SADECE burada
-    // yazilir (normal teklif PDF'i ona dokunmaz).
-    // Donen: {basarili, dosyaYolu, hata}.
+    // urun kodu/aciklama/adet ve uretim notu var; teklif notu YOK). teklifPdfOlustur
+    // gibi sadece onizleme uretir; UretimPdfTarihi indirilince (pdfKaydet) yazilir.
+    // Donen: {basarili, dosyaYolu (onizleme), dosyaAdi, tur ("uretim"), teklifId, hata}.
     Q_INVOKABLE QVariantMap uretimPdfOlustur(int teklifId);
+
+    // Onizleme penceresindeki "İndir": *PdfOlustur'un dondurdugu haritayi alir,
+    // onizleme PDF'ini Belgelerim/Liya ERP Teklifler'e kopyalar. tur "uretim" ise
+    // teklifin UretimPdfTarihi alani simdiki zamanla doldurulur -- bu alan SADECE
+    // burada yazilir. Donen: {basarili, dosyaYolu (kaydedilen), klasor, hata}.
+    Q_INVOKABLE QVariantMap pdfKaydet(const QVariantMap &pdf);
+
+    // Onizleme penceresi kapanirken gecici PDF'i siler.
+    Q_INVOKABLE void pdfOnizlemesiniSil(const QString &onizlemeYolu);
+
+    // PDF motorunu (Chromium) simdiden ayaga kaldirir; bkz.
+    // TeklifPdfOlusturucu::motoruHazirla. main.cpp'de pencere acilmadan cagrilir.
+    void pdfMotorunuHazirla() { m_pdfOlusturucu.motoruHazirla(); }
 
     // Teklif Ver ekranindaki "Satış Sözleşmesi" butonu icin: HENUZ KAYDEDILMEMIS
     // (formda doldurulmus) teklif verisinden basit bir satis sozlesmesi PDF'i
@@ -362,6 +431,26 @@ public:
     // penceresi, Giden Tekliflerim -> Detay akisinda acildiginda). metin bos
     // ise sutun NULL'lanir (varsayilana doner). Basariliysa true.
     Q_INVOKABLE bool teklifSozlesmeMetniKaydet(int teklifId, const QString &metin);
+
+    // "Satış Sözleşmesi" penceresi metni PDF'teki haliyle (numarali maddeler,
+    // [KOSUL]'u tutmayan satirlar gizli, {{DEGISKEN}}'ler dolu) duzenletir.
+    // Bunun icin duz metin satir satir parcalanir; her satir:
+    //   etiketler (string)      : satir basi kosullar, ör. "[DOVIZ] " (gizli tutulur)
+    //   hamIcerik (string)      : {{DEGISKEN}}'li ham icerik ("- " ve etiketler haric)
+    //   orijinalGorunen (string): hamIcerik'in doldurulmus hali (degisiklik tespiti icin)
+    //   gorunen (string)        : ekranda duzenlenen metin (baslangicta = orijinalGorunen)
+    //   alt (bool)              : "- " ile baslayan alt madde mi
+    //   gorunur (bool)          : kosullar bu teklifte saglaniyor mu (PDF'e basilir mi)
+    // "teklif": teklifVerisiOlustur() haritasi (paraBirimi, kdvOrani, tasimaUcreti,
+    // teslimatSekli, teslimatYeri, dil kullanilir).
+    Q_INVOKABLE QVariantList sozlesmeSatirlari(const QString &metin, const QVariantMap &teklif) const;
+
+    // sozlesmeSatirlari'nin tersi: duzenlenmis satirlardan kaydedilecek duz
+    // metni geri kurar. Degismeyen satir ham haliyle yazilir; degisen satirda
+    // eski doldurulmus degerler (ör. gecerlilik tarihi) metinde hala duruyorsa
+    // yeniden {{DEGISKEN}}'e cevrilir, boylece tarih/para birimi sabitlenmez.
+    // Icerigi bosaltilan satirlar atilir.
+    Q_INVOKABLE QString sozlesmeSatirlarindanMetin(const QVariantList &satirlar, const QVariantMap &teklif) const;
 
     // ------------------------------------------------------------------
     // Sevk ve irsaliye bilgileri (Alınan/Biten Tekliflerim'deki "İrsaliye"
@@ -447,6 +536,17 @@ private:
     // Basarisizsa false doner ve hataOut doldurulur.
     bool pdfVerisiniOku(int teklifId, QString &firmaAdiOut, QVariantMap &veriOut, QString &hataOut);
 
+    // teklifKaydet ve teklifDuzelt'in ortak kismi: "teklif" haritasindaki
+    // kalemleri (manuel kalemlerin "MANUEL-<teklifId>" urun satirlariyla birlikte)
+    // ve toplamlari verilen teklife EKLER. Acik bir transaction icinde
+    // cagrilmalidir; hata olursa false doner, hataOut doldurulur, rollback
+    // cagiranin isidir.
+    bool teklifIceriginiYaz(int teklifId, const QVariantMap &teklif, QString &hataOut);
+
+    // teklifDuzelt / teklifDuzeltilebilirMi'nin ortak kurali. Duzeltilemiyorsa
+    // sebebi hataOut'a yazar.
+    bool duzeltmeKuraliniDenetle(int teklifId, QString &hataOut);
+
     // teklifDurumGuncelle'nin gecmis kaydi; hata durumunda sadece uyari basar
     // (bkz. .cpp icindeki "best effort" notu).
     void durumDegisiminiLogla(int teklifId, const QString &eskiDurum, const QString &yeniDurum,
@@ -468,6 +568,22 @@ private:
     // yani eksik script yuzunden teklif listesi veya kayit akisi BOZULMAZ.
     bool kopyaKolonuVarMi();
 
+    // dbo.teklifler.TeklifNo sutunu var mi? (db/10_teklif_no.sql calistirilmadiysa
+    // yoktur.) kopyaKolonuVarMi gibi bir kez sorgulanip saklanir. Kolon yoksa
+    // Teklif No eskisi gibi TeklifId'den turetilir -- program bozulmaz.
+    bool teklifNoKolonuVarMi() const;
+    // Verilen tablo takma adi icin Teklif No'yu (revizyon eki olmadan, int) veren
+    // SQL ifadesi. Numara okuyan/arayan TUM sorgular bunu kullanir; boylece
+    // kolonun varligi/yoklugu tek yerde ele alinir.
+    QString teklifNoSql(const QString &alias) const;
+    // Kok teklifin Teklif No'su (revizyon ayni numarayi tasir); bulunamazsa 0.
+    int kokTeklifNoGetir(int kokTeklifId);
+    // Yeni (bagimsiz) teklif icin siradaki numara: en buyuk numara + 1. Acik bir
+    // transaction icinde cagrilmalidir; numara verme, ayni anda kaydedilen iki
+    // teklif ayni numarayi almasin diye transaction sonuna kadar kilitlenir.
+    // Basarisizsa 0 doner ve hataOut doldurulur.
+    int yeniTeklifNoAl(QString &hataOut);
+
     // Bu teklifin YERINE GECEN (ayni revizyon zincirinde daha yeni) teklifin
     // TeklifId'si; zincirin en son uyesi buysa 0. Revize edilmis bir teklif
     // uzerinde islem yapilip yapilamayacagi buna gore belirlenir.
@@ -481,6 +597,9 @@ private:
 
     // kopyaKolonuVarMi() onbellegi: -1 henuz sorgulanmadi, 0 yok, 1 var.
     int m_kopyaKolonuDurumu = -1;
+    // teklifNoKolonuVarMi() onbellegi (ayni anlamlar). const sorgu
+    // metodlarindan (whereKosullariniOlustur) de okunabilsin diye mutable.
+    mutable int m_teklifNoKolonuDurumu = -1;
 
     // Firma/urun canli aramasini UI thread'inden ayirmak icin: worker, kendi
     // QSqlDatabase baglantisiyla bu ayri thread uzerinde yasar (bkz. AramaWorker.h).

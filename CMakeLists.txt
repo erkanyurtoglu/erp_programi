@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Quick Qml Sql WebEngineCore)
+find_package(Qt6 REQUIRED COMPONENTS Core Quick Qml Sql WebEngineCore Pdf)
 
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -20,6 +20,8 @@ qt_add_executable(erp_programi
     src/AramaSorgulari.cpp
     src/TeklifPdfOlusturucu.h
     src/TeklifPdfOlusturucu.cpp
+    src/PdfOnizleyici.h
+    src/PdfOnizleyici.cpp
 )
 
 target_compile_definitions(erp_programi PRIVATE
@@ -47,6 +49,12 @@ set_source_files_properties(qml/SayiBicimi.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE
 )
 
+# PdfOnizleme.qml: sayfalarin "PdfOnizleme.ac(pdf, baslik)" ile Main.qml'deki
+# tek onizleme penceresini acmasini saglayan singleton.
+set_source_files_properties(qml/PdfOnizleme.qml PROPERTIES
+    QT_QML_SINGLETON_TYPE TRUE
+)
+
 qt_add_qml_module(erp_programi
     URI erp_programi
     VERSION 1.0
@@ -54,6 +62,7 @@ qt_add_qml_module(erp_programi
         qml/Main.qml
         qml/Theme.qml
         qml/SayiBicimi.qml
+        qml/PdfOnizleme.qml
         qml/pages/GecmisTekliflerPage.qml
         qml/pages/GirisPage.qml
         qml/pages/AnaMenuPage.qml
@@ -72,6 +81,7 @@ qt_add_qml_module(erp_programi
         qml/components/TemaComboBox.qml
         qml/components/EtiketliAlan.qml
         qml/components/SifreOnayDialog.qml
+        qml/components/PdfOnizlemeDialog.qml
 )
 
 target_link_libraries(erp_programi PRIVATE
@@ -80,6 +90,8 @@ target_link_libraries(erp_programi PRIVATE
     Qt6::Qml
     Qt6::Sql
     Qt6::WebEngineCore
+    # PDF onizleme: sayfalari islemcide cizen Qt PDF (pdfium).
+    Qt6::Pdf
 )
 
 set_target_properties(erp_programi PROPERTIES
