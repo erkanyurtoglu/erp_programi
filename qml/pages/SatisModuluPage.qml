@@ -31,6 +31,33 @@ Item {
 
     readonly property int kullaniciId: root.oturum ? (root.oturum.kullaniciId || 0) : 0
 
+    // Rol yetkileri (bkz. Database::girisYap -> "moduller"). Eskiden
+    // "duzenleyebilir" bilgisi hic kullanilmiyordu: yalnizca gorme yetkisi olan
+    // bir kullanici da teklif verip silebiliyordu.
+    function modulYetkisi(kod) {
+        const liste = root.oturum && root.oturum.moduller ? root.oturum.moduller : []
+        return liste.find(m => m.modulKodu === kod) || null
+    }
+    readonly property bool satisDuzenleyebilir: {
+        const m = root.modulYetkisi("SATIS")
+        return m !== null && m.duzenleyebilir === true
+    }
+    // Personel/rol yonetimi yonetim isidir: yalnizca YONETIM modulunde duzenleme
+    // yetkisi olanlara gorunur (eskiden Satis modulune giren herkes gorebiliyordu).
+    readonly property bool personelYonetebilir: {
+        const m = root.modulYetkisi("YONETIM")
+        return m !== null && m.duzenleyebilir === true
+    }
+
+    // Duzenleme yetkisi yoksa "Teklif Ver" sekmesi yoktur; modul Giden
+    // Tekliflerim'le acilir.
+    Component.onCompleted: {
+        if (!root.satisDuzenleyebilir && icerikYiginlar.currentIndex === 0) {
+            icerikYiginlar.currentIndex = 1
+            gidenTekliflerPage.sayfayiYukle(1)
+        }
+    }
+
     // ---- "Detay" (revizyon) alt sayfasi ----
     // Revizyon ekrani sol menude KENDI maddesi olmayan, sadece listedeki "Detay"
     // butonuyla acilan bir ALT SAYFA'dir (StackLayout'un son indeksi). Acikken sol
@@ -170,6 +197,7 @@ Item {
 
                 YanMenuButonu {
                     metin: "Teklif Ver"
+                    visible: root.satisDuzenleyebilir
                     secili: icerikYiginlar.currentIndex === 0
                     onTiklandi: icerikYiginlar.currentIndex = 0
                 }
@@ -224,6 +252,7 @@ Item {
                 }
                 YanMenuButonu {
                     metin: "Personellerim"
+                    visible: root.personelYonetebilir
                     secili: icerikYiginlar.currentIndex === 6
                     onTiklandi: {
                         icerikYiginlar.currentIndex = 6
@@ -244,6 +273,7 @@ Item {
 
             TeklifVerPage {
                 kullaniciId: root.kullaniciId
+                yetkiVar: root.satisDuzenleyebilir
             }
 
             // otomatikYukle: false -- StackLayout, gorunur olmayan sekmeleri de
@@ -265,6 +295,7 @@ Item {
                 baslikMetni: "Giden Tekliflerim"
                 otomatikYukle: false
                 kullaniciId: root.kullaniciId
+                duzenleyebilir: root.satisDuzenleyebilir
                 onDetayIstendi: (teklifId) => root.revizyonuAc(1, teklifId)
                 // Kopya butonu yalnizca bu sekmede var (bkz. kopyayiAc).
                 onKopyaIstendi: (teklifId) => root.kopyayiAc(teklifId)
@@ -276,6 +307,7 @@ Item {
                 baslikMetni: "Alınan Tekliflerim"
                 otomatikYukle: false
                 kullaniciId: root.kullaniciId
+                duzenleyebilir: root.satisDuzenleyebilir
                 onDetayIstendi: (teklifId) => root.revizyonuAc(2, teklifId)
             }
 
@@ -285,6 +317,7 @@ Item {
                 baslikMetni: "Biten Tekliflerim"
                 otomatikYukle: false
                 kullaniciId: root.kullaniciId
+                duzenleyebilir: root.satisDuzenleyebilir
                 onDetayIstendi: (teklifId) => root.revizyonuAc(3, teklifId)
             }
 
@@ -311,14 +344,16 @@ Item {
             TeklifVerPage {
                 id: revizyonPage
                 kullaniciId: root.kullaniciId
+                yetkiVar: root.satisDuzenleyebilir
                 geriDonusEtiketi: root.revizyonKaynakSekme === 2 ? "Alınan Tekliflerim"
                                 : root.revizyonKaynakSekme === 3 ? "Biten Tekliflerim"
                                 : "Giden Tekliflerim"
 
                 // Kabul edilmis / tamamlanmis teklifin kendisi hic degismez. Giden
                 // Tekliflerim'den (1) acilan KABUL EDILMIS teklif yine de revize
-                // edilebilir (yeni revizyon olusur); tamamlanmis teklif hicbir yerden
-                // revize edilemez. Alınan (2) / Biten (3) listelerinden acilan
+                // edilebilir (yeni revizyon olusur, eski surum "Revize Edildi" olur
+                // ve yeni surumun yeniden kabul edilmesi gerekir); tamamlanmis teklif
+                // hicbir yerden revize edilemez. Alınan (2) / Biten (3) listelerinden acilan
                 // detay salt goruntulemedir (bkz. TeklifVerPage.revizyonAcik).
                 revizyonIzinli: root.revizyonKaynakSekme === 1
 

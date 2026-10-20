@@ -16,8 +16,7 @@ int main(int argc, char *argv[])
     app.setApplicationName("Liya Teklif Programi (Qt)");
 
     Database database;
-    // Chromium'u pencere acilmadan hazirla: aksi halde ilk PDF butonunda
-    // ~2 sn arayuz donuyordu. Acilisa eklenen sure, ekranda bir sey yokken gecer.
+
     database.pdfMotorunuHazirla();
     PdfOnizleyici pdfOnizleyici;
 
@@ -33,3 +32,4 @@ int main(int argc, char *argv[])
 
     return app.exec();
 }
+

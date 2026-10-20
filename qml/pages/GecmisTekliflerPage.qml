@@ -90,6 +90,21 @@ Item {
     // Teklif / Kabul / Planlanan Teslim / Teslim / Uretim PDF tarihlerinin her biri.
     readonly property int sutunTarih: 80
     readonly property int sutunPersonel: 104
+    // Genel toplam (KDV dahil, teklifin kendi para biriminde).
+    readonly property int sutunTutar: 118
+
+    function paraSembolu(pb) {
+        return pb === "USD" ? "$" : (pb === "EUR" ? "€" : "₺")
+    }
+    function tutarMetni(tutar, pb) {
+        return Number(tutar || 0).toLocaleString(Qt.locale("tr_TR"), 'f', 2) + " " + root.paraSembolu(pb)
+    }
+    // Alınan/Biten Tekliflerim basligindaki sekme toplami: para birimi bazinda
+    // ("12.500,00 ₺ · 3.200,00 $"); farkli para birimleri toplanmaz.
+    readonly property string sekmeToplamiMetni: {
+        const liste = root.sayfaSonucu.paraBirimiToplamlari || []
+        return liste.map(t => root.tutarMetni(t.toplam, t.paraBirimi)).join("  ·  ")
+    }
     // Durum rozeti artik tiklanabilir bir menu acicisi oldugu icin icinde bir de
     // "▾" isareti tasiyor; sutun ona gore bir miktar genisletildi.
     readonly property int sutunDurum: 126
@@ -110,7 +125,7 @@ Item {
     // baska bir firmaya teklif etmek icindir. Alınan (kabul edilmis) ve Biten
     // (tamamlanmis) tekliflerde ise is artik satis degil takip/uretim asamasindadir;
     // oradan yeni teklif uretmek anlamsiz kaliyordu.
-    readonly property bool kopyaButonuGoster: root.durumFiltresi === ""
+    readonly property bool kopyaButonuGoster: root.durumFiltresi === "" && root.duzenleyebilir
 
     // "İrsaliye" (sevk ve irsaliye bilgileri) butonu da ayni iki sekmede
     // gosterilir: fatura/irsaliye basligi ve siparis sartlari ancak siparis
@@ -140,6 +155,11 @@ Item {
     // olarak saklanir. SatisModuluPage oturumdaki kullaniciyi buraya aktarir.
     property int kullaniciId: 0
 
+    // Kullanicinin Satis modulunde duzenleme yetkisi (rol_yetkileri.Duzenleyebilir).
+    // Yoksa liste salt goruntulemedir: durum degistirme, Kopya, Sil ve sevk
+    // bilgisi kaydetme kapalidir; Detay/PDF/gecmis acilabilir.
+    property bool duzenleyebilir: true
+
     // --- Durum degistirme -----------------------------------------------------
     // Teklif durumu TEK YONLU DEGILDIR: musteri kabul ettikten sonra vazgecebilir,
     // kararsiz kalip "bekleyin" diyebilir, tamamlanmis bir teklif yanlislikla
@@ -153,14 +173,14 @@ Item {
         return root.durumSecenekleri.filter(d => d !== mevcutDurum)
     }
 
-    // Bu satir GECERSIZ KILINMIS bir revizyon mu? Yani durumu "Revize Edildi" ve
-    // zincirde yerine gecen (daha yeni) bir teklif GERCEKTEN var mi?
-    // guncelTeklifId zincirin en son kaydini gosterir; bu satirin kendisiyse
-    // (yeni revizyon silinmis olabilir) kayit yeniden gecerlidir.
+    // Bu satir GECERSIZ KILINMIS bir surum mu? Yani zincirde yerine gecen (daha
+    // yeni) bir teklif GERCEKTEN var mi? guncelTeklifId zincirin en son kaydini
+    // gosterir; bu satirin kendisiyse (yeni revizyon silinmis olabilir) kayit
+    // gecerlidir. Durum sutununa bakilmaz: eskiden yalnizca "Revize Edildi"
+    // satirlar kilitleniyordu ve yerine yeni revizyon gecmis "Reddedildi" bir
+    // surum menuden "Kabul Edildi" yapilabiliyordu (C++ tarafi da ayni kurali uygular).
     function revizeEdilmisMi(kayit) {
-        return kayit.durum === "Revize Edildi"
-               && kayit.guncelTeklifId > 0
-               && kayit.guncelTeklifId !== kayit.teklifId
+        return kayit.guncelTeklifId > 0 && kayit.guncelTeklifId !== kayit.teklifId
     }
 
     // Rozet menusunde gosterilecek durumlar. Revize edilmis (gecersiz) bir teklifte
@@ -168,8 +188,13 @@ Item {
     // beklemede dururken ayni teklifin iki fiyatli surumunu birden gecerli
     // gostermek olurdu. Kural C++ tarafinda da uygulanir (teklifDurumGuncelle),
     // burasi yalnizca kullaniciya sebebi gosteren yuzu.
+    // "Tamamlandı" yalnizca kabul edilmis teklifte sunulur: kabul edilmemis bir
+    // teklif tamamlanamaz (ayni kural C++ teklifDurumGuncelle'de de var).
     function durumMenusuSecenekleri(kayit) {
-        return root.revizeEdilmisMi(kayit) ? [] : root.digerDurumlar(kayit.durum)
+        if (root.revizeEdilmisMi(kayit) || !root.duzenleyebilir)
+            return []
+        return root.digerDurumlar(kayit.durum)
+                   .filter(d => d !== "Tamamlandı" || kayit.durum === "Kabul Edildi")
     }
 
     // Menuden bir durum secildiginde cagrilir. "Reddedildi" secildiginde once red
@@ -321,7 +346,7 @@ Item {
         sevkDialogu.teklifId = kayit.teklifId
         sevkDialogu.teklifNo = kayit.teklifNo
         sevkDialogu.firmaAdi = kayit.firmaAdi
-        sevkDialogu.saltOkunur = kayit.durum === "Tamamlandı"
+        sevkDialogu.saltOkunur = kayit.durum === "Tamamlandı" || !root.duzenleyebilir
         sevkDialogu.veri = sonuc
         sevkDialogu.open()
     }
@@ -415,6 +440,7 @@ Item {
                 }
                 Label {
                     text: root.sayfaSonucu.toplamKayit + " kayıt"
+                          + (root.sekmeToplamiMetni.length > 0 ? "   —   Toplam (KDV dahil): " + root.sekmeToplamiMetni : "")
                     font.family: Theme.fontAilesi
                     font.pixelSize: Theme.fontBoyutKucuk
                     color: Theme.metinSoluk
@@ -587,6 +613,7 @@ Item {
                 TarihBasligi { text: "TESLİM TARİHİ" }
                 TarihBasligi { text: "ÜRETİM PDF" }
                 Label { text: "TEKLİFİ YAPAN"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunPersonel; Layout.maximumWidth: root.sutunPersonel }
+                Label { text: "TUTAR"; horizontalAlignment: Text.AlignRight; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunTutar; Layout.maximumWidth: root.sutunTutar }
                 Label { text: "DURUM"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunDurum; Layout.maximumWidth: root.sutunDurum }
                 Label { visible: root.aciklamaSutunuGoster; text: "AÇIKLAMALAR"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.fillWidth: true; Layout.horizontalStretchFactor: 1; Layout.preferredWidth: 0 }
                 Label { text: "İŞLEMLER"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunIslemler; Layout.maximumWidth: root.sutunIslemler }
@@ -787,6 +814,19 @@ Item {
                         Layout.fillHeight: true
                         elide: Text.ElideRight
                         clip: true
+                    }
+                    // Genel toplam (KDV dahil), teklifin kendi para biriminde.
+                    Text {
+                        text: root.tutarMetni(satir.modelData.genelToplam, satir.modelData.paraBirimi)
+                        color: satir.modelData.durum === "Revize Edildi" ? Theme.metinCokSoluk : Theme.metinBirincil
+                        font.family: "Consolas"
+                        font.pixelSize: Theme.fontBoyutKucuk + 1
+                        horizontalAlignment: Text.AlignRight
+                        Layout.preferredWidth: root.sutunTutar
+                        Layout.maximumWidth: root.sutunTutar
+                        verticalAlignment: Text.AlignVCenter
+                        Layout.fillHeight: true
+                        elide: Text.ElideLeft
                     }
 
                     // DURUM rozeti, sutunun tamamini kaplayip metnini ortalamak yerine
@@ -1171,7 +1211,7 @@ Item {
                         // Kabul edilmis / tamamlanmis teklifte gizli: kilitli teklif silinemez.
                         Button {
                             id: silButonu
-                            visible: !root.teklifKilitliMi(satir.modelData.durum)
+                            visible: root.duzenleyebilir && !root.teklifKilitliMi(satir.modelData.durum)
                             text: "Sil"
                             Layout.preferredWidth: Math.max(50, Math.ceil(silMetni.implicitWidth) + 20)
                             Layout.preferredHeight: root.hizalanmisYukseklik(Math.max(28, silMetni.implicitHeight + 10))
@@ -1280,8 +1320,11 @@ Item {
     SifreOnayDialog { id: sifreDialogu }
 
     function teklifiSil(teklifId) {
+        const no = root.teklifNo(teklifId)
         if (!database.teklifSil(teklifId)) {
-            root.pdfMesaji = "Teklif " + root.teklifNo(teklifId) + " silinemedi."
+            // Sebep C++ tarafindan gelir (ör. "önce revizyonlar silinmeli").
+            const sebep = database.sonHataMesaji()
+            root.pdfMesaji = sebep && sebep.length > 0 ? sebep : "Teklif " + no + " silinemedi."
             root.pdfMesajiHata = true
         }
         root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
@@ -1479,7 +1522,9 @@ Item {
                 font.family: Theme.fontAilesi
                 font.pixelSize: Theme.fontBoyutNormal
                 placeholderTextColor: Theme.metinCokSoluk
-                placeholderText: "İsteğe bağlı"
+                placeholderText: "İsteğe bağlı (en fazla 500 karakter)"
+                // Veritabanindaki RedSebebi sutunu 500 karakter.
+                onTextChanged: if (length > 500) remove(500, length)
                 background: Rectangle {
                     color: Theme.arkaplan
                     radius: Theme.radiusKucuk

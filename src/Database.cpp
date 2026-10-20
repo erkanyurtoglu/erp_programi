@@ -71,6 +71,92 @@ namespace
         return TeklifPdfOlusturucu::teklifNoMetni(teklifNo, veri);
     }
 
+    // teklifKaydet / teklifDuzelt'in ortak sayisal denetimi. Arayuz de sinirliyor,
+    // ama veritabanina anlamsiz (negatif toplamli, %150 indirimli) ya da sutuna
+    // sigmayan (DECIMAL(5,2) -> 999,99'dan buyuk oran) bir teklif hic yazilmasin.
+    bool teklifVerisiniDenetle(const QVariantMap &teklif, QString &hataOut)
+    {
+        const double indirim = teklif.value("genelIndirimOrani", 0).toDouble();
+        const double kdv = teklif.value("kdvOrani", 0).toDouble();
+        if (indirim < 0 || indirim > 100)
+        {
+            hataOut = QStringLiteral("İndirim oranı 0 ile 100 arasında olmalı.");
+            return false;
+        }
+        if (kdv < 0 || kdv > 100)
+        {
+            hataOut = QStringLiteral("KDV oranı 0 ile 100 arasında olmalı.");
+            return false;
+        }
+        const double paketleme = teklif.value("paketlemeUcreti", 0).toDouble();
+        const double tasima = teklif.value("tasimaUcreti", 0).toDouble();
+        if (paketleme < 0 || tasima < 0)
+        {
+            hataOut = QStringLiteral("Paketleme/taşıma ücreti negatif olamaz.");
+            return false;
+        }
+
+        // Dovizli teklifte gercek bir kur olmadan kayit yapilmaz: Kur=1 ile
+        // kaydedilen USD/EUR teklifin TL karsiligi hesaplanamaz (gocten gelen
+        // kayitlardaki sorunun aynisi). Arayuz de engelliyor; bu son savunma hatti.
+        const QString paraBirimi = teklif.value("paraBirimi", "TL").toString().trimmed().toUpper();
+        const bool dovizli = paraBirimi == QLatin1String("USD") || paraBirimi == QLatin1String("EUR");
+
+        // TUTARLAR SUNUCUDA YENIDEN HESAPLANIR: ekrandan gelen satir/toplam
+        // degerleri ayni kurallarla (bkz. TeklifVerPage.hesap) dogrulanir. Arayuzde
+        // bir hata ya da eski bir surum tutarsiz bir teklif gonderirse (ör. satir
+        // toplamlari genel toplamla tutmuyorsa) kayit yapilmaz -- musteriye celiskili
+        // bir PDF gitmesin. Her adim kurusa yuvarlandigi icin 1 kurusluk tolerans var.
+        const double tolerans = 0.011;
+        const auto yuvarla = [](double x) { return std::round(x * 100.0) / 100.0; };
+        double indirimliToplamHesap = 0.0;
+        for (const QVariant &kalemVar : teklif.value("kalemler").toList())
+        {
+            const QVariantMap kalem = kalemVar.toMap();
+            const int adet = kalem.value("adet", 0).toInt();
+            if (adet < 1)
+            {
+                hataOut = QStringLiteral("Kalem adedi en az 1 olmalı.");
+                return false;
+            }
+            const double birimFiyat = kalem.value("birimFiyat", 0).toDouble();
+            if (birimFiyat < 0 || kalem.value("maliyetFiyati", 0).toDouble() < 0)
+            {
+                hataOut = QStringLiteral("Birim fiyat ve maliyet negatif olamaz.");
+                return false;
+            }
+            if (dovizli && kalem.value("kur", 0).toDouble() <= 1.0001)
+            {
+                hataOut = QString("%1 teklifinde geçerli bir kur yok; kuru güncelleyin veya elle girin.")
+                              .arg(paraBirimi);
+                return false;
+            }
+            const double indirimliBirim = kalem.value("indirimliBirimFiyat", 0).toDouble();
+            const double toplamTutar = kalem.value("toplamTutar", 0).toDouble();
+            if (std::abs(indirimliBirim - yuvarla(birimFiyat * (1.0 - indirim / 100.0))) > tolerans
+                || std::abs(toplamTutar - yuvarla(indirimliBirim * adet)) > tolerans)
+            {
+                hataOut = QStringLiteral("Kalem tutarları tutarsız (indirimli fiyat × adet); teklif kaydedilmedi.");
+                return false;
+            }
+            indirimliToplamHesap += toplamTutar;
+        }
+
+        const double indirimliToplam = teklif.value("indirimliToplam", 0).toDouble();
+        const double kdvTutari = teklif.value("kdvTutari", 0).toDouble();
+        const double genelToplam = teklif.value("genelToplam", 0).toDouble();
+        const double kdvMatrahi = yuvarla(indirimliToplam + paketleme + tasima);
+        if (std::abs(indirimliToplam - yuvarla(indirimliToplamHesap)) > tolerans
+            || std::abs(kdvTutari - yuvarla(kdvMatrahi * kdv / 100.0)) > tolerans
+            || std::abs(genelToplam - yuvarla(kdvMatrahi + kdvTutari)) > tolerans)
+        {
+            hataOut = QStringLiteral("Teklif toplamları kalemlerle tutmuyor (ara toplam / KDV / genel toplam); "
+                                     "teklif kaydedilmedi.");
+            return false;
+        }
+        return true;
+    }
+
     // Sifreleri duz metin yerine SHA-256 hash olarak saklamak icin.
     QString sifreyiHashle(const QString &sifre)
     {
@@ -390,19 +476,41 @@ void Database::whereKosullariniOlustur(const QString &arama,
 {
     QStringList kosullar;
 
-    if (tarihFiltresi == "1 Gün")
-        kosullar << "t.OlusturmaTarihi >= DATEADD(day, -1, CAST(GETDATE() AS date))";
-    else if (tarihFiltresi == "1 Hafta")
-        kosullar << "t.OlusturmaTarihi >= DATEADD(day, -7, CAST(GETDATE() AS date))";
-    else if (tarihFiltresi == "15 Gün")
-        kosullar << "t.OlusturmaTarihi >= DATEADD(day, -15, CAST(GETDATE() AS date))";
-    else if (tarihFiltresi == "30 Gün")
-        kosullar << "t.OlusturmaTarihi >= DATEADD(day, -30, CAST(GETDATE() AS date))";
+    // "N Gün" = bugun dahil son N takvim gunu ("1 Gün" yalnizca bugun). Eskiden
+    // gece yarisindan N gun geriye gidiliyordu; "1 Gün" fiilen dun + bugunu
+    // (2 gun), "1 Hafta" 8 gunu getiriyordu.
+    static const QHash<QString, int> gunFiltreleri = {
+        { QStringLiteral("1 Gün"), 1 }, { QStringLiteral("1 Hafta"), 7 },
+        { QStringLiteral("15 Gün"), 15 }, { QStringLiteral("30 Gün"), 30 },
+    };
+    if (gunFiltreleri.contains(tarihFiltresi))
+    {
+        kosullar << QString("t.OlusturmaTarihi >= DATEADD(day, -%1, CAST(GETDATE() AS date))")
+                        .arg(gunFiltreleri.value(tarihFiltresi) - 1);
+    }
     else if (tarihFiltresi == "Özel Tarih" && !baslangicTarihi.isEmpty() && !bitisTarihi.isEmpty())
     {
-        // baslangicTarihi / bitisTarihi QML'den "yyyy-MM-dd" formatinda geliyor.
+        // baslangicTarihi / bitisTarihi QML'den "yyyy-MM-dd" formatinda geliyor;
+        // ters secilmisse (baslangic > bitis) yer degistirilir -- aksi halde
+        // BETWEEN hic kayit dondurmez ve liste bos sanilir.
+        QString bas = baslangicTarihi;
+        QString bit = bitisTarihi;
+        if (bas > bit)
+            std::swap(bas, bit);
         kosullar << "CAST(t.OlusturmaTarihi AS date) BETWEEN :baslangic AND :bitis";
+        parametrelerOut[":baslangic"] = bas;
+        parametrelerOut[":bitis"] = bit;
+    }
+    // Tek tarih secildiyse acik uclu aralik: eskiden filtre sessizce yok
+    // sayiliyor, kullanici filtrelenmis sandigi TUM listeyi goruyordu.
+    else if (tarihFiltresi == "Özel Tarih" && !baslangicTarihi.isEmpty())
+    {
+        kosullar << "CAST(t.OlusturmaTarihi AS date) >= :baslangic";
         parametrelerOut[":baslangic"] = baslangicTarihi;
+    }
+    else if (tarihFiltresi == "Özel Tarih" && !bitisTarihi.isEmpty())
+    {
+        kosullar << "CAST(t.OlusturmaTarihi AS date) <= :bitis";
         parametrelerOut[":bitis"] = bitisTarihi;
     }
 
@@ -430,10 +538,14 @@ void Database::whereKosullariniOlustur(const QString &arama,
         aramaKosulu +=
             "m.FirmaAdi LIKE :aramaLike OR "
             "p.AdSoyad LIKE :aramaLike OR "
+            // Teklife ozel duzenlenmis aciklama (tk.UrunAciklamasi -- PDF'e
+            // basilan metin) ve katalogun Ingilizce aciklamasi da aranir;
+            // eskiden yalnizca katalogun Turkce aciklamasina bakiliyordu.
             "EXISTS (SELECT 1 FROM dbo.teklif_kalemleri tk "
             "        INNER JOIN dbo.urunler u ON u.UrunId = tk.UrunId "
             "        WHERE tk.TeklifId = t.TeklifId "
-            "          AND (u.UrunAciklamasi LIKE :aramaLike OR u.UrunKodu LIKE :aramaLike))"
+            "          AND (tk.UrunAciklamasi LIKE :aramaLike OR u.UrunAciklamasi LIKE :aramaLike "
+            "               OR u.UrunAciklamasiEn LIKE :aramaLike OR u.UrunKodu LIKE :aramaLike))"
             ")";
 
         kosullar << aramaKosulu;
@@ -471,6 +583,7 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
     sonuc["toplamKayit"] = 0;
     sonuc["toplamSayfa"] = 1;
     sonuc["mevcutSayfa"] = 1;
+    sonuc["paraBirimiToplamlari"] = QVariantList();
 
     if (!baglantiHazir())
     {
@@ -532,10 +645,12 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
         "       t.TeslimatTarihi, t.TeslimTarihi, t.UretimPdfTarihi, "
         "       p.KullaniciAdi AS PersonelKullaniciAdi, t.Durum, t.RedSebebi, sb.Aciklamalar, "
         "       t.MusteriNotu, t.UretimNotu, t.AnaTeklifId, t.RevizyonNo, %4 AS TeklifNo, %2, "
-        "       son.TeklifId AS GuncelTeklifId, son.RevizyonNo AS GuncelRevizyonNo "
+        "       son.TeklifId AS GuncelTeklifId, son.RevizyonNo AS GuncelRevizyonNo, "
+        "       t.ParaBirimi, tt.GenelToplam "
         "FROM dbo.teklifler t "
         "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
         "LEFT JOIN dbo.kullanicilar p ON p.KullaniciId = t.KullaniciId "
+        "LEFT JOIN dbo.teklif_toplamlari tt ON tt.TeklifId = t.TeklifId "
         "%3"
         "OUTER APPLY ("
         "    SELECT TOP 1 sbi.Aciklamalar "
@@ -618,8 +733,50 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
             ? QString()
             : teklifNoBicimle(veriQuery.value("KopyaKaynakNo").toInt(),
                               veriQuery.value("KopyaKaynakRevizyonNo").toInt());
+        // Teklifin genel toplami, kendi para biriminde (KDV dahil).
+        const QString pb = veriQuery.value("ParaBirimi").toString().trimmed();
+        kayit["paraBirimi"] = pb.isEmpty() ? QStringLiteral("TL") : pb;
+        kayit["genelToplam"] = veriQuery.value("GenelToplam").toDouble();
         kayitlar << kayit;
     }
+
+    // Sekme toplami (Alınan/Biten Tekliflerim): filtreye uyan TUM kayitlarin
+    // (yalnizca bu sayfanin degil) genel toplami, para birimi bazinda -- USD ve
+    // TL tutarlari toplanamaz. Giden Tekliflerim'de (durum filtresi yok) revize
+    // edilmis/reddedilmis surumler de listede oldugu icin toplam anlamsizdir,
+    // hesaplanmaz.
+    QVariantList paraBirimiToplamlari;
+    if (!durumFiltresi.trimmed().isEmpty())
+    {
+        QSqlQuery toplamQuery(m_db);
+        toplamQuery.prepare(QString(
+            "SELECT ISNULL(NULLIF(LTRIM(RTRIM(t.ParaBirimi)), ''), 'TL') AS PB, "
+            "       SUM(ISNULL(tt.GenelToplam, 0)) AS Toplam "
+            "FROM dbo.teklifler t "
+            "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
+            "LEFT JOIN dbo.kullanicilar p ON p.KullaniciId = t.KullaniciId "
+            "LEFT JOIN dbo.teklif_toplamlari tt ON tt.TeklifId = t.TeklifId "
+            "%1 "
+            "GROUP BY ISNULL(NULLIF(LTRIM(RTRIM(t.ParaBirimi)), ''), 'TL') "
+            "ORDER BY PB DESC").arg(whereClause));
+        for (auto it = parametreler.constBegin(); it != parametreler.constEnd(); ++it)
+            toplamQuery.bindValue(it.key(), it.value());
+        if (toplamQuery.exec())
+        {
+            while (toplamQuery.next())
+            {
+                QVariantMap satir;
+                satir["paraBirimi"] = toplamQuery.value("PB").toString();
+                satir["toplam"] = toplamQuery.value("Toplam").toDouble();
+                paraBirimiToplamlari << satir;
+            }
+        }
+        else
+        {
+            qWarning() << "Teklif toplam sorgusu basarisiz:" << toplamQuery.lastError().text();
+        }
+    }
+    sonuc["paraBirimiToplamlari"] = paraBirimiToplamlari;
 
     sonuc["kayitlar"] = kayitlar;
     sonuc["toplamKayit"] = toplamKayit;
@@ -630,28 +787,108 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
 
 bool Database::teklifSil(int teklifId)
 {
-    // NOT: WPF tarafindaki sifre onayli silme akisi burada henuz yok;
-    // bu ilk asamada sadece mimariyi (QML -> C++ -> SQL Server) dogruluyoruz.
-    // Sifre onayi/onay penceresi sonraki adimda eklenecek.
-    if (!baglantiHazir())
+    // Yonetici sifresi onayi QML tarafinda (SifreOnayDialog) istenir.
+    m_sonHataMesaji.clear();
+    if (teklifId <= 0 || !baglantiHazir())
+    {
+        m_sonHataMesaji = QStringLiteral("Veritabanına bağlanılamadı.");
         return false;
+    }
 
     // Kabul edilmis / tamamlanmis teklif silinemez (bkz. teklifKilitliMi).
-    if (teklifKilitliMi(teklifDurumuGetir(teklifId)))
+    const QString durum = teklifDurumuGetir(teklifId);
+    if (teklifKilitliMi(durum))
     {
-        qWarning() << "teklifSil: kilitli teklif silinemez:" << teklifId;
+        m_sonHataMesaji = QString("Teklif %1 \"%2\" durumunda; silinemez.").arg(teklifNoGetir(teklifId), durum);
+        return false;
+    }
+
+    // Revizyonlari olan kok teklif silinemez: revizyonlar AnaTeklifId ile ona
+    // baglidir (FK). Kullaniciya sebebi acikca soylenir.
+    {
+        QSqlQuery revSayisi(m_db);
+        revSayisi.prepare("SELECT COUNT(*) FROM dbo.teklifler WHERE AnaTeklifId = :id");
+        revSayisi.bindValue(":id", teklifId);
+        if (revSayisi.exec() && revSayisi.next() && revSayisi.value(0).toInt() > 0)
+        {
+            m_sonHataMesaji = QString("Teklif %1'in %2 revizyonu var; önce revizyonlar silinmeli.")
+                                  .arg(teklifNoGetir(teklifId)).arg(revSayisi.value(0).toInt());
+            return false;
+        }
+    }
+
+    // Zincirin bilgisi SILMEDEN ONCE okunur: silinen kayit zincirin en son
+    // uyesiyse, yeniden zincirin sonu olacak onceki surum asagida onarilir.
+    const bool sonSurumMu = teklifYerineGecenIdGetir(teklifId) == 0;
+    int kokId = teklifId;
+    {
+        QSqlQuery kokQuery(m_db);
+        kokQuery.prepare("SELECT ISNULL(AnaTeklifId, TeklifId) FROM dbo.teklifler WHERE TeklifId = :id");
+        kokQuery.bindValue(":id", teklifId);
+        if (kokQuery.exec() && kokQuery.next())
+            kokId = kokQuery.value(0).toInt();
+    }
+
+    if (!m_db.transaction())
+    {
+        m_sonHataMesaji = "İşlem başlatılamadı: " + m_db.lastError().text();
         return false;
     }
 
     QSqlQuery query(m_db);
     query.prepare("DELETE FROM dbo.teklifler WHERE TeklifId = :teklifId");
     query.bindValue(":teklifId", teklifId);
-
     if (!query.exec())
     {
         qWarning() << "Teklif silinemedi:" << query.lastError().text();
+        m_db.rollback();
+        m_sonHataMesaji = "Teklif silinemedi: " + query.lastError().text();
         return false;
     }
+
+    // Teklife ozel "MANUEL-<teklifId>" urun satirlari artik hicbir kaleme bagli
+    // degil (kalemler CASCADE ile silindi); katalogda yetim kalmasinlar.
+    QSqlQuery manuelSil(m_db);
+    manuelSil.prepare("DELETE FROM dbo.urunler WHERE UrunKodu = :kod "
+                      "AND NOT EXISTS (SELECT 1 FROM dbo.teklif_kalemleri tk WHERE tk.UrunId = dbo.urunler.UrunId)");
+    manuelSil.bindValue(":kod", QString("MANUEL-%1").arg(teklifId));
+    if (!manuelSil.exec())
+        qWarning() << "teklifSil (manuel urun temizligi) basarisiz:" << manuelSil.lastError().text();
+
+    // Silinen kayit zincirin en son revizyonuysa onceki surum yeniden gecerlidir:
+    // "Revize Edildi" olarak kalirsa listede/PDF'te hala gecersiz gorunurdu.
+    int yenidenGecerliId = 0;
+    if (sonSurumMu && kokId != teklifId)
+    {
+        QSqlQuery sonQuery(m_db);
+        sonQuery.prepare("SELECT TOP 1 TeklifId, Durum FROM dbo.teklifler "
+                         "WHERE TeklifId = :kok OR AnaTeklifId = :kok ORDER BY RevizyonNo DESC");
+        sonQuery.bindValue(":kok", kokId);
+        if (sonQuery.exec() && sonQuery.next() && sonQuery.value(1).toString() == DURUM_REVIZE_EDILDI)
+        {
+            yenidenGecerliId = sonQuery.value(0).toInt();
+            QSqlQuery geriAl(m_db);
+            geriAl.prepare("UPDATE dbo.teklifler SET Durum = N'Beklemede' WHERE TeklifId = :id");
+            geriAl.bindValue(":id", yenidenGecerliId);
+            if (!geriAl.exec())
+            {
+                m_db.rollback();
+                m_sonHataMesaji = "Önceki sürüm yeniden geçerli yapılamadı: " + geriAl.lastError().text();
+                return false;
+            }
+        }
+    }
+
+    if (!m_db.commit())
+    {
+        m_db.rollback();
+        m_sonHataMesaji = "Teklif silinemedi: " + m_db.lastError().text();
+        return false;
+    }
+
+    if (yenidenGecerliId > 0)
+        durumDegisiminiLogla(yenidenGecerliId, DURUM_REVIZE_EDILDI, QStringLiteral("Beklemede"),
+                             QStringLiteral("Yerine geçen revizyon silindiği için yeniden geçerli."), 0);
     return true;
 }
 
@@ -697,6 +934,12 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
         sonuc["hata"] = "Sepette en az bir ürün olmalı.";
         return sonuc;
     }
+    QString denetimHatasi;
+    if (!teklifVerisiniDenetle(teklif, denetimHatasi))
+    {
+        sonuc["hata"] = denetimHatasi;
+        return sonuc;
+    }
 
     // Tum yazma islemini tek transaction icinde yapiyoruz: teklifler + teklif_kalemleri +
     // teklif_toplamlari ya hep birlikte kaydolur ya da hicbiri (yarim kalmis teklif olusmasin).
@@ -704,6 +947,18 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
     {
         sonuc["hata"] = "İşlem başlatılamadı: " + m_db.lastError().text();
         return sonuc;
+    }
+
+    // Teklif No ve RevizyonNo "en buyuk + 1" ile verilir; ayni anda iki kayit
+    // ayni numarayi almasin diye numara verme transaction sonuna kadar kilitlenir.
+    {
+        QString kilitHatasi;
+        if (!numaraKilidiAl(kilitHatasi))
+        {
+            m_db.rollback();
+            sonuc["hata"] = kilitHatasi;
+            return sonuc;
+        }
     }
 
     // Revizyon baglantisi (bkz. Database.h dokumantasyonu): "anaTeklifId" QML
@@ -715,6 +970,18 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
     const int talepEdilenAnaTeklifId = teklif.value("anaTeklifId", 0).toInt();
     if (talepEdilenAnaTeklifId > 0)
     {
+        // REVIZYON YALNIZCA GUNCEL SURUMDEN: yerine zaten yeni bir revizyon gecmis
+        // bir tekliften revizyon alinirsa, guncel surum ESKI icerikten uretilmis
+        // bir kayitla sessizce gecersiz kilinirdi.
+        const int yerineGecen = teklifYerineGecenIdGetir(talepEdilenAnaTeklifId);
+        if (yerineGecen > 0)
+        {
+            m_db.rollback();
+            sonuc["hata"] = QString("Teklif %1'in yerine Teklif %2 geçti; revizyon güncel sürümden yapılmalı.")
+                                .arg(teklifNoGetir(talepEdilenAnaTeklifId), teklifNoGetir(yerineGecen));
+            return sonuc;
+        }
+
         // Secilen teklif zaten bir revizyonsa, KOK teklife baglaniyoruz --
         // boylece revizyon zinciri hep tek bir ana teklif altinda kalir
         // (revizyonun revizyonu diye ayri bir dal olusmaz).
@@ -750,7 +1017,15 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
             "SELECT ISNULL(MAX(RevizyonNo), 0) FROM dbo.teklifler "
             "WHERE TeklifId = :ana OR AnaTeklifId = :ana");
         revQuery.bindValue(":ana", anaTeklifId);
-        revizyonNo = (revQuery.exec() && revQuery.next()) ? revQuery.value(0).toInt() + 1 : 1;
+        if (!revQuery.exec() || !revQuery.next())
+        {
+            // Eskiden basarisizlikta sessizce 1 varsayiliyordu -- var olan bir
+            // Rev.1 ile cakisan numara uretebilirdi.
+            m_db.rollback();
+            sonuc["hata"] = "Revizyon numarası alınamadı: " + revQuery.lastError().text();
+            return sonuc;
+        }
+        revizyonNo = revQuery.value(0).toInt() + 1;
     }
 
     // --- Teklif No ------------------------------------------------------------
@@ -869,32 +1144,47 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
     // durumuna aliyoruz; boylece listede ayirt edilirler ve PDF'leri yeniden
     // uretilirse ustune uyari bandi basilir (bkz. pdfVerisiniOku).
     //
-    // KILITLI teklifler (Kabul Edildi / Tamamlandı) bilincli olarak DISARIDA
-    // birakilir: kabul edilmis bir teklif hala yururlukteki bir taahhut olabilir,
-    // onun gecersiz sayilmasina sistem degil kullanici karar verir (durum rozeti).
+    // Beklemede'nin yaninda KABUL EDILMIS ve REDDEDILMIS eski surumler de
+    // isaretlenir. Eskiden yalnizca Beklemede'ler isaretleniyordu: kabul edilmis
+    // bir teklif revize edilince eski surum "Kabul Edildi" kalip yeni revizyon da
+    // kabul edilebiliyordu -- ayni teklifin iki fiyatli surumu birden Alınan
+    // Tekliflerim'de, ikisi de uretime gidebilir halde duruyordu. Kabul edilmis
+    // bir teklifin revizyonu, musteriyle yeniden mutabakat demektir: yeni
+    // revizyon ayrica kabul edilmelidir. (Tamamlandı zaten revize edilemez.)
+    // Durum tarihleri, teklifDurumGuncelle'deki "Revize Edildi" gecisiyle ayni
+    // sekilde temizlenir; eski degerler durum gecmisinde kalir.
     QVariantList revizeEdilenler;
+    QHash<int, QString> revizeEdilenEskiDurum;
     if (anaTeklifId > 0)
     {
-        QSqlQuery eskiQuery(m_db);
-        eskiQuery.prepare(
-            "SELECT TeklifId FROM dbo.teklifler "
+        const QString gecersizKilinacaklar = QStringLiteral(
             "WHERE (TeklifId = :ana OR AnaTeklifId = :ana) "
-            "  AND TeklifId <> :yeni AND Durum = N'Beklemede'");
+            "  AND TeklifId <> :yeni "
+            "  AND Durum IN (N'Beklemede', N'Kabul Edildi', N'Reddedildi')");
+        QSqlQuery eskiQuery(m_db);
+        eskiQuery.prepare("SELECT TeklifId, Durum FROM dbo.teklifler " + gecersizKilinacaklar);
         eskiQuery.bindValue(":ana", anaTeklifId);
         eskiQuery.bindValue(":yeni", teklifId);
-        if (eskiQuery.exec())
+        if (!eskiQuery.exec())
         {
-            while (eskiQuery.next())
-                revizeEdilenler << eskiQuery.value(0).toInt();
+            m_db.rollback();
+            sonuc["hata"] = "Eski teklif sürümleri okunamadı: " + eskiQuery.lastError().text();
+            return sonuc;
+        }
+        while (eskiQuery.next())
+        {
+            const int eskiId = eskiQuery.value(0).toInt();
+            revizeEdilenler << eskiId;
+            revizeEdilenEskiDurum.insert(eskiId, eskiQuery.value(1).toString());
         }
 
         if (!revizeEdilenler.isEmpty())
         {
             QSqlQuery isaretle(m_db);
             isaretle.prepare(
-                "UPDATE dbo.teklifler SET Durum = :durum "
-                "WHERE (TeklifId = :ana OR AnaTeklifId = :ana) "
-                "  AND TeklifId <> :yeni AND Durum = N'Beklemede'");
+                "UPDATE dbo.teklifler SET Durum = :durum, "
+                "  KabulTarihi = NULL, RedTarihi = NULL, RedSebebi = NULL, TeslimTarihi = NULL "
+                + gecersizKilinacaklar);
             isaretle.bindValue(":durum", DURUM_REVIZE_EDILDI);
             isaretle.bindValue(":ana", anaTeklifId);
             isaretle.bindValue(":yeni", teklifId);
@@ -905,6 +1195,19 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
                 sonuc["hata"] = "Eski teklif revize edilmiş olarak işaretlenemedi: " + isaretle.lastError().text();
                 return sonuc;
             }
+        }
+
+        // Sevk/irsaliye bilgileri (fatura basligi, siparis sartlari...) siparisin
+        // bilgisidir, teklifin belirli bir surumunun degil: eskiden eski surumde
+        // kaliyor, yeni revizyonda "İrsaliye" penceresi bos aciliyordu. Zincirde
+        // kaydi olan en guncel surumden yeni revizyona KOPYALANIR (eski surumdeki
+        // kayit gecmis olarak yerinde kalir).
+        QString sevkHatasi;
+        if (!sevkBilgileriniRevizyonaKopyala(anaTeklifId, teklifId, sevkHatasi))
+        {
+            m_db.rollback();
+            sonuc["hata"] = sevkHatasi;
+            return sonuc;
         }
     }
 
@@ -922,11 +1225,11 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
     const QString yeniTeklifNoMetni = teklifNoGetir(teklifId);
     // Revizyon sebebi hem eski teklif(ler)in "Revize Edildi" satirina hem de
     // yeni revizyonun ilk satirina yazilir: iki taraftan da Teklif Gecmisi'nde
-    // okunur (eski teklif kilitliyse "Revize Edildi" yapilmaz, sebep yine kaybolmaz).
+    // okunur.
     const QString revizyonSebebi = teklif.value("revizyonSebebi").toString().trimmed();
     const QString sebepEki = revizyonSebebi.isEmpty() ? QString() : " Sebep: " + revizyonSebebi;
     for (const QVariant &eskiId : std::as_const(revizeEdilenler))
-        durumDegisiminiLogla(eskiId.toInt(), "Beklemede", DURUM_REVIZE_EDILDI,
+        durumDegisiminiLogla(eskiId.toInt(), revizeEdilenEskiDurum.value(eskiId.toInt()), DURUM_REVIZE_EDILDI,
                              QString("Teklif %1 olarak revize edildi.%2").arg(yeniTeklifNoMetni, sebepEki).left(500),
                              kullaniciId);
     if (anaTeklifId > 0)
@@ -1111,6 +1414,12 @@ QVariantMap Database::teklifDuzelt(int teklifId, const QVariantMap &teklif, cons
         sonuc["hata"] = "Düzeltme sebebi zorunludur.";
         return sonuc;
     }
+    QString denetimHatasi;
+    if (!teklifVerisiniDenetle(teklif, denetimHatasi))
+    {
+        sonuc["hata"] = denetimHatasi;
+        return sonuc;
+    }
 
     if (!m_db.transaction())
     {
@@ -1274,8 +1583,9 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
         "       t.ParaBirimi, t.Dil, t.IlgiliKisi, t.IlgiliKisiTelefonu, t.IlgiliKisiEposta, "
         "       t.TeslimatSekli, t.TeslimatYeri, t.SatisSozlesmesiMetni, "
         "       t.AnaTeklifId, t.RevizyonNo, %1 AS TeklifNo, "
-        "       t.MusteriNotu, t.UretimNotu, t.TeslimatTarihi, t.Durum, "
-        "       tt.PaketlemeUcreti, tt.TasimaUcreti "
+        "       t.MusteriNotu, t.UretimNotu, t.TeslimatTarihi, t.Durum, t.OlusturmaTarihi, "
+        "       tt.PaketlemeUcreti, tt.TasimaUcreti, "
+        "       tt.IndirimliToplam, tt.KdvTutari, tt.GenelToplam "
         "FROM dbo.teklifler t "
         "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
         "LEFT JOIN dbo.teklif_toplamlari tt ON tt.TeklifId = t.TeklifId "
@@ -1313,12 +1623,17 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
     const QString sozlesmeMetniDeger = basQuery.value("SatisSozlesmesiMetni").toString();
     const double paketlemeUcreti = basQuery.value("PaketlemeUcreti").toDouble();
     const double tasimaUcreti = basQuery.value("TasimaUcreti").toDouble();
+    const bool toplamKaydiVar = !basQuery.value("GenelToplam").isNull();
+    const double kayitliIndirimliToplam = basQuery.value("IndirimliToplam").toDouble();
+    const double kayitliKdvTutari = basQuery.value("KdvTutari").toDouble();
+    const double kayitliGenelToplam = basQuery.value("GenelToplam").toDouble();
     const QString musteriNotuDeger = basQuery.value("MusteriNotu").toString();
     const QString uretimNotuDeger = basQuery.value("UretimNotu").toString();
     const QVariant teslimatTarihiHam = basQuery.value("TeslimatTarihi");
     const QString teslimatTarihiDeger = teslimatTarihiHam.isNull()
         ? QString() : teslimatTarihiHam.toDateTime().date().toString("yyyy-MM-dd");
     const QString durumDeger = basQuery.value("Durum").toString();
+    const QString olusturmaTarihiDeger = basQuery.value("OlusturmaTarihi").toDateTime().date().toString("yyyy-MM-dd");
 
     QSqlQuery kalemQuery(m_db);
     kalemQuery.prepare(
@@ -1381,6 +1696,11 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
         kalem["adet"] = kalemQuery.value("Adet").toInt();
         kalem["birimFiyatTl"] = birimFiyat * kur;
         kalem["maliyet"] = maliyetFiyati * kur;
+        // Kayitli (teklifin para birimindeki) degerler: kur bilinmiyorsa
+        // (bkz. kurBilinmiyor) veya kopyada musteriye verilen doviz fiyatini
+        // korumak icin ekran bunlari kullanir.
+        kalem["birimFiyatDoviz"] = birimFiyat;
+        kalem["maliyetDoviz"] = maliyetFiyati;
         // Satir bazli uretim takibi: kalemin kendi id'si (ekrandaki isaret
         // kutusu/not penceresi bununla YERINDE yazar, bkz.
         // teklifKalemTamamlandiGuncelle) ve mevcut degerleri.
@@ -1413,10 +1733,34 @@ QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
     sonuc["uretimNotu"] = uretimNotuDeger;
     sonuc["teslimatTarihi"] = teslimatTarihiDeger;
     sonuc["durum"] = durumDeger;
+    // Sozlesme penceresindeki {{GECERLILIK_TARIHI}} onizlemesi PDF ile ayni
+    // tarihten hesaplansin diye (bkz. sozlesmeSatirlari).
+    sonuc["olusturmaTarihi"] = olusturmaTarihiDeger;
     sonuc["paketlemeUcretiTl"] = paketlemeUcreti * kur;
     sonuc["tasimaUcretiTl"] = tasimaUcreti * kur;
+    sonuc["paketlemeUcretiDoviz"] = paketlemeUcreti;
+    sonuc["tasimaUcretiDoviz"] = tasimaUcreti;
+    // Veritabanindaki (PDF'e basilan) toplamlar, teklifin para biriminde. Eski
+    // kurallarla (ör. KDV yalnizca urun toplamindan) kaydedilmis tekliflerde
+    // ekranin yeniden hesabi bunlardan farkli olabilir; ekran farki gosterir.
+    sonuc["kayitliToplamVar"] = toplamKaydiVar;
+    sonuc["kayitliIndirimliToplam"] = kayitliIndirimliToplam;
+    sonuc["kayitliKdvTutari"] = kayitliKdvTutari;
+    sonuc["kayitliGenelToplam"] = kayitliGenelToplam;
     sonuc["kur"] = kur;
+    // Dovizli teklifte gercek bir kur 1'den buyuktur. Eski programdan gocen
+    // tekliflerde Kur sutununa 1 yazilmistir (bkz. db/02_veri_gocu.sql) ama
+    // BirimFiyat dovizdir -- bu kurla "TL" hesaplamak 54 USD'yi 54 TL yapar.
+    const QString pb = paraBirimi.trimmed().toUpper();
+    const bool dovizli = pb == QLatin1String("USD") || pb == QLatin1String("EUR");
+    sonuc["kurBilinmiyor"] = dovizli && kur <= 1.0001;
     sonuc["kalemler"] = kalemler;
+
+    // Yerine yeni revizyon gecmis teklif yalnizca goruntulenir (bkz. teklifKaydet:
+    // revizyon yalnizca guncel surumden alinir).
+    const int yerineGecen = teklifYerineGecenIdGetir(okunanTeklifId);
+    sonuc["guncelSurum"] = yerineGecen == 0;
+    sonuc["guncelTeklifNo"] = yerineGecen > 0 ? teklifNoGetir(yerineGecen) : sonuc["teklifNo"].toString();
     return sonuc;
 }
 
@@ -1481,22 +1825,37 @@ int Database::kokTeklifNoGetir(int kokTeklifId)
     return query.value(0).toInt();
 }
 
+bool Database::numaraKilidiAl(QString &hataOut)
+{
+    // Acik transaction icinde cagrilir. Ayni anda iki bilgisayardan teklif (ya
+    // da ayni teklifin revizyonu) kaydedilirse ikisi ayni "en buyuk + 1"i okuyup
+    // ayni numarayi almasin diye numara verme transaction sonuna kadar
+    // kilitlenir: ikinci kayit, birincisi bitene kadar bekler ve onun numarasini gorur.
+    //
+    // sp_getapplock zaman asiminda HATA FIRLATMAZ, negatif donus kodu verir;
+    // bu yuzden kod okunup denetlenir (eskiden yalnizca exec() sonucuna
+    // bakiliyordu ve kilit alinamasa da devam ediliyordu).
+    QSqlQuery kilit(m_db);
+    kilit.prepare("SET NOCOUNT ON; DECLARE @sonuc INT; "
+                  "EXEC @sonuc = sp_getapplock @Resource = N'LiyaErp_TeklifNo', @LockMode = 'Exclusive', "
+                  "@LockOwner = 'Transaction', @LockTimeout = 15000; "
+                  "SELECT @sonuc;");
+    if (!kilit.exec() || !kilit.next())
+    {
+        qWarning() << "numaraKilidiAl basarisiz:" << kilit.lastError().text();
+        hataOut = QStringLiteral("Teklif numarası alınamadı: ") + kilit.lastError().text();
+        return false;
+    }
+    if (kilit.value(0).toInt() < 0)
+    {
+        hataOut = QStringLiteral("Teklif numarası alınamadı: başka bir kayıt sürüyor, lütfen tekrar deneyin.");
+        return false;
+    }
+    return true;
+}
+
 int Database::yeniTeklifNoAl(QString &hataOut)
 {
-    // Acik transaction icinde cagrilir. Ayni anda iki bilgisayardan teklif
-    // kaydedilirse ikisi ayni "en buyuk + 1"i okuyup ayni numarayi almasin diye
-    // numara verme islemi transaction sonuna kadar kilitlenir: ikinci kayit,
-    // birincisi bitene kadar bekler ve onun numarasini gorur.
-    QSqlQuery kilit(m_db);
-    kilit.prepare("EXEC sp_getapplock @Resource = N'LiyaErp_TeklifNo', @LockMode = 'Exclusive', "
-                  "@LockOwner = 'Transaction', @LockTimeout = 15000");
-    if (!kilit.exec())
-    {
-        qWarning() << "yeniTeklifNoAl (kilit) basarisiz:" << kilit.lastError().text();
-        hataOut = QStringLiteral("Teklif numarası alınamadı: ") + kilit.lastError().text();
-        return 0;
-    }
-
     // teklifNoSql, TeklifNo'su bos (eski surum programla kaydedilmis) satirlarin
     // gosterilen numarasini da hesaba katar -- boylece yeni numara hicbir
     // gorunen numarayla cakismaz.
@@ -1589,9 +1948,10 @@ bool Database::teklifTeslimatTarihiGuncelle(int teklifId, const QString &teslima
 
     // Uretim planlamasi bilgisi: kabul edilmis teklifte de degisebilir, ama
     // tamamlanmis (teslim edilmis) teklifte artik degistirilemez.
-    if (teklifDurumuGetir(teklifId) == "Tamamlandı")
+    // Yerine yeni revizyon gecmis teklifin uretim planlamasi da yapilmaz.
+    if (teklifDurumuGetir(teklifId) == "Tamamlandı" || teklifYerineGecenIdGetir(teklifId) > 0)
     {
-        qWarning() << "teklifTeslimatTarihiGuncelle: tamamlanmis teklif degistirilemez:" << teklifId;
+        qWarning() << "teklifTeslimatTarihiGuncelle: tamamlanmis/revize edilmis teklif degistirilemez:" << teklifId;
         return false;
     }
 
@@ -1641,9 +2001,9 @@ bool Database::teklifUretimNotuGuncelle(int teklifId, const QString &uretimNotu)
 
     // Planlanan teslim tarihi gibi: kabul edilmis teklifte yazilabilir,
     // tamamlanmis teklifte degistirilemez.
-    if (teklifDurumuGetir(teklifId) == "Tamamlandı")
+    if (teklifDurumuGetir(teklifId) == "Tamamlandı" || teklifYerineGecenIdGetir(teklifId) > 0)
     {
-        qWarning() << "teklifUretimNotuGuncelle: tamamlanmis teklif degistirilemez:" << teklifId;
+        qWarning() << "teklifUretimNotuGuncelle: tamamlanmis/revize edilmis teklif degistirilemez:" << teklifId;
         return false;
     }
 
@@ -1666,7 +2026,7 @@ bool Database::teklifKalemiUretimeAcikMi(int teklifKalemId)
     // Kalemin durumu bagli oldugu TEKLIFIN durumudur; kalemin kendi durumu yok.
     QSqlQuery query(m_db);
     query.prepare(
-        "SELECT t.Durum FROM dbo.teklif_kalemleri tk "
+        "SELECT t.Durum, t.TeklifId FROM dbo.teklif_kalemleri tk "
         "INNER JOIN dbo.teklifler t ON t.TeklifId = tk.TeklifId "
         "WHERE tk.TeklifKalemId = :id");
     query.bindValue(":id", teklifKalemId);
@@ -1680,9 +2040,17 @@ bool Database::teklifKalemiUretimeAcikMi(int teklifKalemId)
 
     // Planlanan teslim tarihi / genel uretim notuyla ayni kural: kabul edilmis
     // teklifte yazilabilir, tamamlanmis teklifte kilitlidir.
-    if (query.value(0).toString() == "Tamamlandı")
+    const QString durum = query.value(0).toString();
+    const int teklifId = query.value(1).toInt();
+    if (durum == "Tamamlandı")
     {
         qWarning() << "teklif kalemi uretim bilgisi degistirilemez (teklif tamamlandi):" << teklifKalemId;
+        return false;
+    }
+    // Yerine yeni revizyon gecmis teklifin kalemleri uretimde takip edilmez.
+    if (teklifYerineGecenIdGetir(teklifId) > 0)
+    {
+        qWarning() << "teklif kalemi uretim bilgisi degistirilemez (teklif revize edildi):" << teklifKalemId;
         return false;
     }
     return true;
@@ -1784,7 +2152,9 @@ bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QSt
     //
     // Kural zincirin GERCEK durumuna bakar, durum sutununa degil: yeni revizyon
     // silinmisse bu kayit tekrar zincirin sonudur ve normal sekilde islenebilir.
-    if (eskiDurum == DURUM_REVIZE_EDILDI)
+    // Durum sutunu ne olursa olsun uygulanir -- eskiden yalnizca "Revize Edildi"
+    // satirlarda bakiliyordu ve yerine yeni revizyon gecmis "Reddedildi" (ya da
+    // eski surum programla kalmis "Kabul Edildi") bir surum hala kabul edilebiliyordu.
     {
         const int yerineGecen = teklifYerineGecenIdGetir(teklifId);
         if (yerineGecen > 0)
@@ -1796,6 +2166,18 @@ bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QSt
                                   .arg(teklifNoGetir(teklifId), teklifNoGetir(yerineGecen));
             return false;
         }
+    }
+
+    // TAMAMLANDI YALNIZCA KABULDEN SONRA: "Beklemede"/"Reddedildi" bir teklif
+    // dogrudan "Tamamlandı" yapilirsa, musterinin hic kabul etmedigi teklife
+    // KabulTarihi olarak o an yazilir ve Alınan Tekliflerim/uretim asamasi
+    // atlanmis olurdu. Once "Kabul Edildi" yapilmalidir.
+    if (durum == "Tamamlandı" && eskiDurum != "Kabul Edildi")
+    {
+        m_sonHataMesaji = QString::fromUtf8("Teklif %1 \"%2\" durumunda; \"Tamamlandı\" yapılmadan önce "
+                                            "\"Kabul Edildi\" olmalı.")
+                              .arg(teklifNoGetir(teklifId), eskiDurum);
+        return false;
     }
 
     // Durum ileri geri degisebildigi icin, HER gecis tum durum alanlarini yeniden
@@ -1831,28 +2213,26 @@ bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QSt
     query.prepare(sql);
     query.bindValue(":durum", durum);
     query.bindValue(":teklifId", teklifId);
+    // RedSebebi sutunu 500 karakter: uzun bir metin "truncated" hatasiyla tum
+    // durum degisikligini dusurmesin.
+    const QString temizRedSebebi = redSebebi.trimmed().left(500);
     if (durum == "Reddedildi")
-        query.bindValue(":redSebebi", redSebebi.trimmed().isEmpty() ? QVariant(QMetaType(QMetaType::QString))
-                                                                    : redSebebi.trimmed());
+        query.bindValue(":redSebebi", temizRedSebebi.isEmpty() ? QVariant(QMetaType(QMetaType::QString))
+                                                               : QVariant(temizRedSebebi));
 
     if (!query.exec())
     {
         qWarning() << "teklifDurumGuncelle basarisiz:" << query.lastError().text();
+        m_sonHataMesaji = "Durum güncellenemedi: " + query.lastError().text();
         return false;
     }
 
-    // WPF'teki "Tamamla" ile ayni: teklif tamamlaninca tum kalemlerin uretimi de
-    // tamamlanmis sayilir (uretim PDF'inde ✓ gorunsun).
-    if (durum == "Tamamlandı")
-    {
-        QSqlQuery kalemler(m_db);
-        kalemler.prepare("UPDATE dbo.teklif_kalemleri SET Tamamlandi = 1 WHERE TeklifId = :teklifId");
-        kalemler.bindValue(":teklifId", teklifId);
-        if (!kalemler.exec())
-            qWarning() << "Kalemler tamamlandi olarak isaretlenemedi:" << kalemler.lastError().text();
-    }
+    // NOT: Eskiden "Tamamlandı"da tum kalemlerin Tamamlandi bayragi 1 yapiliyordu;
+    // tamamlanma geri alininca hangi kalemin GERCEKTEN bittigi kayboluyordu.
+    // Artik kalemlere yazilmaz: tamamlanmis teklifte tum kalemler ekranda ve
+    // uretim PDF'inde bitmis gosterilir (bkz. TeklifPdfOlusturucu::uretimPdfUret).
 
-    durumDegisiminiLogla(teklifId, eskiDurum, durum, redSebebi, kullaniciId);
+    durumDegisiminiLogla(teklifId, eskiDurum, durum, temizRedSebebi, kullaniciId);
     return true;
 }
 
@@ -1870,7 +2250,7 @@ void Database::durumDegisiminiLogla(int teklifId, const QString &eskiDurum, cons
     logQuery.bindValue(":eskiDurum", eskiDurum.isEmpty() ? QVariant(QMetaType(QMetaType::QString)) : eskiDurum);
     logQuery.bindValue(":yeniDurum", yeniDurum);
     logQuery.bindValue(":aciklama", aciklama.trimmed().isEmpty() ? QVariant(QMetaType(QMetaType::QString))
-                                                                 : aciklama.trimmed());
+                                                                 : QVariant(aciklama.trimmed().left(500)));
     logQuery.bindValue(":kullaniciId", kullaniciId > 0 ? QVariant(kullaniciId) : QVariant(QMetaType(QMetaType::Int)));
 
     if (!logQuery.exec())
@@ -2283,7 +2663,9 @@ QVariantMap Database::urunListesiGetir(const QString &arama, int sayfaNo, int sa
     const QString aramaTrim = arama.trimmed();
     // "MANUEL-<teklifId>" kodlu satirlar tekliflere ozel gecici kayitlardir,
     // urun kataloğu listesinde gorunmemeli (bkz. urunAra ustundeki not).
-    QString whereClause = "WHERE UrunKodu NOT LIKE N'MANUEL%'";
+    // "IS NULL OR": NULL NOT LIKE ... NULL doner; aksi halde kodu girilmemis
+    // (ör. eski programdan gocen) urunler listede hic gorunmezdi.
+    QString whereClause = "WHERE (UrunKodu IS NULL OR UrunKodu NOT LIKE N'MANUEL%')";
     if (!aramaTrim.isEmpty())
         whereClause += " AND (UrunKodu LIKE :aramaLike OR UrunAciklamasi LIKE :aramaLike OR Kategori LIKE :aramaLike)";
 
@@ -2305,12 +2687,26 @@ QVariantMap Database::urunListesiGetir(const QString &arama, int sayfaNo, int sa
     const int toplamSayfa = std::max(1, static_cast<int>(std::ceil(toplamKayit / static_cast<double>(sayfaBoyutu))));
     sayfaNo = std::clamp(sayfaNo, 1, toplamSayfa);
 
+    // ONEMLI (performans): UrunAciklamasi ve UrunAciklamasiEn nvarchar(MAX)'tir.
+    // "ORDER BY UrunKodu ... OFFSET/FETCH" bu sutunlarla ayni SELECT'te olursa
+    // SQL Server tablonun TAMAMINI (LOB icerikleriyle birlikte) siralamak zorunda
+    // kaliyor -- olculen sure: 25 saniye. Bu sure boyunca UI thread'i tamamen
+    // blokeli kaliyordu ("Yanit Vermiyor").
+    //
+    // Cozum "ertelenmis join" (deferred join): once SADECE anahtar sutunu
+    // siralayip sayfayi seciyoruz (LOB tasinmaz, ~12 ms), sonra secilen 50 satirin
+    // genis sutunlarini anahtar uzerinden okuyoruz. Olculen sure: ~42 ms.
     QSqlQuery veriQuery(m_db);
     veriQuery.prepare(QString(
-        "SELECT UrunId, UrunKodu, Kategori, UrunAciklamasi, UrunAciklamasiEn, BirimFiyat, GuncelMaliyetTL "
-        "FROM dbo.urunler %1 "
-        "ORDER BY UrunKodu "
-        "OFFSET :offset ROWS FETCH NEXT :sayfaBoyutu ROWS ONLY").arg(whereClause));
+        "SELECT u.UrunId, u.UrunKodu, u.Kategori, u.UrunAciklamasi, u.UrunAciklamasiEn, "
+        "       u.BirimFiyat, u.GuncelMaliyetTL "
+        "FROM dbo.urunler AS u "
+        "INNER JOIN ("
+        "    SELECT UrunId FROM dbo.urunler %1 "
+        "    ORDER BY UrunKodu "
+        "    OFFSET :offset ROWS FETCH NEXT :sayfaBoyutu ROWS ONLY"
+        ") AS sayfa ON sayfa.UrunId = u.UrunId "
+        "ORDER BY u.UrunKodu").arg(whereClause));
     if (!aramaTrim.isEmpty())
         veriQuery.bindValue(":aramaLike", "%" + aramaTrim + "%");
     veriQuery.bindValue(":offset", (sayfaNo - 1) * sayfaBoyutu);
@@ -2860,6 +3256,8 @@ bool Database::pdfVerisiniOku(int teklifId, QString &firmaAdiOut, QVariantMap &v
     veri["dil"] = basQuery.value("Dil").toString();
     veri["paraBirimi"] = basQuery.value("ParaBirimi").toString();
     veri["olusturmaTarihi"] = tarihStr(basQuery.value("OlusturmaTarihi"));
+    // Sozlesmedeki gecerlilik tarihi bundan hesaplanir (PDF'in basildigi gunden degil).
+    veri["teklifTarihi"] = basQuery.value("OlusturmaTarihi").toDateTime().date();
     veri["genelIndirimOrani"] = basQuery.value("GenelIndirimOrani").toDouble();
     veri["kdvOrani"] = basQuery.value("KdvOrani").toDouble();
     veri["indirimliToplam"] = basQuery.value("IndirimliToplam").toDouble();
@@ -2893,8 +3291,11 @@ bool Database::pdfVerisiniOku(int teklifId, QString &firmaAdiOut, QVariantMap &v
 
     // Bu teklif revize edilmisse (yerine yeni bir revizyon gecmisse), PDF'in
     // ustune "gecerli degildir" bandi basilir; bandda gecerli olan revizyonun
-    // numarasi da yazsin diye zincirin EN SON kaydini okuyoruz.
-    if (veri["durum"].toString() == DURUM_REVIZE_EDILDI)
+    // numarasi da yazsin diye zincirin EN SON kaydini okuyoruz. Durum sutununa
+    // degil zincirin gercek haline bakilir: yeni revizyon silinmis bir kayit
+    // gecerlidir ve bandda kendi numarasini "gecerli teklif" diye gostermez.
+    veri["gecersiz"] = teklifYerineGecenIdGetir(teklifId) > 0;
+    if (veri["gecersiz"].toBool())
     {
         QSqlQuery sonQuery(m_db);
         sonQuery.prepare(
@@ -3006,7 +3407,7 @@ QVariantMap Database::pdfKaydet(const QVariantMap &pdf)
     // sadece onizlemek bunu doldurmaz, indirmek doldurur. PDF zaten diske
     // yazildigi icin bu guncelleme basarisiz olsa bile islem basarili sayilir.
     const int teklifId = pdf.value("teklifId").toInt();
-    if (pdf.value("tur").toString() == QLatin1String("uretim") && teklifId > 0)
+    if (pdf.value("tur").toString() == QLatin1String("uretim") && teklifId > 0 && baglantiHazir())
     {
         QSqlQuery guncelle(m_db);
         guncelle.prepare("UPDATE dbo.teklifler SET UretimPdfTarihi = SYSDATETIME() WHERE TeklifId = :id");
@@ -3022,60 +3423,26 @@ void Database::pdfOnizlemesiniSil(const QString &onizlemeYolu)
     TeklifPdfOlusturucu::onizlemeyiSil(onizlemeYolu);
 }
 
-QVariantMap Database::satisSozlesmesiOlustur(const QVariantMap &teklif)
-{
-    QVariantMap sonuc;
-    sonuc["basarili"] = false;
-    sonuc["dosyaYolu"] = QString();
-    sonuc["hata"] = QString();
-
-    // Bu ekran, teklif HENUZ KAYDEDILMEMISKEN de calisabilmeli (kullanici
-    // "Teklifi Kaydet"e basmadan once sozlesmeyi gormek isteyebilir). Bu yuzden
-    // veritabanindan degil, dogrudan QML'den gelen "teklif" haritasindan uretir.
-    QString firmaAdi = teklif.value("musteriAdi").toString().trimmed();
-    const int musteriId = teklif.value("musteriId").toInt();
-    QString firmaAdresi;
-
-    if (musteriId > 0 && baglantiHazir())
-    {
-        QSqlQuery musteriQuery(m_db);
-        musteriQuery.prepare("SELECT FirmaAdi, FirmaAdresi FROM dbo.musteriler WHERE MusteriId = :id");
-        musteriQuery.bindValue(":id", musteriId);
-        if (musteriQuery.exec() && musteriQuery.next())
-        {
-            firmaAdi = musteriQuery.value("FirmaAdi").toString();
-            firmaAdresi = musteriQuery.value("FirmaAdresi").toString();
-        }
-    }
-
-    if (firmaAdi.trimmed().isEmpty())
-    {
-        sonuc["hata"] = "Sözleşme için müşteri bilgisi bulunamadı.";
-        return sonuc;
-    }
-
-    if (teklif.value("kalemler").toList().isEmpty())
-    {
-        sonuc["hata"] = "Sözleşme için sepette en az bir ürün olmalı.";
-        return sonuc;
-    }
-
-    QVariantMap veri = teklif;
-    veri["firmaAdi"] = firmaAdi;
-    veri["firmaAdresi"] = firmaAdresi;
-
-    return m_pdfOlusturucu.satisSozlesmesiUret(veri);
-}
-
 QString Database::varsayilanSozlesmeMetni(const QString &dil) const
 {
     return TeklifPdfOlusturucu::varsayilanSozlesmeMetni(dil.compare("EN", Qt::CaseInsensitive) == 0);
 }
 
+namespace
+{
+    // Sozlesme degiskenlerinin hesaplanacagi tarih: kayitli teklifte teklifin
+    // tarihi ("teklifTarihi", yyyy-MM-dd), yeni formda bugun -- PDF ile ayni kural.
+    QDate sozlesmeTarihi(const QVariantMap &teklif)
+    {
+        const QDate tarih = QDate::fromString(teklif.value("teklifTarihi").toString(), "yyyy-MM-dd");
+        return tarih.isValid() ? tarih : QDate::currentDate();
+    }
+}
+
 QVariantList Database::sozlesmeSatirlari(const QString &metin, const QVariantMap &teklif) const
 {
     const bool ingilizce = teklif.value("dil").toString().compare("EN", Qt::CaseInsensitive) == 0;
-    const QDate bugun = QDate::currentDate();
+    const QDate bugun = sozlesmeTarihi(teklif);
     const auto uygula = [&](const QString &s) {
         return TeklifPdfOlusturucu::sozlesmeDegiskenleriniUygula(s, teklif, ingilizce, bugun);
     };
@@ -3125,7 +3492,7 @@ QVariantList Database::sozlesmeSatirlari(const QString &metin, const QVariantMap
 QString Database::sozlesmeSatirlarindanMetin(const QVariantList &satirlar, const QVariantMap &teklif) const
 {
     const bool ingilizce = teklif.value("dil").toString().compare("EN", Qt::CaseInsensitive) == 0;
-    const QDate bugun = QDate::currentDate();
+    const QDate bugun = sozlesmeTarihi(teklif);
     static const QRegularExpression degiskenDeseni(QStringLiteral("\\{\\{[^{}]+\\}\\}"));
 
     QStringList cikti;
@@ -3212,34 +3579,6 @@ QString Database::teklifSozlesmeMetniGetir(int teklifId, const QString &dil)
     return varsayilanSozlesmeMetni(dil);
 }
 
-bool Database::teklifSozlesmeMetniKaydet(int teklifId, const QString &metin)
-{
-    if (teklifId <= 0 || !baglantiHazir())
-        return false;
-
-    if (teklifKilitliMi(teklifDurumuGetir(teklifId)))
-    {
-        qWarning() << "teklifSozlesmeMetniKaydet: kilitli teklif degistirilemez:" << teklifId;
-        return false;
-    }
-
-    QSqlQuery query(m_db);
-    query.prepare("UPDATE dbo.teklifler SET SatisSozlesmesiMetni = :metin WHERE TeklifId = :id");
-    query.bindValue(":id", teklifId);
-    // Bos metin -> NULL: teklif tekrar dilin varsayilan metnine doner.
-    if (metin.trimmed().isEmpty())
-        query.bindValue(":metin", QVariant(QMetaType(QMetaType::QString)));
-    else
-        query.bindValue(":metin", metin);
-
-    if (!query.exec())
-    {
-        qWarning() << "teklifSozlesmeMetniKaydet basarisiz:" << query.lastError().text();
-        return false;
-    }
-    return true;
-}
-
 namespace
 {
     // dbo.sevk_bilgileri'nin METIN sutunlari: {SQL sutun adi, QML anahtari}.
@@ -3292,6 +3631,35 @@ namespace
         const QString temiz = deger.trimmed();
         return temiz.isEmpty() ? QVariant(QMetaType(QMetaType::QString)) : QVariant(temiz);
     }
+}
+
+bool Database::sevkBilgileriniRevizyonaKopyala(int kokTeklifId, int yeniTeklifId, QString &hataOut)
+{
+    QStringList sutunlar;
+    for (const SevkAlani &alan : SEVK_METIN_ALANLARI)
+        sutunlar << QString::fromLatin1(alan.sutun);
+    sutunlar << QStringLiteral("SiparisTarihi");
+    const QString sutunListesi = sutunlar.join(", ");
+
+    QSqlQuery kopyala(m_db);
+    kopyala.prepare(QString(
+        "INSERT INTO dbo.sevk_bilgileri (TeklifId, %1) "
+        "SELECT TOP 1 :yeni, %2 "
+        "FROM dbo.sevk_bilgileri sb "
+        "INNER JOIN dbo.teklifler t ON t.TeklifId = sb.TeklifId "
+        "WHERE (t.TeklifId = :kok OR t.AnaTeklifId = :kok) AND t.TeklifId <> :yeni "
+        "  AND NOT EXISTS (SELECT 1 FROM dbo.sevk_bilgileri x WHERE x.TeklifId = :yeni) "
+        "ORDER BY t.RevizyonNo DESC")
+        .arg(sutunListesi, "sb." + sutunlar.join(", sb.")));
+    kopyala.bindValue(":yeni", yeniTeklifId);
+    kopyala.bindValue(":kok", kokTeklifId);
+    if (!kopyala.exec())
+    {
+        qWarning() << "sevkBilgileriniRevizyonaKopyala basarisiz:" << kopyala.lastError().text();
+        hataOut = "Sevk/irsaliye bilgileri yeni revizyona taşınamadı: " + kopyala.lastError().text();
+        return false;
+    }
+    return true;
 }
 
 QVariantMap Database::sevkBilgileriGetir(int teklifId)

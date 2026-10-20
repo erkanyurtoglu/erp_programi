@@ -69,18 +69,26 @@ QVariantList urunAraSorgusu(QSqlDatabase &db, const QString &arama, int limit, c
         query.prepare(QString(
             "SELECT TOP (%1) UrunId, UrunKodu, Kategori, UrunAciklamasi, UrunAciklamasiEn, "
             "       BirimFiyat, ParaBirimi, GuncelMaliyetTL "
-            "FROM dbo.urunler WHERE UrunKodu NOT LIKE N'MANUEL%' ORDER BY UrunId DESC").arg(limit));
+            "FROM dbo.urunler WHERE (UrunKodu IS NULL OR UrunKodu NOT LIKE N'MANUEL%') ORDER BY UrunId DESC").arg(limit));
     }
     else
     {
+        // "ORDER BY UrunKodu" ile nvarchar(MAX) sutunlari ayni SELECT'te
+        // toplamak tablonun tamamini LOB'larla birlikte siralatiyor (bkz.
+        // Database::urunListesiGetir'deki ayrintili not). Once anahtarlari
+        // siralayip sinirliyoruz, genis sutunlari sonra okuyoruz.
         query.prepare(QString(
-            "SELECT TOP (%1) UrunId, UrunKodu, Kategori, UrunAciklamasi, UrunAciklamasiEn, "
-            "       BirimFiyat, ParaBirimi, GuncelMaliyetTL "
-            "FROM dbo.urunler "
-            "WHERE UrunKodu NOT LIKE N'MANUEL%' "
-            "  AND (UrunKodu LIKE :aramaLike OR UrunAciklamasi LIKE :aramaLike "
-            "   OR UrunAciklamasiEn LIKE :aramaLike) "
-            "ORDER BY UrunKodu").arg(limit));
+            "SELECT u.UrunId, u.UrunKodu, u.Kategori, u.UrunAciklamasi, u.UrunAciklamasiEn, "
+            "       u.BirimFiyat, u.ParaBirimi, u.GuncelMaliyetTL "
+            "FROM dbo.urunler AS u "
+            "INNER JOIN ("
+            "    SELECT TOP (%1) UrunId FROM dbo.urunler "
+            "    WHERE (UrunKodu IS NULL OR UrunKodu NOT LIKE N'MANUEL%') "
+            "      AND (UrunKodu LIKE :aramaLike OR UrunAciklamasi LIKE :aramaLike "
+            "       OR UrunAciklamasiEn LIKE :aramaLike) "
+            "    ORDER BY UrunKodu"
+            ") AS secim ON secim.UrunId = u.UrunId "
+            "ORDER BY u.UrunKodu").arg(limit));
         query.bindValue(":aramaLike", "%" + aramaTrim + "%");
     }
 

@@ -55,6 +55,9 @@ public:
     //   firmaAdresi, ilgiliKisi, ilgiliKisiTelefonu, ilgiliKisiEposta,
     //   teslimatSekli, teslimatYeri, personelAdSoyad, personelTelefon,
     //   dil (TR/EN), paraBirimi (string: TL/USD/EUR), olusturmaTarihi (string, dd.MM.yyyy),
+    //   teklifTarihi (QDate): sozlesmedeki {{TARIH}}/{{GECERLILIK_TARIHI}} bu tarihten
+    //             hesaplanir -- PDF ne zaman yeniden basilirsa basilsin gecerlilik
+    //             tarihi teklifin verildigi gune baglidir,
     //   genelIndirimOrani, kdvOrani, indirimliToplam, kdvTutari, genelToplam,
     //   paketlemeUcreti, tasimaUcreti (double),
     //   teslimatTarihi (string, dd.MM.yyyy, OPSIYONEL): planlanan teslim tarihi;
@@ -63,9 +66,11 @@ public:
     //             toplamTutar, urunKodu, urunAciklamasi}>),
     //   kokTeklifNo (int) + revizyonNo (int): belgeye basilacak teklif numarasi
     //             (bkz. teklifNoMetni -- revizyonlarda "1203/Rev.2"),
-    //   durum (string) + guncelRevizyonNo (int, OPSIYONEL): durum "Revize Edildi"
-    //             ise belgenin ustune "gecerli degildir" bandi basilir ve bandda
-    //             yerine gecen revizyonun numarasi yazilir,
+    //   gecersiz (bool) + guncelRevizyonNo (int, OPSIYONEL): teklifin yerine
+    //             zincirde daha yeni bir revizyon gectiyse true; belgenin ustune
+    //             "gecerli degildir" bandi basilir ve bandda yerine gecen
+    //             revizyonun numarasi yazilir. (Durum sutununa degil zincirin
+    //             gercek haline bakilir: yeni revizyon silinmisse bant basilmaz.)
     //   sozlesmeMetni (string, OPSIYONEL): teklifin son sayfasindaki satis
     //             sozlesmesi maddeleri (duz metin, bkz. varsayilanSozlesmeMetni).
     //             Bos birakilirsa dilin varsayilan metni kullanilir.
@@ -82,7 +87,7 @@ public:
     // HTML'e cevirme isi sozlesmeMetniniHtmleCevir'de yapilir.
     static QString varsayilanSozlesmeMetni(bool ingilizce);
 
-    // {{GECERLILIK_TARIHI}} gun sayisi verilmeden yazildiginda bugune eklenen gun.
+    // {{GECERLILIK_TARIHI}} gun sayisi verilmeden yazildiginda teklif tarihine eklenen gun.
     static constexpr int kVarsayilanGecerlilikGunu = 3;
 
     // Sozlesme metnindeki teklife bagli isaretleri doldurur (metin kullanici
@@ -95,24 +100,19 @@ public:
     //   Degiskenler:
     //     {{PARA_BIRIMI}} (ör. "Amerikan Doları (USD)"), {{PARA_KODU}} (USD/EUR/TL),
     //     {{KDV_DURUMU}} ("%20 KDV dahildir" / "KDV hariçtir"), {{KDV_ORANI}},
-    //     {{TARIH}} (bugun), {{GECERLILIK_TARIHI}} (bugun + kVarsayilanGecerlilikGunu),
-    //     {{GECERLILIK_TARIHI+N}} (bugun + N gun), {{TESLIMAT_SEKLI}}, {{TESLIMAT_YERI}}.
-    // Tarihler TR'de dd.MM.yyyy, EN'de dd/MM/yyyy yazilir.
+    //     {{TARIH}} (teklif tarihi), {{GECERLILIK_TARIHI}} (teklif tarihi +
+    //     kVarsayilanGecerlilikGunu), {{GECERLILIK_TARIHI+N}} (teklif tarihi + N gun),
+    //     {{TESLIMAT_SEKLI}}, {{TESLIMAT_YERI}}.
+    // "teklifTarihi": kayitli teklifte OlusturmaTarihi, henuz kaydedilmemis
+    // formda bugun. Tarihler TR'de dd.MM.yyyy, EN'de dd/MM/yyyy yazilir.
     static QString sozlesmeDegiskenleriniUygula(const QString &metin, const QVariantMap &veri,
-                                                bool ingilizce, const QDate &bugun);
+                                                bool ingilizce, const QDate &teklifTarihi);
 
     // varsayilanSozlesmeMetni'nde anlatilan duz metin bicimini, teklif.html'deki
     // {{SOZLESME_MADDELERI}} yer tutucusuna girecek <ol>/<ul> yapisina cevirir.
     // Metin HTML olarak kacislanir -- kullanicinin yazdigi "&" veya "<" gibi
     // karakterler sablonu bozmaz.
     static QString sozlesmeMetniniHtmleCevir(const QString &metin);
-
-    // "veri" anahtarlari (Database::satisSozlesmesiOlustur tarafindan doldurulur):
-    //   firmaAdi, firmaAdresi, ilgiliKisi, teslimatSekli, teslimatYeri,
-    //   paraBirimi, dil (TR/EN), genelToplam (double),
-    //   kalemler (QVariantList<QVariantMap{aciklama, adet, indirimliBirimFiyat, toplamTutar}>)
-    // Donen: {basarili (bool), dosyaYolu (onizleme PDF'i), dosyaAdi, hata (string)}.
-    QVariantMap satisSozlesmesiUret(const QVariantMap &veri);
 
     // Teknik ekibe verilecek URETIM PDF'i. teklifPdfUret ile ayni "veri"
     // haritasini ve ayni antetli sablonu (teklif.html) kullanir, ancak:
@@ -153,9 +153,6 @@ private:
                                 double genelIndirimOrani, double &rawToplamOut,
                                 const QString &paraBirimi) const;
 
-    // Satis sozlesmesi urun kalemleri icin <tr> satirlarini uretir.
-    QString sozlesmeKalemSatirlariUret(const QVariantList &kalemler, const QString &paraBirimi) const;
-
     // Toplam blogu satirlarini uretir (indirim/KDV/paketleme/tasima sadece
     // degeri > 0 ise gosterilir).
     QString toplamSatirlariUret(bool indirimVar, bool kdvVar, bool paketlemeVar, bool tasimaVar,
@@ -186,6 +183,10 @@ private:
     // gore dogru sembolu (₺/$/€) sonuna ekler -- ekrandaki (TeklifVerPage.qml
     // paraFormat + paraBirimiSembol) ile ayni gosterim kurali.
     static QString paraFormati(double tutar, const QString &paraBirimi);
+
+    // Yuzde oranini gereksiz sifirlar olmadan yazar: 20 -> "20", 7.5 -> "7,5"
+    // (EN'de "7.5"). Eskiden 'f',0 ile yuvarlaniyordu ve %7,5 indirim "%8" basiliyordu.
+    static QString oranMetni(double oran, bool ingilizce);
 
     // Dosya adindaki yasak karakterleri "_" yapar.
     static QString dosyaAdiTemizle(const QString &ad);

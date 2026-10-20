@@ -21,6 +21,8 @@
 #include <QFileInfo>
 #include <QCryptographicHash>
 
+#include <cmath>
+
 TeklifPdfOlusturucu::~TeklifPdfOlusturucu() = default;
 
 TeklifPdfOlusturucu::TeklifPdfOlusturucu(QObject *parent) : QObject(parent)
@@ -220,27 +222,6 @@ QString TeklifPdfOlusturucu::kalemSatirlariUret(const QVariantList &kalemler, bo
     return html;
 }
 
-QString TeklifPdfOlusturucu::sozlesmeKalemSatirlariUret(const QVariantList &kalemler, const QString &paraBirimi) const
-{
-    QString html;
-    for (const QVariant &kalemVar : kalemler)
-    {
-        const QVariantMap k = kalemVar.toMap();
-        html += QStringLiteral(
-            "<tr>"
-            "<td>%1</td>"
-            "<td class='orta'>%2</td>"
-            "<td class='sag'>%3</td>"
-            "<td class='sag'>%4</td>"
-            "</tr>")
-            .arg(k.value("aciklama").toString().toHtmlEscaped())
-            .arg(k.value("adet").toInt())
-            .arg(paraFormati(k.value("indirimliBirimFiyat").toDouble(), paraBirimi))
-            .arg(paraFormati(k.value("toplamTutar").toDouble(), paraBirimi));
-    }
-    return html;
-}
-
 QString TeklifPdfOlusturucu::varsayilanSozlesmeMetni(bool ingilizce)
 {
     // ONEMLI: Bu maddeler eskiden teklif.html/teklif_en.html icine GOMULU idi ve
@@ -295,7 +276,7 @@ QString TeklifPdfOlusturucu::varsayilanSozlesmeMetni(bool ingilizce)
 }
 
 QString TeklifPdfOlusturucu::sozlesmeDegiskenleriniUygula(const QString &metin, const QVariantMap &veri,
-                                                          bool ingilizce, const QDate &bugun)
+                                                          bool ingilizce, const QDate &teklifTarihi)
 {
     const QString paraBirimi = veri.value("paraBirimi").toString().trimmed().toUpper();
     const double kdvOrani = veri.value("kdvOrani").toDouble();
@@ -343,9 +324,7 @@ QString TeklifPdfOlusturucu::sozlesmeDegiskenleriniUygula(const QString &metin, 
     else
         paraBirimiAdi = ingilizce ? QStringLiteral("Turkish Lira (TRY)") : QStringLiteral("Türk Lirası (TL)");
 
-    static const QLocale trLocale(QLocale::Turkish, QLocale::Turkey);
-    static const QLocale enLocale(QLocale::English, QLocale::UnitedStates);
-    const QString kdvOraniYazi = (ingilizce ? enLocale : trLocale).toString(kdvOrani, 'g', 4);
+    const QString kdvOraniYazi = oranMetni(kdvOrani, ingilizce);
     const QString kdvDurumu = kdvDahil
         ? (ingilizce ? QStringLiteral("including %1% VAT").arg(kdvOraniYazi)
                      : QStringLiteral("%%1 KDV dahildir").arg(kdvOraniYazi))
@@ -357,11 +336,11 @@ QString TeklifPdfOlusturucu::sozlesmeDegiskenleriniUygula(const QString &metin, 
     sonuc.replace(QStringLiteral("{{PARA_KODU}}"), paraBirimi.isEmpty() ? QStringLiteral("TL") : paraBirimi);
     sonuc.replace(QStringLiteral("{{KDV_ORANI}}"), kdvOraniYazi);
     sonuc.replace(QStringLiteral("{{KDV_DURUMU}}"), kdvDurumu);
-    sonuc.replace(QStringLiteral("{{TARIH}}"), bugun.toString(tarihBicimi));
+    sonuc.replace(QStringLiteral("{{TARIH}}"), teklifTarihi.toString(tarihBicimi));
     sonuc.replace(QStringLiteral("{{TESLIMAT_SEKLI}}"), veri.value("teslimatSekli").toString().trimmed());
     sonuc.replace(QStringLiteral("{{TESLIMAT_YERI}}"), veri.value("teslimatYeri").toString().trimmed());
 
-    // {{GECERLILIK_TARIHI}} = bugun + varsayilan gun; {{GECERLILIK_TARIHI+N}} = bugun + N gun.
+    // {{GECERLILIK_TARIHI}} = teklif tarihi + varsayilan gun; {{GECERLILIK_TARIHI+N}} = teklif tarihi + N gun.
     static const QRegularExpression gecerlilikDeseni(QStringLiteral("\\{\\{GECERLILIK_TARIHI(?:\\s*\\+\\s*(\\d{1,4}))?\\}\\}"));
     QString doldurulmus;
     qsizetype son = 0;
@@ -371,7 +350,7 @@ QString TeklifPdfOlusturucu::sozlesmeDegiskenleriniUygula(const QString &metin, 
         const QRegularExpressionMatch m = it.next();
         const int gun = m.captured(1).isEmpty() ? kVarsayilanGecerlilikGunu : m.captured(1).toInt();
         doldurulmus += sonuc.mid(son, m.capturedStart() - son);
-        doldurulmus += bugun.addDays(gun).toString(tarihBicimi);
+        doldurulmus += teklifTarihi.addDays(gun).toString(tarihBicimi);
         son = m.capturedEnd();
     }
     doldurulmus += sonuc.mid(son);
@@ -439,7 +418,15 @@ QString TeklifPdfOlusturucu::toplamSatirlariUret(bool indirimVar, bool kdvVar, b
                                                   double kdvTutari, double paketlemeUcreti, double tasimaUcreti,
                                                   double genelToplam, bool ingilizce, const QString &paraBirimi) const
 {
-    const QString etkToplamFiyat = ingilizce ? QStringLiteral("Total Price") : QStringLiteral("Toplam Fiyat");
+    // Indirim varken kalem tablosunun "Toplam Fiyat" sutunu INDIRIMLI satir
+    // toplamlarini gosterir; alttaki ilk satir ayni adi tasirsa (eskiden oyleydi)
+    // musteri sutunu toplayip o rakami tutturamazdi. Bu yuzden indirimde ilk satir
+    // "İndirimsiz Toplam" adini alir, ardindan indirim tutari ayri satirda yazilir
+    // ve "İndirimli Toplam" sutunun toplamina esit olur.
+    const QString etkToplamFiyat = indirimVar
+        ? (ingilizce ? QStringLiteral("Total Before Discount") : QStringLiteral("İndirimsiz Toplam"))
+        : (ingilizce ? QStringLiteral("Total Price") : QStringLiteral("Toplam Fiyat"));
+    const QString etkIndirim = ingilizce ? QStringLiteral("Discount") : QStringLiteral("İndirim");
     const QString etkIndirimliToplamEtk = ingilizce ? QStringLiteral("Discounted Total") : QStringLiteral("İndirimli Toplam");
     const QString etkKdv = ingilizce ? QStringLiteral("VAT") : QStringLiteral("KDV");
     const QString etkPaketleme = ingilizce ? QStringLiteral("Packaging Fee") : QStringLiteral("Paketleme Ücreti");
@@ -454,18 +441,26 @@ QString TeklifPdfOlusturucu::toplamSatirlariUret(bool indirimVar, bool kdvVar, b
             .arg(satirSinifi, etiket, deger);
     };
 
-    // Sira SABIT: Toplam Fiyat -> (varsa) Indirimli Toplam -> (varsa) Paketleme ->
-    // (varsa) Tasima -> (varsa) KDV -> Genel Toplam (her zaman, en altta, kalin).
+    // Sira SABIT: Toplam Fiyat (indirimde: Indirimsiz Toplam -> Indirim -> Indirimli
+    // Toplam) -> (varsa) Paketleme -> (varsa) Tasima -> (varsa) KDV -> Genel Toplam
+    // (her zaman, en altta, kalin).
     satirEkle(etkToplamFiyat, paraFormati(rawToplam, paraBirimi), false);
     if (indirimVar)
-        satirEkle(etkIndirimliToplamEtk + QStringLiteral("(%") + QString::number(genelIndirimOrani, 'f', 0) + QStringLiteral(")"),
-                   paraFormati(indirimliToplam, paraBirimi), false);
+    {
+        // Indirim tutari, gosterilen iki toplamin farkidir: satirlar kurus
+        // duzeyinde yuvarlandigi icin "toplam x oran" ile birkac kurus
+        // farkedebilir; fark alinirsa uc satir kendi icinde her zaman tutar.
+        const double indirimTutari = std::round((rawToplam - indirimliToplam) * 100.0) / 100.0;
+        satirEkle(etkIndirim + QStringLiteral(" (%") + oranMetni(genelIndirimOrani, ingilizce) + QStringLiteral(")"),
+                   QStringLiteral("-") + paraFormati(indirimTutari, paraBirimi), false);
+        satirEkle(etkIndirimliToplamEtk, paraFormati(indirimliToplam, paraBirimi), false);
+    }
     if (paketlemeVar)
         satirEkle(etkPaketleme, paraFormati(paketlemeUcreti, paraBirimi), false);
     if (tasimaVar)
         satirEkle(etkTasima, paraFormati(tasimaUcreti, paraBirimi), false);
     if (kdvVar)
-        satirEkle(etkKdv + QStringLiteral("(%") + QString::number(kdvOrani, 'f', 0) + QStringLiteral(")"),
+        satirEkle(etkKdv + QStringLiteral(" (%") + oranMetni(kdvOrani, ingilizce) + QStringLiteral(")"),
                    paraFormati(kdvTutari, paraBirimi), false);
     satirEkle(etkGenelToplam, paraFormati(genelToplam, paraBirimi), true);
 
@@ -572,6 +567,24 @@ QString TeklifPdfOlusturucu::paraFormati(double tutar, const QString &paraBirimi
     return trLocale.toString(tutar, 'f', 2) + QStringLiteral(" ") + sembol;
 }
 
+QString TeklifPdfOlusturucu::oranMetni(double oran, bool ingilizce)
+{
+    static const QLocale trLocale(QLocale::Turkish, QLocale::Turkey);
+    static const QLocale enLocale(QLocale::English, QLocale::UnitedStates);
+    const QLocale &locale = ingilizce ? enLocale : trLocale;
+    QString metin = locale.toString(oran, 'f', 2);
+    // "7,50" -> "7,5", "20,00" -> "20"
+    const QChar ayrac = locale.decimalPoint().at(0);
+    if (metin.contains(ayrac))
+    {
+        while (metin.endsWith(QLatin1Char('0')))
+            metin.chop(1);
+        if (metin.endsWith(ayrac))
+            metin.chop(1);
+    }
+    return metin;
+}
+
 QString TeklifPdfOlusturucu::dosyaAdiTemizle(const QString &ad)
 {
     QString temiz = ad;
@@ -671,7 +684,7 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
         QStringLiteral("<th class='sag'>%1</th>").arg(etkBirimFiyat);
     if (indirimVar)
         kalemBaslikHtml += QStringLiteral("<th class='sag'>%1(%%2)</th>")
-            .arg(etkIndirimliBirimFiyat, QString::number(genelIndirimOrani, 'f', 0));
+            .arg(etkIndirimliBirimFiyat, oranMetni(genelIndirimOrani, ingilizce));
     kalemBaslikHtml += QStringLiteral("<th class='sag'>%1</th>").arg(etkToplamFiyat);
 
     double rawToplam = 0.0;
@@ -730,12 +743,12 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
         kolonGrubu += QStringLiteral("<col/>");
 
     // --- "Bu teklif revize edilmistir" bandi ---------------------------------
-    // Teklif revize edildiyse (yerine yeni bir revizyon gectiyse) durumu
-    // "Revize Edildi"dir. Boyle bir teklifin PDF'i yine de uretilebilir (arsiv /
-    // yanlislikla), ama belgenin kendisi gecersiz oldugunu soylemelidir -- yoksa
-    // musterinin elinde ayni teklifin iki gecerli surumu varmis gibi gorunur.
+    // Teklifin yerine zincirde yeni bir revizyon gectiyse (bkz. "gecersiz").
+    // Boyle bir teklifin PDF'i yine de uretilebilir (arsiv / yanlislikla), ama
+    // belgenin kendisi gecersiz oldugunu soylemelidir -- yoksa musterinin elinde
+    // ayni teklifin iki gecerli surumu varmis gibi gorunur.
     QString revizyonUyarisiHtml;
-    if (veri.value("durum").toString() == QStringLiteral("Revize Edildi"))
+    if (veri.value("gecersiz").toBool())
     {
         const int guncelRevizyonNo = veri.value("guncelRevizyonNo", 0).toInt();
         const int kokTeklifNo = veri.value("kokTeklifNo", teklifId).toInt();
@@ -770,11 +783,14 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
     // Son sayfadaki satis sozlesmesi maddeleri: teklife ozel bir metin
     // kaydedilmisse o, kaydedilmemisse dilin fabrika varsayilani kullanilir.
     // Metindeki {{DEGISKEN}}/[KOSUL] isaretleri bu teklifin para birimi, KDV,
-    // nakliye secimleri ve bilgisayarin bugunku tarihiyle doldurulur.
+    // nakliye secimleri ve TEKLIFIN VERILDIGI tarihle doldurulur -- PDF'in
+    // basildigi gunle degil: aksi halde eski bir teklif her yeniden basildiginda
+    // gecerlilik suresi ileri kayardi.
     const QString sozlesmeMetni = veri.value("sozlesmeMetni").toString().trimmed();
+    const QDate teklifTarihi = veri.value("teklifTarihi").toDate();
     degerler["SOZLESME_MADDELERI"] = sozlesmeMetniniHtmleCevir(sozlesmeDegiskenleriniUygula(
         sozlesmeMetni.isEmpty() ? varsayilanSozlesmeMetni(ingilizce) : sozlesmeMetni,
-        veri, ingilizce, QDate::currentDate()));
+        veri, ingilizce, teklifTarihi.isValid() ? teklifTarihi : QDate::currentDate()));
 
     const QString html = yerKoyucuDoldur(sablon, degerler);
 
@@ -847,6 +863,7 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
 
     const bool teklifIngilizce = veri.value("dil").toString().compare("EN", Qt::CaseInsensitive) == 0;
     const QVariantList kalemler = veri.value("kalemler").toList();
+    const bool teklifTamamlandi = veri.value("durum").toString() == QStringLiteral("Tamamlandı");
 
     // --- Kalemler: fiyat yok; kod/aciklama/adet + SATIR BAZLI uretim durumu ---
     // Teklifin tamami icin tek bir "bitti" bilgisi yetmiyor: 5 kalemlik bir
@@ -869,7 +886,10 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
         const QString aciklama = (teklifIngilizce && !manuelMi && !katalogTr.trimmed().isEmpty())
             ? katalogTr : k.value("urunAciklamasi").toString();
 
-        const bool tamamlandi = k.value("tamamlandi").toBool();
+        // Teklif "Tamamlandı" ise tum kalemler bitmis sayilir. Bu bilgi kalemlere
+        // YAZILMAZ (bkz. Database::teklifDurumGuncelle): tamamlanma geri alinirsa
+        // kalemlerin gercek uretim durumu kaybolmasin.
+        const bool tamamlandi = teklifTamamlandi || k.value("tamamlandi").toBool();
         const QString kalemNotu = k.value("uretimNotu").toString().trimmed();
 
         // Tamamlanmis satir zebra yerine acik yesil zeminle isaretlenir --
@@ -952,10 +972,9 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
 
     QVariantMap degerler;
     degerler["BASLIK"] = QStringLiteral("ÜRETİM FORMU");
-    // Revize edilmis bir teklifin uretim formu -- normalde olusmaz (kilitli
-    // teklifler otomatik revize isaretlenmez) ama kullanici durumu elle
-    // degistirmisse, uretime gecersiz bir form gitmemesi icin bant basilir.
-    degerler["REVIZYON_UYARISI"] = veri.value("durum").toString() == QStringLiteral("Revize Edildi")
+    // Yerine yeni revizyon gecmis bir teklifin uretim formu -- uretime gecersiz
+    // bir form gitmemesi icin bant basilir.
+    degerler["REVIZYON_UYARISI"] = veri.value("gecersiz").toBool()
         ? QString::fromUtf8("<div class='revize-uyari'>BU TEKLİF REVİZE EDİLMİŞTİR — "
                             "ÜRETİME BAŞLAMADAN ÖNCE GÜNCEL REVİZYONU KONTROL EDİN.</div>")
         : QString();
@@ -976,88 +995,4 @@ QVariantMap TeklifPdfOlusturucu::uretimPdfUret(int teklifId, const QString &firm
         .arg(teklifNoMetni(teklifId, veri, true), dosyaAdiTemizle(firmaAdi));
 
     return onizlemeyeBas(html, dosyaAdi, QMarginsF(0, 0, 0, 0));
-}
-
-QVariantMap TeklifPdfOlusturucu::satisSozlesmesiUret(const QVariantMap &veri)
-{
-    QVariantMap sonuc;
-    sonuc["basarili"] = false;
-    sonuc["dosyaYolu"] = QString();
-    sonuc["hata"] = QString();
-
-    QString hata;
-    const QString sablon = sabloniOku(QStringLiteral("satis_sozlesmesi.html"), hata);
-    if (sablon.isEmpty())
-    {
-        sonuc["hata"] = hata;
-        return sonuc;
-    }
-
-    const QString firmaAdi = veri.value("firmaAdi").toString();
-    const QString firmaAdresi = veri.value("firmaAdresi").toString();
-    const QVariantList kalemler = veri.value("kalemler").toList();
-    const QString paraBirimi = veri.value("paraBirimi").toString();
-    const QString ilgiliKisi = veri.value("ilgiliKisi").toString();
-    const QString teslimatSekli = veri.value("teslimatSekli").toString();
-    const QString teslimatYeri = veri.value("teslimatYeri").toString();
-    const double genelToplam = veri.value("genelToplam").toDouble();
-    const bool ingilizce = veri.value("dil").toString().compare("EN", Qt::CaseInsensitive) == 0;
-
-    const QString bugununTarihi = QDateTime::currentDateTime().toString("dd.MM.yyyy");
-
-    const QString baslikHtml = ingilizce ? QStringLiteral("SALES AGREEMENT") : QStringLiteral("SATIŞ SÖZLEŞMESİ");
-    const QString etkTarih = ingilizce ? QStringLiteral("Date") : QStringLiteral("Tarih");
-    const QString etkSatici = ingilizce ? QStringLiteral("Seller") : QStringLiteral("Satıcı");
-    const QString etkAlici = ingilizce ? QStringLiteral("Buyer") : QStringLiteral("Alıcı");
-    const QString etkIlgiliKisi = ingilizce ? QStringLiteral("Contact Person") : QStringLiteral("İlgili Kişi");
-    const QString etkAcikMetin = ingilizce
-        ? QStringLiteral("The products/services listed below are subject to sale under terms mutually agreed by the parties:")
-        : QStringLiteral("Aşağıda belirtilen ürün/hizmetler, taraflar arasında mutabık kalınan şartlarla satışa konu edilmiştir:");
-    const QString etkAciklama = ingilizce ? QStringLiteral("Description") : QStringLiteral("Açıklama");
-    const QString etkAdet = ingilizce ? QStringLiteral("Qty") : QStringLiteral("Adet");
-    const QString etkBirimFiyat = ingilizce ? QStringLiteral("Unit Price") : QStringLiteral("Birim Fiyat");
-    const QString etkToplam = ingilizce ? QStringLiteral("Total") : QStringLiteral("Toplam");
-    const QString etkTeslimatSekli = ingilizce ? QStringLiteral("Delivery Method") : QStringLiteral("Teslimat Şekli");
-    const QString etkTeslimatYeri = ingilizce ? QStringLiteral("Delivery Location") : QStringLiteral("Teslimat Yeri");
-    const QString etkParaBirimi = ingilizce ? QStringLiteral("Currency") : QStringLiteral("Para Birimi");
-    const QString etkGenelToplam = ingilizce ? QStringLiteral("GRAND TOTAL") : QStringLiteral("GENEL TOPLAM");
-    const QString etkKapanis = ingilizce
-        ? QStringLiteral("The parties accept and undertake the terms of this agreement.")
-        : QStringLiteral("Taraflar işbu sözleşme şartlarını kabul ve taahhüt eder.");
-
-    const QString kalemSatirlariHtml = sozlesmeKalemSatirlariUret(kalemler, paraBirimi);
-
-    QVariantMap degerler;
-    degerler["BASLIK"] = baslikHtml;
-    degerler["ETK_TARIH"] = etkTarih;
-    degerler["TARIH"] = bugununTarihi;
-    degerler["ETK_SATICI"] = etkSatici;
-    degerler["SATICI_ADI"] = QStringLiteral("Liya Laboratuvar Cihazları");
-    degerler["ETK_ALICI"] = etkAlici;
-    degerler["ALICI_ADI"] = firmaAdi.toHtmlEscaped();
-    degerler["ALICI_ADRESI"] = firmaAdresi.trimmed().isEmpty() ? QString() : (firmaAdresi.toHtmlEscaped() + QStringLiteral("<br/>"));
-    degerler["ETK_ILGILI_KISI"] = etkIlgiliKisi;
-    degerler["ILGILI_KISI"] = ilgiliKisi.toHtmlEscaped();
-    degerler["ACIK_METIN"] = etkAcikMetin;
-    degerler["ETK_ACIKLAMA"] = etkAciklama;
-    degerler["ETK_ADET"] = etkAdet;
-    degerler["ETK_BIRIM_FIYAT"] = etkBirimFiyat;
-    degerler["ETK_TOPLAM"] = etkToplam;
-    degerler["KALEM_SATIRLARI"] = kalemSatirlariHtml;
-    degerler["ETK_TESLIMAT_SEKLI"] = etkTeslimatSekli;
-    degerler["TESLIMAT_SEKLI"] = teslimatSekli.toHtmlEscaped();
-    degerler["ETK_TESLIMAT_YERI"] = etkTeslimatYeri;
-    degerler["TESLIMAT_YERI"] = teslimatYeri.toHtmlEscaped();
-    degerler["ETK_PARA_BIRIMI"] = etkParaBirimi;
-    degerler["PARA_BIRIMI"] = paraBirimi;
-    degerler["ETK_GENEL_TOPLAM"] = etkGenelToplam;
-    degerler["GENEL_TOPLAM"] = paraFormati(genelToplam, paraBirimi);
-    degerler["ETK_KAPANIS"] = etkKapanis;
-
-    const QString html = yerKoyucuDoldur(sablon, degerler);
-
-    const QString dosyaAdi = QStringLiteral("Satis_Sozlesmesi_%1_%2.pdf")
-        .arg(dosyaAdiTemizle(firmaAdi), QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
-
-    return onizlemeyeBas(html, dosyaAdi, QMarginsF(15, 15, 15, 15));
 }

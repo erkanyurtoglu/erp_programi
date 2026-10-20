@@ -69,6 +69,10 @@ public:
     // "arama" bir Teklif No ise ("1203", "1203/Rev.2", "1203/2", "1203 R2")
     // numaraya gore bulunur: "1203" kok teklifi ve tum revizyonlarini getirir.
     // "toplamKayit" (int), "toplamSayfa" (int), "mevcutSayfa" (int).
+    // Her kayitta ayrica "paraBirimi" (string) ve "genelToplam" (double, KDV dahil,
+    // teklifin kendi para biriminde) bulunur. durumFiltresi doluysa (Alınan/Biten)
+    // "paraBirimiToplamlari" (QVariantList<{paraBirimi, toplam}>) filtreye uyan
+    // TUM kayitlarin para birimi bazinda genel toplamini tasir; bossa liste bostur.
     Q_INVOKABLE QVariantMap gecmisTekliflerGetir(const QString &arama,
                                                   const QString &tarihFiltresi,
                                                   const QString &baslangicTarihi,
@@ -87,7 +91,12 @@ public:
     // Teklif bulunamazsa id'nin kendisi doner.
     Q_INVOKABLE QString teklifNoGetir(int teklifId);
 
-    // Tek bir teklifi kalicalarak siler. Basariliysa true doner.
+    // Tek bir teklifi kalici olarak siler. Basariliysa true doner; degilse
+    // sebebi sonHataMesaji()'ndadir. Kabul edilmis/tamamlanmis teklif ve
+    // revizyonlari olan kok teklif silinemez (once revizyonlar silinmelidir).
+    // Silinen kayit zincirin EN SON revizyonuysa, yeniden zincirin sonu olan
+    // onceki surum "Revize Edildi"den "Beklemede"ye alinir (yine gecerli olur).
+    // Teklife ozel "MANUEL-<teklifId>" urun satirlari da temizlenir.
     Q_INVOKABLE bool teklifSil(int teklifId);
 
     // Teklif Ver ekrani: musteri/urun arama (canli, kucuk sonuc kumesi -- LIKE ile
@@ -149,14 +158,25 @@ public:
     //             (teklif_durum_gecmisi.Aciklama) eklenir; Teklif Gecmisi'nde gorunur.
     //
     // REVIZYON = ESKISINI GECERSIZ KILAR: bir revizyon kaydedildiginde ayni koke
-    // bagli ONCEKI teklifler (kok + eski revizyonlar) "Revize Edildi" durumuna
-    // alinir. Boylece musteriye gonderilmis eski teklif ile yeni revizyon ayni
-    // anda gecerliymis gibi gorunmez; eski kayit listede ayirt edilir ve PDF'i
-    // yeniden uretilirse ustune "gecerli degildir" bandi basilir. Kilitli
-    // (Kabul Edildi / Tamamlandı) teklifler bu isaretlemenin DISINDADIR.
+    // bagli ONCEKI teklifler (kok + eski revizyonlar) -- Beklemede, Kabul Edildi
+    // veya Reddedildi olsun -- "Revize Edildi" durumuna alinir. Boylece ayni
+    // teklifin iki surumu ayni anda gecerli (ör. biri kabul edilmis, digeri
+    // beklemede) gorunemez; kabul edilmis bir teklif revize edildiyse yeni
+    // revizyonun yeniden kabul edilmesi gerekir. Eski kayit listede ayirt edilir
+    // ve PDF'i yeniden uretilirse ustune "gecerli degildir" bandi basilir.
+    //
+    // REVIZYON YALNIZCA GUNCEL SURUMDEN: yerine zaten yeni bir revizyon gecmis
+    // bir tekliften revizyon alinamaz (eski icerikten guncel surum sessizce ezilmesin).
     //
     // TAMAMLANMIS IS REVIZE EDILEMEZ: zincirde "Tamamlandı" durumunda bir teklif
     // varsa revizyon reddedilir; once durum "Beklemede"ye geri alinmalidir.
+    //
+    // Indirim/KDV orani 0-100 arasinda, adet en az 1, tutarlar negatif olmamalidir;
+    // dovizli teklifte her kalemin kuru 1'den buyuk olmalidir; kalem ve toplam
+    // tutarlari sunucuda ayni kurallarla yeniden hesaplanip (1 kurus tolerans)
+    // dogrulanir. Aksi halde kayit yapilmaz (bkz. teklifVerisiniDenetle).
+    //
+    // Revizyonda zincirdeki en guncel sevk/irsaliye kaydi yeni revizyona kopyalanir.
     // Donen QVariantMap: "basarili" (bool), "teklifId" (int), "teklifNo" (string),
     //   "hata" (string), "revizeEdilenTeklifIdler" (QVariantList<int>, bu kayit yuzunden
     //   "Revize Edildi" durumuna alinan eski tekliflerin id'leri; bos olabilir).
@@ -209,7 +229,18 @@ public:
     //             uretimNotu (string, o satira ozel uretim notu)}>),
     //   "sozlesmeMetni" (string; teklife ozel bir sozlesme metni kaydedilmemisse bos),
     //   "musteriNotu" (string, teklif notu), "uretimNotu" (string),
-    //   "teslimatTarihi" (string, "yyyy-MM-dd" veya bos), "durum" (string).
+    //   "teslimatTarihi" (string, "yyyy-MM-dd" veya bos), "durum" (string),
+    //   "guncelSurum" (bool; false ise yerine yeni bir revizyon gecmistir --
+    //             ekran salt goruntulemedir), "guncelTeklifNo" (string),
+    //   "kurBilinmiyor" (bool; dovizli teklifte kayitli kur yok/gecersiz -- eski
+    //             programdan gocen tekliflerde Kur=1 yazilmistir). Bu durumda TL
+    //             karsiliklari HESAPLANAMAZ; ekran kalemlerdeki doviz fiyatlarini
+    //             ("birimFiyatDoviz", "maliyetDoviz", "paketlemeUcretiDoviz",
+    //             "tasimaUcretiDoviz") koruyup TL'yi guncel kurla hesaplar.
+    //   "kayitliToplamVar" (bool), "kayitliIndirimliToplam", "kayitliKdvTutari",
+    //   "kayitliGenelToplam" (double, teklifin para biriminde): veritabanindaki
+    //             (PDF'e basilan) toplamlar -- ekran eski KDV kuraliyla kaydedilmis
+    //             teklifi tespit edip kayitli tutari gosterebilsin diye.
     //
     // AYNI metot "Kopya" akisinda da kullanilir (bkz. TeklifVerPage.kopyalamayaBasla):
     // orada donen veri ayni sekilde forma doldurulur, ancak musteriye/teklife ozel
@@ -274,12 +305,15 @@ public:
     // dbo.teklif_durum_gecmisi tablosuna loglanir (bkz. db/05_teklif_durum_gecmisi.sql).
     // Loglama "best effort"tur: tablo yoksa/yazilamazsa durum guncellemesi yine basarili sayilir.
     //
+    // ISTISNA: "Tamamlandı"ya yalnizca "Kabul Edildi"den gecilir; kabul edilmemis
+    // teklif tamamlanamaz (false doner, sebep sonHataMesaji()'nda).
+    //
     // redSebebi yalnizca "Reddedildi" gecisinde kullanilir; kullaniciId 0 ise log
     // satirina NULL yazilir.
     //
-    // REVIZE EDILMIS TEKLIF DEGISTIRILEMEZ: durumu "Revize Edildi" olan ve zincirde
-    // kendisinden daha yeni bir revizyonu BULUNAN teklif icin bu metot false doner
-    // (sebep sonHataMesaji()'nda). Aksi halde teklifin eski surumu "Kabul Edildi"
+    // REVIZE EDILMIS TEKLIF DEGISTIRILEMEZ: zincirde kendisinden daha yeni bir
+    // revizyonu BULUNAN teklif icin -- durum sutunu ne olursa olsun -- bu metot
+    // false doner (sebep sonHataMesaji()'nda). Aksi halde teklifin eski surumu "Kabul Edildi"
     // olurken guncel surumu "Beklemede" kalabilir, yani ayni teklifin iki fiyatli
     // surumu ayni anda gecerli gorunurdu. Yeni revizyon silinmisse kayit yeniden
     // zincirin sonu olur ve normal sekilde islenebilir.
@@ -400,14 +434,6 @@ public:
     // TeklifPdfOlusturucu::motoruHazirla. main.cpp'de pencere acilmadan cagrilir.
     void pdfMotorunuHazirla() { m_pdfOlusturucu.motoruHazirla(); }
 
-    // Teklif Ver ekranindaki "Satış Sözleşmesi" butonu icin: HENUZ KAYDEDILMEMIS
-    // (formda doldurulmus) teklif verisinden basit bir satis sozlesmesi PDF'i
-    // uretir -- teklifin veritabaninda var olmasini gerektirmez. "teklif" ayni
-    // teklifKaydet() anahtarlarini kullanir (musteriId yerine musteriAdi da
-    // kabul edilir, cunku musteri henuz kaydedilmemis/secilmemis olabilir).
-    // Donen: {basarili, dosyaYolu, hata}.
-    Q_INVOKABLE QVariantMap satisSozlesmesiOlustur(const QVariantMap &teklif);
-
     // ------------------------------------------------------------------
     // Satis sozlesmesi metni (teklif PDF'inin son sayfasindaki maddeler).
     //
@@ -425,12 +451,11 @@ public:
     // Teklife kayitli metni doner; yoksa (veya teklif henuz kaydedilmemisse,
     // yani teklifId <= 0 ise) dilin varsayilan metnini doner -- pencere her
     // durumda dolu acilir.
+    // NOT: Kayitli bir teklifin sozlesme metni YERINDE guncellenmez. Sozlesme
+    // ticari icerigin parcasidir; degisikligi teklifin geri kalaniyla birlikte
+    // ya duzeltme (iz birakarak, bkz. teklifDuzelt) ya da revizyon olarak
+    // kaydedilir.
     Q_INVOKABLE QString teklifSozlesmeMetniGetir(int teklifId, const QString &dil);
-
-    // Kayitli bir teklifin sozlesme metnini gunceller ("Satış Sözleşmesi"
-    // penceresi, Giden Tekliflerim -> Detay akisinda acildiginda). metin bos
-    // ise sutun NULL'lanir (varsayilana doner). Basariliysa true.
-    Q_INVOKABLE bool teklifSozlesmeMetniKaydet(int teklifId, const QString &metin);
 
     // "Satış Sözleşmesi" penceresi metni PDF'teki haliyle (numarali maddeler,
     // [KOSUL]'u tutmayan satirlar gizli, {{DEGISKEN}}'ler dolu) duzenletir.
@@ -543,6 +568,11 @@ private:
     // cagiranin isidir.
     bool teklifIceriginiYaz(int teklifId, const QVariantMap &teklif, QString &hataOut);
 
+    // teklifKaydet (revizyon): zincirde sevk/irsaliye kaydi olan en guncel
+    // surumun kaydini yeni revizyona kopyalar (kayit yoksa hicbir sey yapmaz).
+    // Acik transaction icinde cagrilmalidir; hata olursa false + hataOut.
+    bool sevkBilgileriniRevizyonaKopyala(int kokTeklifId, int yeniTeklifId, QString &hataOut);
+
     // teklifDuzelt / teklifDuzeltilebilirMi'nin ortak kurali. Duzeltilemiyorsa
     // sebebi hataOut'a yazar.
     bool duzeltmeKuraliniDenetle(int teklifId, QString &hataOut);
@@ -578,9 +608,13 @@ private:
     QString teklifNoSql(const QString &alias) const;
     // Kok teklifin Teklif No'su (revizyon ayni numarayi tasir); bulunamazsa 0.
     int kokTeklifNoGetir(int kokTeklifId);
-    // Yeni (bagimsiz) teklif icin siradaki numara: en buyuk numara + 1. Acik bir
-    // transaction icinde cagrilmalidir; numara verme, ayni anda kaydedilen iki
-    // teklif ayni numarayi almasin diye transaction sonuna kadar kilitlenir.
+    // Teklif/revizyon numarasi verme kilidi (sp_getapplock, transaction sonuna
+    // kadar). Ayni anda kaydedilen iki teklif ayni Teklif No'yu, ayni teklifin
+    // iki revizyonu ayni RevizyonNo'yu almasin diye. Acik bir transaction icinde
+    // cagrilmalidir; basarisizsa false doner ve hataOut doldurulur.
+    bool numaraKilidiAl(QString &hataOut);
+    // Yeni (bagimsiz) teklif icin siradaki numara: en buyuk numara + 1.
+    // numaraKilidiAl'dan SONRA, ayni transaction icinde cagrilmalidir.
     // Basarisizsa 0 doner ve hataOut doldurulur.
     int yeniTeklifNoAl(QString &hataOut);
 

@@ -292,8 +292,14 @@ Item {
                             Layout.preferredWidth: 78
                             Layout.preferredHeight: 28
                             onClicked: {
-                                database.personelAktifDurumDegistir(satir.modelData.kullaniciId, !satir.modelData.aktifMi)
-                                root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
+                                const kullaniciId = satir.modelData.kullaniciId
+                                const yeniAktif = !satir.modelData.aktifMi
+                                sifreDialogu.iste(yeniAktif ? "Personeli Aktif Et" : "Personeli Pasife Al",
+                                                  "\"" + satir.modelData.adSoyad + "\" " + (yeniAktif ? "aktif edilsin mi?" : "pasife alınsın mı?"),
+                                                  yeniAktif ? "Aktif Et" : "Pasife Al", !yeniAktif, function() {
+                                    database.personelAktifDurumDegistir(kullaniciId, yeniAktif)
+                                    root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
+                                })
                             }
                             background: Rectangle {
                                 radius: 5
@@ -365,7 +371,12 @@ Item {
             return secilenler
         }
 
-        onOnaylandi: {
+        // Personel/rol/sifre degisikligi yonetici sifresiyle onaylanir: aksi halde
+        // Satis modulune erisen herkes kendine "Yönetici" rolu verip yonetici
+        // sifresiyle korunan islemleri (ör. teklif silme) acabilirdi.
+        onOnaylandi: sifreDialogu.iste("Personeli Kaydet", "", "Kaydet", false, function() { duzenlemeDialogu.kaydet() })
+
+        function kaydet() {
             const veri = {
                 adSoyad: adSoyadAlani.text,
                 kullaniciAdi: kullaniciAdiAlani.text,
@@ -453,4 +464,7 @@ Item {
             }
         }
     }
+
+    // Personel ekleme/duzenleme/aktif-pasif yonetici sifresiyle onaylanir.
+    SifreOnayDialog { id: sifreDialogu }
 }
