@@ -43,6 +43,15 @@ public:
     //        duzenleme yetkisi olup olmadigini belirtir (roller birlesik/OR'lanmis halde).
     Q_INVOKABLE QVariantMap girisYap(const QString &kullaniciAdi, const QString &sifre);
 
+    // Giris yapmis kullanicinin id'si (giris yapilmamissa 0). Oturumu QML
+    // tarafi da tutuyor (Main.qml "oturum"), ancak bazi is kurallari
+    // SUNUCUDA bilinmek zorunda -- ör. kullanicinin KENDI hesabini pasife
+    // almasini engellemek (bkz. personelAktifDurumDegistir). QML'den gelen bir
+    // kullaniciId'ye guvenmek yerine girisYap'in yazdigi degeri kullaniyoruz.
+    Q_INVOKABLE int aktifKullaniciId() const { return m_aktifKullaniciId; }
+    // "Cikis Yap"ta cagrilir; aktif oturum bilgisini temizler.
+    Q_INVOKABLE void oturumuKapat() { m_aktifKullaniciId = 0; }
+
     // Silme / kayit duzenleme onayi: girilen sifre, aktif ve "Yönetici" (veya goc
     // donemindeki "Göç - Geçici Tam Yetkili") rolundeki herhangi bir kullanicinin
     // sifresiyle eslesiyorsa true (WPF'teki AdminPassword korumasinin karsiligi).
@@ -73,6 +82,8 @@ public:
     // teklifin kendi para biriminde) bulunur. durumFiltresi doluysa (Alınan/Biten)
     // "paraBirimiToplamlari" (QVariantList<{paraBirimi, toplam}>) filtreye uyan
     // TUM kayitlarin para birimi bazinda genel toplamini tasir; bossa liste bostur.
+    // SENKRON yol: sorgu suresince UI thread'i bloke olur. Ekranlar bunun
+    // yerine gecmisTekliflerGetirBaslat'i kullanir (asagiya bkz.).
     Q_INVOKABLE QVariantMap gecmisTekliflerGetir(const QString &arama,
                                                   const QString &tarihFiltresi,
                                                   const QString &baslangicTarihi,
@@ -80,6 +91,22 @@ public:
                                                   int sayfaNo,
                                                   int sayfaBoyutu = 50,
                                                   const QString &durumFiltresi = QString());
+
+    // ASENKRON yol (Giden / Alinan / Biten Tekliflerim). Sorgu, sayfali
+    // listelerle ayni worker thread'i + ayri ODBC baglantisi uzerinde calisir;
+    // sonuc teklifListesiHazir sinyaliyle gelir. Eskiden liste UI thread'inde
+    // senkron cekiliyordu: 3000+ kayitta arama kutusuna yazarken sorgu
+    // (teklif_kalemleri uzerindeki EXISTS + LIKE) saniyelerce surdugu icin
+    // pencere "Yanıt Vermiyor" durumuna dusuyordu.
+    // Donen istek numarasi sonuc sinyalinde aynen geri gelir; ekran YALNIZCA
+    // en son verdigi numarayla donen sonucu basar (bkz. *ListesiGetirBaslat).
+    Q_INVOKABLE int gecmisTekliflerGetirBaslat(const QString &arama,
+                                                const QString &tarihFiltresi,
+                                                const QString &baslangicTarihi,
+                                                const QString &bitisTarihi,
+                                                int sayfaNo,
+                                                int sayfaBoyutu = 50,
+                                                const QString &durumFiltresi = QString());
 
     // TEKLIF NO: kullanicinin gordugu tek numara. Musteriye giden PDF'teki,
     // listedeki ve mesajlardaki numara hep budur: orijinal teklifte "1203",
@@ -346,30 +373,71 @@ public:
     // Donen "liste" QVariantMap'leri gecmisTekliflerGetir ile ayni sekle sahip:
     // "kayitlar", "toplamKayit", "toplamSayfa", "mevcutSayfa".
     // ------------------------------------------------------------------
-    Q_INVOKABLE QVariantMap musteriListesiGetir(const QString &arama, int sayfaNo, int sayfaBoyutu = 50);
+    // "arsivliDahil" true verilirse arsivlenmis (AktifMi = 0) kayitlar da
+    // listelenir -- ekrandaki "Arşivi göster" anahtari icin.
+    //
+    // ASENKRON KARDESI: musteriListesiGetirBaslat. Ekranlar onu kullanir;
+    // bu senkron surum program ici diger cagrilar icin durur.
+    Q_INVOKABLE QVariantMap musteriListesiGetir(const QString &arama, int sayfaNo,
+                                                 int sayfaBoyutu = 50, bool arsivliDahil = false);
 
     // "musteri" anahtarlari: firmaAdi, firmaAdresi, firmaTelefonu, firmaEposta,
-    // vergiDairesi, vergiNumarasi, ilgiliKisi, ilgiliKisiTelefonu.
-    // Donen: {basarili, musteriId, hata}.
+    // vergiDairesi, vergiNumarasi, ilgiliKisi, ilgiliKisiTelefonu. Tum metin
+    // alanlari trim edilir; bos birakilanlar NULL kaydedilir.
+    // E-posta, telefon ve vergi numarasi bicimi dogrulanir (bos olabilirler).
+    //
+    // MUKERRER FIRMA: ayni adda (buyuk/kucuk harf duyarsiz) bir musteri zaten
+    // varsa kayit YAPILMAZ ve donen haritada ayrica "mukerrer" (bool) = true
+    // ile "mukerrerAd" bulunur; ekran kullaniciya "bu isimde musteri var,
+    // devam edilsin mi?" diye sorar. Kullanici onaylarsa ayni harita
+    // "mukerrerOnayi" = true ile tekrar gonderilir ve kayit yapilir.
+    // (Sert UNIQUE kisiti koymuyoruz: ayni ismi tasiyan farkli sube/tuzel
+    // kisilerin ayri musteri olmasi gercek bir ihtiyac.)
+    // Donen: {basarili, musteriId, hata, mukerrer, mukerrerAd}.
     Q_INVOKABLE QVariantMap musteriEkle(const QVariantMap &musteri);
     Q_INVOKABLE QVariantMap musteriGuncelle(int musteriId, const QVariantMap &musteri);
-    // Donen: {basarili, hata}. Bu musteriye ait teklif(ler) varsa FK kisitlamasi
-    // nedeniyle basarisiz olur -- hata alaninda kullaniciya anlasilir mesaj doner.
+    // KALICI silme; yalnizca hicbir teklifte kullanilmamis musteri icin
+    // mumkundur. Teklifi olan musteride FK kisitlamasi devreye girer ve donen
+    // haritada "iliskiliKayitVar" (bool) = true olur -- ekran bu durumda
+    // kullaniciya ARSIVLEMEYI onerir (bkz. musteriArsivDurumDegistir).
+    // Diger hatalar (baglanti kopmasi, zaman asimi, yetki) artik FK ihlaliyle
+    // KARISTIRILMAZ; gercek sebep hata alaninda doner.
+    // Donen: {basarili, hata, iliskiliKayitVar}.
     Q_INVOKABLE QVariantMap musteriSil(int musteriId);
+    // Arsivleme/geri alma: kayit yerinde kalir, yalnizca AktifMi degisir.
+    // Boylece gecmis teklifler etkilenmeden katalog temizlenebilir.
+    // Donen: {basarili, hata}.
+    Q_INVOKABLE QVariantMap musteriArsivDurumDegistir(int musteriId, bool aktif);
 
-    Q_INVOKABLE QVariantMap urunListesiGetir(const QString &arama, int sayfaNo, int sayfaBoyutu = 50);
+    Q_INVOKABLE QVariantMap urunListesiGetir(const QString &arama, int sayfaNo,
+                                              int sayfaBoyutu = 50, bool arsivliDahil = false);
 
     // "urun" anahtarlari: urunKodu, kategori, urunAciklamasi, urunAciklamasiEn,
     // birimFiyat (TL), maliyet (TL). ParaBirimi her zaman 'TL' olarak kaydedilir
     // (goc kararinda alindigi gibi -- fiyatlar tek para biriminde tutulur,
     // USD/EUR gosterimi ekran tarafinda kur ile hesaplanir).
+    //
+    // URUN KODU: opsiyoneldir, ancak girildiyse (a) "MANUEL" onekiyle
+    // baslayamaz -- o onek teklife ozel gecici satirlara ayrilmistir ve bu
+    // kodla kaydedilen urun hicbir listede gorunmez (bkz. manuelKoduMu) --,
+    // (b) baska bir urunde kullanilmis olamaz (bkz. urunKoduKullanimdaMi).
+    //
+    // Tekillik YALNIZCA burada, uygulama seviyesinde saglanir: dbo.urunler
+    // uzerinde tekil bir indeks KURULAMIYOR, cunku "MANUEL-<teklifId>"
+    // satirlari tasarim geregi kendi aralarinda cakisiyor (ayrintili gerekce:
+    // db/14_urun_kodu_tekil.sql). Bu yuzden kontrol ile INSERT arasinda
+    // teorik bir yaris penceresi vardir -- kucuk ekip/tek sunucu kurulumunda
+    // kabul edilmis risk.
     // Donen: {basarili, urunId, hata}.
     Q_INVOKABLE QVariantMap urunEkle(const QVariantMap &urun);
     Q_INVOKABLE QVariantMap urunGuncelle(int urunId, const QVariantMap &urun);
-    // Donen: {basarili, hata}. Bu urunu iceren teklif_kalemleri varsa FK
-    // kisitlamasi nedeniyle basarisiz olur -- hata alaninda kullaniciya
-    // anlasilir mesaj doner.
+    // musteriSil ile ayni kural: KALICI silme yalnizca hicbir teklifte
+    // kullanilmamis urun icin mumkundur, aksi halde "iliskiliKayitVar" = true
+    // doner ve ekran arsivlemeyi onerir.
+    // Donen: {basarili, hata, iliskiliKayitVar}.
     Q_INVOKABLE QVariantMap urunSil(int urunId);
+    // Donen: {basarili, hata}.
+    Q_INVOKABLE QVariantMap urunArsivDurumDegistir(int urunId, bool aktif);
 
     // Teklif Ver ekranindaki sepet satirinda maliyet elle degistirildiginde
     // cagrilir: girilen maliyet yalnizca o teklifin kalemine yazilmaz, urunun
@@ -394,18 +462,40 @@ public:
     // yerine AktifMi bayragi kullaniliyor -- bir personel silinirse ona ait
     // gecmis tekliflerin KullaniciId referansi kirilmasin diye (ON DELETE yok).
     // ------------------------------------------------------------------
-    Q_INVOKABLE QVariantList rolListesiGetir();
+    // Rol listesi ASENKRON gelir (rolListesiHazir sinyali). Senkron surum
+    // kaldirildi: sunucu yogunken bu tek sorgu, Personellerim sekmesine her
+    // gecisde UI thread'ini on saniyelerce bekletiyordu.
+    Q_INVOKABLE void rolListesiGetirBaslat();
+    Q_SIGNAL void rolListesiHazir(const QVariantList &roller);
 
     // "kayitlar" icindeki her personel: kullaniciId, adSoyad, kullaniciAdi,
     // telefon, pozisyon, aktifMi, rolIdListesi (QVariantList<int>), rolAdlari (string, virgullu).
-    Q_INVOKABLE QVariantMap personelListesiGetir(const QString &arama, int sayfaNo, int sayfaBoyutu = 50);
+    // "pasifDahil" false iken yalnizca aktif personel donulur.
+    Q_INVOKABLE QVariantMap personelListesiGetir(const QString &arama, int sayfaNo,
+                                                  int sayfaBoyutu = 50, bool pasifDahil = true);
 
     // "personel" anahtarlari: adSoyad, kullaniciAdi, sifre (bos ise -- sadece
     // guncellemede -- sifre degistirilmez), telefon, pozisyon, rolIdListesi (QVariantList<int>).
+    //
+    // EN AZ BIR ROL ZORUNLUDUR: rolsuz kullanici giris yapabiliyor ama hicbir
+    // modul goremiyordu (kullaniciModulleriniGetir bos doner) -- kullanici
+    // acisindan sebebi anlasilmaz bir "bos program" durumu.
+    //
+    // SIFRE en az SIFRE_ASGARI_UZUNLUK karakter olmalidir ve kullanici basina
+    // rastgele bir tuzla hashlenir (bkz. db/12_personel_sifre_salt.sql).
     // Donen: {basarili, kullaniciId, hata}.
     Q_INVOKABLE QVariantMap personelEkle(const QVariantMap &personel);
     Q_INVOKABLE QVariantMap personelGuncelle(int kullaniciId, const QVariantMap &personel);
-    Q_INVOKABLE bool personelAktifDurumDegistir(int kullaniciId, bool aktif);
+
+    // Pasife alma / aktif etme. Iki korumasi var, cunku ikisinin de sonucu
+    // programdan GERI DONUSU OLMAYAN bir kilitlenme:
+    //   1) Kullanici KENDI hesabini pasife alamaz.
+    //   2) Pasife alma sonrasi sistemde aktif yonetici KALMAYACAKSA islem
+    //      reddedilir -- yoksa yonetici sifresi isteyen hicbir islem (teklif
+    //      silme, personel kaydi, musteri duzenleme) bir daha yapilamazdi.
+    // Donen: {basarili, hata} -- eskiden sadece bool donuyordu ve ekran
+    // basarisizligin sebebini kullaniciya hic gosteremiyordu.
+    Q_INVOKABLE QVariantMap personelAktifDurumDegistir(int kullaniciId, bool aktif);
 
     // Teklif Ver + Giden Tekliflerim ekranlarindan PDF uretimi. SQL sorgularini burada
     // calistirir, sonucu TeklifPdfOlusturucu'ya devreder (HTML/PDF uretiminin tamami
@@ -518,11 +608,53 @@ public:
     // Donen: {basarili (bool), hata (string)}.
     Q_INVOKABLE QVariantMap sevkBilgileriKaydet(int teklifId, const QVariantMap &sevk);
 
+    // ------------------------------------------------------------------
+    // Sayfali listelerin ASENKRON yolu (Musterilerim / Urunlerim / Personellerim).
+    //
+    // Bu uc ekran once *ListesiGetir'i UI thread'inden senkron cagiriyordu:
+    // her arama (350 ms gecikmeli de olsa) ve her sayfa degisimi boyunca
+    // pencere donuyordu. Urun listesinde nvarchar(MAX) sutunlar yuzunden bu
+    // sure saniyelerle olculebiliyor (bkz. urunListesiSorgusu'ndaki olcum
+    // notu). Artik sorgu, canli aramayla ayni worker thread'i + ayri ODBC
+    // baglantisi uzerinde calisir.
+    //
+    // Donus degeri olarak verilen istek numarasi sonuc sinyalinde aynen geri
+    // gelir; ekran YALNIZCA en son verdigi numarayla donen sonucu basar,
+    // boylece hizli yazarken gecikmis sonuc guncelini ezmez.
+    // ------------------------------------------------------------------
+    Q_INVOKABLE int musteriListesiGetirBaslat(const QString &arama, int sayfaNo,
+                                               int sayfaBoyutu = 50, bool arsivliDahil = false);
+    Q_INVOKABLE int urunListesiGetirBaslat(const QString &arama, int sayfaNo,
+                                            int sayfaBoyutu = 50, bool arsivliDahil = false);
+    Q_INVOKABLE int personelListesiGetirBaslat(const QString &arama, int sayfaNo,
+                                                int sayfaBoyutu = 50, bool pasifDahil = true);
+
+    // ---- SATINALMA: Tedarikcilerim (musteri ekraniyla ayni desen) ----
+    // Liste asenkron yolla gelir (tedarikciListesiHazir). Yazma islemleri
+    // SUNUCU TARAFINDA da yetki denetler: aktif kullanicinin SATINALMA
+    // modulunde "duzenleyebilir" yetkisi yoksa reddedilir (ekran butonlari
+    // gizlemekle yetinmez).
+    Q_INVOKABLE int tedarikciListesiGetirBaslat(const QString &arama, int sayfaNo,
+                                                 int sayfaBoyutu = 50, bool arsivliDahil = false);
+    Q_INVOKABLE QVariantMap tedarikciEkle(const QVariantMap &tedarikci);
+    Q_INVOKABLE QVariantMap tedarikciGuncelle(int tedarikciId, const QVariantMap &tedarikci);
+    Q_INVOKABLE QVariantMap tedarikciSil(int tedarikciId);
+    Q_INVOKABLE QVariantMap tedarikciArsivDurumDegistir(int tedarikciId, bool aktif);
+
     // musteriAraBaslat/urunAraBaslat icin sonuc sinyalleri. "arama" (ve urun icin
     // "dil") istegi yapan tarafa aynen geri gonderilir; QML tarafi bunu arama
     // kutusunun O ANKI metniyle karsilastirip eskimis sonuclari gormezden gelir.
     Q_SIGNAL void musteriSonuclariHazir(const QString &arama, const QVariantList &sonuclar);
     Q_SIGNAL void urunSonuclariHazir(const QString &arama, const QString &dil, const QVariantList &sonuclar);
+
+    // *ListesiGetirBaslat sonuclari. "sonuc" bos harita ise sorgu
+    // calistirilamamistir (baglanti yok) -- ekran bunu hata olarak gosterir.
+    Q_SIGNAL void musteriListesiHazir(int istekNo, const QVariantMap &sonuc);
+    Q_SIGNAL void urunListesiHazir(int istekNo, const QVariantMap &sonuc);
+    Q_SIGNAL void personelListesiHazir(int istekNo, const QVariantMap &sonuc);
+    Q_SIGNAL void tedarikciListesiHazir(int istekNo, const QVariantMap &sonuc);
+    // gecmisTekliflerGetirBaslat sonucu (bos harita = baglanti kurulamadi).
+    Q_SIGNAL void teklifListesiHazir(int istekNo, const QVariantMap &sonuc);
 
     // AramaWorker (ve ana baglanti) tarafindan paylasilan ODBC baglanti-acma mantigi.
     // "baglantiAdi", ayni isimde birden fazla QSqlDatabase baglantisi acilabilmesi
@@ -543,18 +675,29 @@ private:
     bool baglan();
     // baglantiyiHazirla()'nin ana baglanti icin kisayolu; m_baglantiHazir'i gunceller.
     bool baglantiHazir();
-    // Ortak WHERE kosullarini (tarih + arama filtresi + durum filtresi) hem COUNT
-    // hem de veri sorgusunda ayni sekilde kullanabilmek icin tek yerde uretir.
-    void whereKosullariniOlustur(const QString &arama,
-                                  const QString &tarihFiltresi,
-                                  const QString &baslangicTarihi,
-                                  const QString &bitisTarihi,
-                                  const QString &durumFiltresi,
-                                  QString &whereClauseOut,
-                                  QVariantMap &parametrelerOut) const;
-
     // Kullanicinin gorebildigi modul listesini (roller birlesik) getirir.
     QVariantList kullaniciModulleriniGetir(int kullaniciId);
+    // Aktif oturumdaki kullanici bu modulde "duzenleyebilir" yetkisine sahip mi?
+    bool modulDuzenleyebilirMi(const QString &modulKodu);
+
+    // Sistemde kac AKTIF yonetici var? (yoneticiSifresiDogrula ile ayni rol
+    // kumesi: "Yönetici" ve goc donemindeki "Göç - Geçici Tam Yetkili".)
+    // haricKullaniciId > 0 ise o kullanici sayima katilmaz -- "bu kisiyi
+    // pasife alirsam yonetici kalir mi?" sorusunu cevaplamak icin.
+    // Sorgu calismazsa -1 doner (bilinmiyor); cagiran taraf bunu "riskli"
+    // sayip islemi reddeder.
+    int aktifYoneticiSayisi(int haricKullaniciId);
+
+    // Musteri/urun kalici olarak silinmeye calisildi ve FK kisitlamasi
+    // engelledi: kullaniciya arsivlemeyi onermek icin ortak sonuc uretir.
+    static QVariantMap iliskiliKayitSonucu(const QString &mesaj);
+
+    // Girilen urun kodu BASKA bir urunde kullanilmis mi? haricUrunId > 0 ise
+    // o kayit sayilmaz (guncellemede urunun kendi kodu catisma degildir).
+    // Kod bos ise her zaman false: kod opsiyoneldir ve kodsuz urunler
+    // tekillik kapsaminda degildir.
+    // Bulunursa sahipOut o urunun aciklamasini tasir.
+    bool urunKoduKullanimdaMi(const QString &urunKodu, int haricUrunId, QString &sahipOut);
 
     // teklifPdfOlustur ve uretimPdfOlustur'un ortak kismi: teklifin baslik +
     // kalem verisini TeklifPdfOlusturucu'nun bekledigi "veri" haritasina okur.
@@ -626,6 +769,10 @@ private:
     QSqlDatabase m_db;
     bool m_baglantiHazir = false;
     QString m_sonHataMesaji;
+    // Giris yapmis kullanici (bkz. aktifKullaniciId); 0 = oturum yok.
+    int m_aktifKullaniciId = 0;
+    // *ListesiGetirBaslat'in verdigi artan istek numarasi.
+    int m_listeIstekSayaci = 0;
     QElapsedTimer m_sonKullanim;
     QElapsedTimer m_sonBaglantiDenemesi;
 
@@ -635,10 +782,21 @@ private:
     // metodlarindan (whereKosullariniOlustur) de okunabilsin diye mutable.
     mutable int m_teklifNoKolonuDurumu = -1;
 
-    // Firma/urun canli aramasini UI thread'inden ayirmak icin: worker, kendi
-    // QSqlDatabase baglantisiyla bu ayri thread uzerinde yasar (bkz. AramaWorker.h).
+    // Verilen thread'i baslatip uzerinde kendi ODBC baglantisina sahip bir
+    // worker olusturur (bkz. Database.cpp'deki "UC AYRI WORKER" notu).
+    AramaWorker *workerBaslat(QThread &thread, const QString &baglantiAdi);
+
+    // Her biri KENDI thread'i + KENDI ODBC baglantisi uzerinde calisir, boylece
+    // birinde yasanan yavaslik digerlerini bekletmez:
+    //   arama  -> Teklif Ver ekranindaki canli firma/urun aramasi
+    //   liste  -> Musterilerim / Urunlerim / Personellerim / Tedarikcilerim
+    //   teklif -> Giden / Alinan / Biten Tekliflerim (en agir sorgu)
     QThread m_aramaThread;
     QPointer<AramaWorker> m_aramaWorker;
+    QThread m_listeThread;
+    QPointer<AramaWorker> m_listeWorker;
+    QThread m_teklifThread;
+    QPointer<AramaWorker> m_teklifWorker;
 
     TeklifPdfOlusturucu m_pdfOlusturucu;
 };

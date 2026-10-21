@@ -73,7 +73,7 @@ Dialog {
                 radius: 2
                 color: kok.renk
             }
-            Label {
+            KisalanMetin {
                 Layout.fillWidth: true
                 text: kok.baslik
                 color: Theme.metinBirincil

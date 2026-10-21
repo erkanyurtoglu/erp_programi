@@ -6,47 +6,97 @@ import erp_programi
 
 // Musterilerim ekrani: WPF'teki Firmalarim + FirmaEkle/FirmaDetayWindow
 // ikilisinin Qt/QML karsiligi. Sayfalama SQL Server tarafinda yapilir
-// (Database::musteriListesiGetir), ayni GecmisTekliflerPage deseni.
+// (musteriListesiSorgusu), ayni GecmisTekliflerPage deseni.
+//
+// YUKLEME ASENKRONDUR: sorgu, canli aramayla ayni worker thread'i uzerinde
+// calisir ve sonuc database.musteriListesiHazir sinyaliyle doner (bkz.
+// Database.h "Sayfali listelerin ASENKRON yolu"). Eskiden UI thread'inde
+// senkron calisiyordu: her arama ve her sayfa degisimi boyunca pencere
+// donuyordu.
+//
+// SILME vs ARSIVLEME: teklifte kullanilmis bir musteri FK kisitlamasi
+// nedeniyle kalici silinemez (bilerek -- musteri silinince teklifleri de
+// silinmesin). Bu durumda ekran kullaniciya ARSIVLEMEYI onerir: kayit yerinde
+// kalir, listelerden ve Teklif Ver aramasindan gizlenir, gecmis teklifler hic
+// etkilenmez (bkz. db/13_musteri_urun_arsiv.sql).
 Item {
     id: root
 
     readonly property int sayfaBoyutu: 50
 
-    function formuAc(kayit) {
-        duzenlemeDialogu.musteriId = kayit ? kayit.musteriId : 0
-        duzenlemeDialogu.baslik = kayit ? "Müşteri Düzenle" : "Müşteri Ekle"
-        hataMesaji.text = ""
-        firmaAdAlani.text = kayit ? kayit.firmaAdi : ""
-        firmaAdresAlani.text = kayit ? kayit.firmaAdresi : ""
-        firmaTelAlani.text = kayit ? kayit.firmaTelefonu : ""
-        firmaEpostaAlani.text = kayit ? kayit.firmaEposta : ""
-        vergiNoAlani.text = kayit ? kayit.vergiNumarasi : ""
-        vergiDairesiAlani.text = kayit ? kayit.vergiDairesi : ""
-        ilgiliKisiAlani.text = kayit ? kayit.ilgiliKisi : ""
-        ilgiliKisiTelAlani.text = kayit ? kayit.ilgiliKisiTelefonu : ""
-        duzenlemeDialogu.open()
-    }
-
     property var sayfaSonucu: ({ kayitlar: [], toplamKayit: 0, toplamSayfa: 1, mevcutSayfa: 1 })
     property var kayitlarListesi: []
     property string aramaMetni: ""
+    // "Arşivi göster" anahtari: arsivlenmis musteriler de listelenir.
+    property bool arsivliGoster: false
+
+    // Asenkron yuklemenin durumu. "bekleyenIstek", en son baslatilan sorgunun
+    // numarasi: yalnizca BU numarayla donen sonuc ekrana basilir, boylece
+    // hizli yazarken gecikmis bir sonuc guncelini ezmez.
+    property int bekleyenIstek: 0
+    property bool yukleniyor: false
+    property string listeHatasi: ""
 
     // SatisModuluPage tum sekmeleri (bu da dahil) StackLayout icinde ANINDA
     // olusturur -- gorunmese bile. otomatikYukle false ise onCompleted burada
     // sorgu atmaz; yukleme kullanici bu sekmeye gercekten gecince yapilir
-    // (bkz. SatisModuluPage), boylece modul acilirken tum sekmelerin ayni anda
-    // UI thread'ini bloke eden senkron sorgu atmasi onlenir.
+    // (bkz. SatisModuluPage).
     property bool otomatikYukle: true
 
     function sayfayiYukle(sayfaNo) {
-        const sonuc = database.musteriListesiGetir(aramaMetni, sayfaNo, sayfaBoyutu)
-        sayfaSonucu = sonuc
-        musteriListesi.model = []
-        kayitlarListesi = sonuc.kayitlar
-        musteriListesi.model = kayitlarListesi
+        // Onceki islemin hata mesaji ekranda kalmasin: eskiden yalnizca
+        // BASARILI bir islemden sonra temizleniyordu, dolayisiyla kullanici
+        // arama yapip sayfa degistirdikten sonra bile eski hatayi goruyordu.
+        islemHatasi.text = ""
+        root.listeHatasi = ""
+        root.yukleniyor = true
+        root.bekleyenIstek = database.musteriListesiGetirBaslat(
+            root.aramaMetni, sayfaNo, root.sayfaBoyutu, root.arsivliGoster)
+        zamanAsimiZamanlayici.restart()
+    }
+
+    Connections {
+        target: database
+        function onMusteriListesiHazir(istekNo, sonuc) {
+            if (istekNo !== root.bekleyenIstek)
+                return                       // eskimis sonuc -- yok say
+            zamanAsimiZamanlayici.stop()
+            root.yukleniyor = false
+
+            // Worker baglanti kuramadiysa bos harita yayinlar.
+            if (!sonuc || sonuc.toplamSayfa === undefined) {
+                root.listeHatasi = "Müşteri listesi yüklenemedi: veritabanına bağlanılamadı."
+                root.kayitlarListesi = []
+                return
+            }
+
+            root.sayfaSonucu = sonuc
+            // DIKKAT: ListView.model'e burada ELLE atama yapilmaz. Eskiden
+            // "model = []" + "model = liste" seklinde atanıyordu; bu, QML'deki
+            // "model: root.kayitlarListesi" baglantisini ILK atamada kalici
+            // olarak kiriyordu (sonraki guncellemeler yalnizca her seferinde
+            // tekrar elle atandigi icin gorunuyordu).
+            root.kayitlarListesi = sonuc.kayitlar
+        }
     }
 
     Component.onCompleted: if (otomatikYukle) sayfayiYukle(1)
+
+
+    // Yanit gelmezse ekran sonsuza kadar "Yükleniyor…" demesin: sorgu bu sureyi
+    // asarsa kullaniciya durum bildirilir ve tekrar deneme imkani verilir.
+    // (Istek iptal EDILMEZ; gec de olsa yanit gelirse liste yine dolar.)
+    Timer {
+        id: zamanAsimiZamanlayici
+        interval: 25000
+        onTriggered: {
+            if (!root.yukleniyor)
+                return
+            root.yukleniyor = false
+            root.listeHatasi = "Müşteri listesi sunucudan yanıt alınamadığı için yüklenemedi. "
+                               + "Sunucu yoğun veya erişilemiyor olabilir; tekrar deneyin."
+        }
+    }
 
     Timer {
         id: aramaZamanlayici
@@ -78,6 +128,7 @@ Item {
                 }
                 Label {
                     text: root.sayfaSonucu.toplamKayit + " kayıt"
+                           + (root.arsivliGoster ? " (arşiv dahil)" : "")
                     font.family: Theme.fontAilesi
                     font.pixelSize: Theme.fontBoyutKucuk
                     color: Theme.metinSoluk
@@ -87,7 +138,7 @@ Item {
             Item { Layout.fillWidth: true }
 
             Label {
-                id: silHataMesaji
+                id: islemHatasi
                 color: Theme.tehlikeAcik
                 font.family: Theme.fontAilesi
                 font.pixelSize: Theme.fontBoyutKucuk
@@ -96,11 +147,20 @@ Item {
                 Layout.maximumWidth: 320
             }
 
+            TemaOnayKutusu {
+                text: "Arşivi göster"
+                checked: root.arsivliGoster
+                onToggled: {
+                    root.arsivliGoster = checked
+                    root.sayfayiYukle(1)
+                }
+            }
+
             Button {
                 id: ekleButonu
                 text: "+ Müşteri Ekle"
                 Layout.preferredHeight: 38
-                onClicked: root.formuAc(null)
+                onClicked: duzenlemeDialogu.formuAc(null)
                 background: Rectangle { radius: Theme.radiusKucuk; color: ekleButonu.hovered ? Theme.vurguHover : Theme.vurgu }
                 contentItem: Text {
                     text: ekleButonu.text
@@ -134,7 +194,9 @@ Item {
                 placeholderTextColor: Theme.metinCokSoluk
                 font.family: Theme.fontAilesi
                 font.pixelSize: Theme.fontBoyutNormal
-                placeholderText: "Firma adı, ilgili kişi veya e-posta ara..."
+                // Arama artik telefon ve vergi numarasini da kapsiyor: bir
+                // firmayi siklikla elindeki telefon ya da fatura bilgisiyle ararsin.
+                placeholderText: "Firma adı, ilgili kişi, e-posta, telefon veya vergi no ara..."
                 verticalAlignment: TextInput.AlignVCenter
                 onTextChanged: {
                     root.aramaMetni = text
@@ -145,7 +207,7 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            height: 40
+            Layout.preferredHeight: 40
             color: Theme.panel
             radius: Theme.radiusKucuk
             border.width: 1
@@ -161,131 +223,195 @@ Item {
                 Label { text: "ADRES"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.fillWidth: true }
                 Label { text: "TELEFON"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 140 }
                 Label { text: "E-POSTA"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 200 }
-                Label { text: "İŞLEMLER"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 130 }
+                Label { text: "İŞLEMLER"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 196 }
             }
         }
 
-        ListView {
-            id: musteriListesi
+        Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            clip: true
-            spacing: 4
-            reuseItems: false
-            model: root.kayitlarListesi
 
-            delegate: Rectangle {
-                id: satir
-                required property int index
-                required property var modelData
+            ListView {
+                id: musteriListesi
+                anchors.fill: parent
+                clip: true
+                spacing: 4
+                model: root.kayitlarListesi
 
-                width: ListView.view.width
-                height: 48
-                radius: Theme.radiusKucuk
-                color: satirAlani.containsMouse ? Theme.panelHover : Theme.panel
-                border.width: 1
-                border.color: Theme.kenarlik
-                layer.enabled: true
+                delegate: Rectangle {
+                    id: satir
+                    required property int index
+                    required property var modelData
 
-                MouseArea {
-                    id: satirAlani
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    acceptedButtons: Qt.NoButton
-                }
+                    // Arsivlenmis kayit soluk gosterilir (Personellerim'deki
+                    // pasif personel gosterimiyle ayni dil).
+                    readonly property bool aktifMi: satir.modelData.aktifMi !== false
 
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 12
-                    anchors.rightMargin: 12
+                    width: ListView.view.width
+                    height: 48
+                    radius: Theme.radiusKucuk
+                    color: satirAlani.containsMouse ? Theme.panelHover : Theme.panel
+                    border.width: 1
+                    border.color: Theme.kenarlik
+                    opacity: satir.aktifMi ? 1.0 : 0.55
 
-                    Text {
-                        text: satir.modelData.musteriId
-                        color: Theme.metinSoluk
-                        font.family: Theme.fontAilesi
-                        font.pixelSize: Theme.fontBoyutNormal
-                        Layout.preferredWidth: 56
-                        Layout.fillHeight: true
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    Text {
-                        text: satir.modelData.firmaAdi
-                        color: Theme.metinBirincil
-                        font.family: Theme.fontAilesi
-                        font.bold: true
-                        font.pixelSize: Theme.fontBoyutNormal
-                        Layout.preferredWidth: 220
-                        elide: Text.ElideRight
-                        Layout.fillHeight: true
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    Text {
-                        text: satir.modelData.firmaAdresi
-                        color: Theme.metinIkincil
-                        font.family: Theme.fontAilesi
-                        font.pixelSize: Theme.fontBoyutNormal
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 0
-                        Layout.fillHeight: true
-                        elide: Text.ElideRight
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    Text {
-                        text: satir.modelData.firmaTelefonu
-                        color: Theme.metinIkincil
-                        font.family: Theme.fontAilesi
-                        font.pixelSize: Theme.fontBoyutNormal
-                        Layout.preferredWidth: 140
-                        elide: Text.ElideRight
-                        Layout.fillHeight: true
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    Text {
-                        text: satir.modelData.firmaEposta
-                        color: Theme.metinIkincil
-                        font.family: Theme.fontAilesi
-                        font.pixelSize: Theme.fontBoyutNormal
-                        Layout.preferredWidth: 200
-                        elide: Text.ElideRight
-                        Layout.fillHeight: true
-                        verticalAlignment: Text.AlignVCenter
+                    MouseArea {
+                        id: satirAlani
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        acceptedButtons: Qt.NoButton
                     }
 
                     RowLayout {
-                        Layout.preferredWidth: 130
-                        spacing: 6
+                        anchors.fill: parent
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
 
-                        Button {
-                            id: detayButonu
-                            text: "Detay"
-                            Layout.preferredWidth: 58
-                            Layout.preferredHeight: 28
-                            onClicked: root.formuAc(satir.modelData)
-                            background: Rectangle { radius: 5; color: detayButonu.hovered ? Theme.panelHover : "transparent"; border.width: 1; border.color: Theme.kenarlikVurgu }
-                            contentItem: Text { text: "Detay"; color: Theme.vurguAcik; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                        Text {
+                            text: satir.modelData.musteriId
+                            color: Theme.metinSoluk
+                            font.family: Theme.fontAilesi
+                            font.pixelSize: Theme.fontBoyutNormal
+                            Layout.preferredWidth: 56
+                            Layout.fillHeight: true
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        RowLayout {
+                            Layout.preferredWidth: 220
+                            Layout.fillHeight: true
+                            spacing: 6
+                            KisalanMetin {
+                                text: satir.modelData.firmaAdi
+                                color: Theme.metinBirincil
+                                font.family: Theme.fontAilesi
+                                font.bold: true
+                                font.pixelSize: Theme.fontBoyutNormal
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                                Layout.fillHeight: true
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            Rectangle {
+                                visible: !satir.aktifMi
+                                Layout.preferredWidth: 46
+                                Layout.preferredHeight: 18
+                                radius: 4
+                                color: "transparent"
+                                border.width: 1
+                                border.color: Theme.kenarlik
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "Arşiv"
+                                    font.family: Theme.fontAilesi
+                                    font.pixelSize: 9
+                                    color: Theme.metinSoluk
+                                }
+                            }
+                        }
+                        KisalanMetin {
+                            text: satir.modelData.firmaAdresi
+                            color: Theme.metinIkincil
+                            font.family: Theme.fontAilesi
+                            font.pixelSize: Theme.fontBoyutNormal
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 0
+                            Layout.fillHeight: true
+                            elide: Text.ElideRight
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        KisalanMetin {
+                            text: satir.modelData.firmaTelefonu
+                            color: Theme.metinIkincil
+                            font.family: Theme.fontAilesi
+                            font.pixelSize: Theme.fontBoyutNormal
+                            Layout.preferredWidth: 140
+                            elide: Text.ElideRight
+                            Layout.fillHeight: true
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        KisalanMetin {
+                            text: satir.modelData.firmaEposta
+                            color: Theme.metinIkincil
+                            font.family: Theme.fontAilesi
+                            font.pixelSize: Theme.fontBoyutNormal
+                            Layout.preferredWidth: 200
+                            elide: Text.ElideRight
+                            Layout.fillHeight: true
+                            verticalAlignment: Text.AlignVCenter
                         }
 
-                        Button {
-                            id: silButonu
-                            text: "Sil"
-                            Layout.preferredWidth: 50
-                            Layout.preferredHeight: 28
-                            onClicked: {
-                                const id = satir.modelData.musteriId
-                                sifreDialogu.iste("Müşteriyi Sil",
-                                                  "\"" + satir.modelData.firmaAdi + "\" kalıcı olarak silinsin mi?",
-                                                  "Sil", true, function() { root.musteriSil(id) })
+                        RowLayout {
+                            Layout.preferredWidth: 196
+                            spacing: 6
+
+                            Button {
+                                id: detayButonu
+                                text: "Detay"
+                                Layout.preferredWidth: 58
+                                Layout.preferredHeight: 28
+                                onClicked: duzenlemeDialogu.formuAc(satir.modelData)
+                                background: Rectangle { radius: 5; color: detayButonu.hovered ? Theme.panelHover : "transparent"; border.width: 1; border.color: Theme.kenarlikVurgu }
+                                contentItem: Text { text: "Detay"; color: Theme.vurguAcik; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                             }
-                            background: Rectangle {
-                                radius: 5
-                                color: silButonu.hovered ? Theme.tehlikeZeminHover : "transparent"
-                                border.width: 1
-                                border.color: silButonu.hovered ? Theme.tehlikeHover : Theme.kenarlik
+
+                            Button {
+                                id: arsivButonu
+                                text: satir.aktifMi ? "Arşivle" : "Geri Al"
+                                Layout.preferredWidth: 64
+                                Layout.preferredHeight: 28
+                                onClicked: {
+                                    const id = satir.modelData.musteriId
+                                    const ad = satir.modelData.firmaAdi
+                                    const aktifEt = !satir.aktifMi
+                                    sifreDialogu.iste(aktifEt ? "Arşivden Çıkar" : "Müşteriyi Arşivle",
+                                                      aktifEt
+                                                        ? "\"" + ad + "\" yeniden listelerde ve teklif aramasında görünecek."
+                                                        : "\"" + ad + "\" listelerden ve teklif aramasından gizlenecek. "
+                                                          + "Geçmiş teklifleri etkilenmez.",
+                                                      aktifEt ? "Geri Al" : "Arşivle", false,
+                                                      function() { root.arsivDurumDegistir(id, aktifEt) })
+                                }
+                                background: Rectangle { radius: 5; color: arsivButonu.hovered ? Theme.panelHover : "transparent"; border.width: 1; border.color: Theme.kenarlik }
+                                contentItem: Text { text: arsivButonu.text; color: Theme.metinIkincil; font.family: Theme.fontAilesi; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                             }
-                            contentItem: Text { text: "Sil"; color: Theme.tehlikeAcik; font.family: Theme.fontAilesi; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+
+                            Button {
+                                id: silButonu
+                                text: "Sil"
+                                Layout.preferredWidth: 50
+                                Layout.preferredHeight: 28
+                                onClicked: {
+                                    const id = satir.modelData.musteriId
+                                    const ad = satir.modelData.firmaAdi
+                                    sifreDialogu.iste("Müşteriyi Sil",
+                                                      "\"" + ad + "\" kalıcı olarak silinsin mi? "
+                                                      + "Teklifte kullanılmış müşteriler silinemez; "
+                                                      + "o durumda arşivleme önerilir.",
+                                                      "Sil", true, function() { root.musteriSil(id) })
+                                }
+                                background: Rectangle {
+                                    radius: 5
+                                    color: silButonu.hovered ? Theme.tehlikeZeminHover : "transparent"
+                                    border.width: 1
+                                    border.color: silButonu.hovered ? Theme.tehlikeHover : Theme.kenarlik
+                                }
+                                contentItem: Text { text: "Sil"; color: Theme.tehlikeAcik; font.family: Theme.fontAilesi; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                            }
                         }
                     }
                 }
+            }
+
+            // Bos liste / yukleniyor / baglanti hatasi gostergesi -- eskiden
+            // bu uc durum da bombos bir alan olarak gorunuyordu.
+            ListeDurumu {
+                anchors.fill: parent
+                yukleniyor: root.yukleniyor
+                hata: root.listeHatasi
+                kayitSayisi: root.kayitlarListesi.length
+                aramaVar: root.aramaMetni.trim().length > 0
+                bosMetin: "Henüz müşteri eklenmemiş. \"+ Müşteri Ekle\" ile başlayabilirsiniz."
+                aramaBosMetni: "Aramanıza uygun müşteri bulunamadı."
             }
         }
 
@@ -296,7 +422,7 @@ Item {
             Button {
                 id: oncekiButonu
                 text: "◀ Önceki"
-                enabled: root.sayfaSonucu.mevcutSayfa > 1
+                enabled: root.sayfaSonucu.mevcutSayfa > 1 && !root.yukleniyor
                 onClicked: root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa - 1)
                 background: Rectangle { radius: Theme.radiusKucuk; color: Theme.panel; border.width: 1; border.color: Theme.kenarlik; opacity: oncekiButonu.enabled ? 1.0 : 0.4 }
                 contentItem: Text { text: oncekiButonu.text; color: Theme.metinBirincil; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutNormal; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; opacity: oncekiButonu.enabled ? 1.0 : 0.4 }
@@ -312,7 +438,7 @@ Item {
             Button {
                 id: sonrakiButonu
                 text: "Sonraki ▶"
-                enabled: root.sayfaSonucu.mevcutSayfa < root.sayfaSonucu.toplamSayfa
+                enabled: root.sayfaSonucu.mevcutSayfa < root.sayfaSonucu.toplamSayfa && !root.yukleniyor
                 onClicked: root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa + 1)
                 background: Rectangle { radius: Theme.radiusKucuk; color: Theme.panel; border.width: 1; border.color: Theme.kenarlik; opacity: sonrakiButonu.enabled ? 1.0 : 0.4 }
                 contentItem: Text { text: sonrakiButonu.text; color: Theme.metinBirincil; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutNormal; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; opacity: sonrakiButonu.enabled ? 1.0 : 0.4 }
@@ -324,40 +450,89 @@ Item {
     TemaDialog {
         id: duzenlemeDialogu
         property int musteriId: 0
+        // Form acilirken alinan anlik goruntu; "degisiklik var mi?" kontrolu
+        // bununla yapilir (bkz. degistiMi).
+        property string acilisAnlikGoruntusu: ""
         width: 560
         onayMetni: "Kaydet"
         elleKapat: true
 
+        function formuAc(kayit) {
+            duzenlemeDialogu.musteriId = kayit ? kayit.musteriId : 0
+            duzenlemeDialogu.baslik = kayit ? "Müşteri Düzenle" : "Müşteri Ekle"
+            hataMesaji.text = ""
+            firmaAdAlani.text = kayit ? kayit.firmaAdi : ""
+            firmaAdresAlani.text = kayit ? kayit.firmaAdresi : ""
+            firmaTelAlani.text = kayit ? kayit.firmaTelefonu : ""
+            firmaEpostaAlani.text = kayit ? kayit.firmaEposta : ""
+            vergiNoAlani.text = kayit ? kayit.vergiNumarasi : ""
+            vergiDairesiAlani.text = kayit ? kayit.vergiDairesi : ""
+            ilgiliKisiAlani.text = kayit ? kayit.ilgiliKisi : ""
+            ilgiliKisiTelAlani.text = kayit ? kayit.ilgiliKisiTelefonu : ""
+            duzenlemeDialogu.acilisAnlikGoruntusu = JSON.stringify(duzenlemeDialogu.formAlani())
+            duzenlemeDialogu.open()
+        }
+
         function formAlani() {
             return {
-                firmaAdi: firmaAdAlani.text,
-                firmaAdresi: firmaAdresAlani.text,
-                firmaTelefonu: firmaTelAlani.text,
-                firmaEposta: firmaEpostaAlani.text,
-                vergiDairesi: vergiDairesiAlani.text,
-                vergiNumarasi: vergiNoAlani.text,
-                ilgiliKisi: ilgiliKisiAlani.text,
-                ilgiliKisiTelefonu: ilgiliKisiTelAlani.text
+                firmaAdi: firmaAdAlani.text.trim(),
+                firmaAdresi: firmaAdresAlani.text.trim(),
+                firmaTelefonu: firmaTelAlani.text.trim(),
+                firmaEposta: firmaEpostaAlani.text.trim(),
+                vergiDairesi: vergiDairesiAlani.text.trim(),
+                vergiNumarasi: vergiNoAlani.text.trim(),
+                ilgiliKisi: ilgiliKisiAlani.text.trim(),
+                ilgiliKisiTelefonu: ilgiliKisiTelAlani.text.trim()
             }
         }
 
-        // Kayitli musteride degisiklik yonetici sifresiyle onaylanir (yeni kayitta sorulmaz).
-        onOnaylandi: {
-            if (duzenlemeDialogu.musteriId > 0)
-                sifreDialogu.iste("Değişiklikleri Kaydet", "", "Kaydet", false, function() { duzenlemeDialogu.kaydet() })
-            else
-                duzenlemeDialogu.kaydet()
+        function degistiMi() {
+            return JSON.stringify(duzenlemeDialogu.formAlani()) !== duzenlemeDialogu.acilisAnlikGoruntusu
         }
 
-        function kaydet() {
+        // Kayitli musteride degisiklik yonetici sifresiyle onaylanir (yeni
+        // kayitta sorulmaz). "Detay" ile sadece BAKMAK icin acilip hicbir sey
+        // degistirilmediyse de sorulmaz -- eskiden kullanici hic degisiklik
+        // yapmadan Kaydet'e bastiginda bosu bosuna yonetici sifresi isteniyordu.
+        onOnaylandi: {
+            if (duzenlemeDialogu.musteriId > 0 && !duzenlemeDialogu.degistiMi()) {
+                duzenlemeDialogu.close()
+                return
+            }
+            if (duzenlemeDialogu.musteriId > 0)
+                sifreDialogu.iste("Değişiklikleri Kaydet", "", "Kaydet", false,
+                                  function() { duzenlemeDialogu.kaydet(false) })
+            else
+                duzenlemeDialogu.kaydet(false)
+        }
+
+        // mukerrerOnayi: ayni adda musteri bulundugunda kullanici "devam"
+        // dedikten sonra ikinci cagri bu bayrakla yapilir.
+        function kaydet(mukerrerOnayi) {
             const veri = formAlani()
+            if (mukerrerOnayi === true)
+                veri.mukerrerOnayi = true
+
             const sonuc = duzenlemeDialogu.musteriId > 0
                 ? database.musteriGuncelle(duzenlemeDialogu.musteriId, veri)
                 : database.musteriEkle(veri)
+
             if (!sonuc.basarili) {
+                // Mukerrer firma adi bir HATA degil, bir soru: ayni ismi
+                // tasiyan farkli sube/tuzel kisiler gercek bir ihtiyac.
+                if (sonuc.mukerrer === true) {
+                    onayDialogu.iste("Aynı İsimde Müşteri Var",
+                                     "\"" + sonuc.mukerrerAd + "\" adlı bir müşteri zaten kayıtlı. "
+                                     + "Aynı isimde ikinci bir müşteri oluşturulursa teklif geçmişi "
+                                     + "iki kayda bölünür.\n\nYine de eklemek istiyor musunuz?",
+                                     "Yine de Ekle", false,
+                                     function() { duzenlemeDialogu.kaydet(true) })
+                    return
+                }
                 hataMesaji.text = sonuc.hata
                 return
             }
+
             hataMesaji.text = ""
             duzenlemeDialogu.close()
             root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
@@ -392,14 +567,37 @@ Item {
     }
 
     SifreOnayDialog { id: sifreDialogu }
+    OnayDialog { id: onayDialogu }
 
     function musteriSil(musteriId) {
         const sonuc = database.musteriSil(musteriId)
         if (sonuc.basarili) {
-            silHataMesaji.text = ""
+            islemHatasi.text = ""
+            root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
+            return
+        }
+
+        // Teklifte kullanilmis musteri kalici silinemez -- kullaniciya cikmaz
+        // sokak gostermek yerine arsivlemeyi oneriyoruz.
+        if (sonuc.iliskiliKayitVar === true) {
+            onayDialogu.iste("Müşteri Silinemez",
+                             sonuc.hata + "\n\nBunun yerine arşivlensin mi? "
+                             + "Arşivlenen müşteri listelerden ve teklif aramasından gizlenir, "
+                             + "geçmiş teklifleri olduğu gibi kalır.",
+                             "Arşivle", false,
+                             function() { root.arsivDurumDegistir(musteriId, false) })
+            return
+        }
+        islemHatasi.text = sonuc.hata
+    }
+
+    function arsivDurumDegistir(musteriId, aktif) {
+        const sonuc = database.musteriArsivDurumDegistir(musteriId, aktif)
+        if (sonuc.basarili) {
+            islemHatasi.text = ""
             root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
         } else {
-            silHataMesaji.text = sonuc.hata
+            islemHatasi.text = sonuc.hata
         }
     }
 }

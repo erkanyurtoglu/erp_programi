@@ -1,6 +1,8 @@
 #include "TeklifPdfOlusturucu.h"
 
 #include <QCoreApplication>
+#include <QDebug>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QTextStream>
 #include <QStandardPaths>
@@ -550,8 +552,16 @@ bool TeklifPdfOlusturucu::htmlyiPdfeBas(const QString &html, const QString &dosy
 
 void TeklifPdfOlusturucu::motoruHazirla() const
 {
-    if (!m_sayfa)
-        m_sayfa = std::make_unique<QWebEnginePage>();
+    if (m_sayfa)
+        return;
+
+    // Chromium'u ilk kez ayaga kaldirmak saniyeler surer ve bu sure boyunca UI
+    // thread'i bloke olur; ne kadar surdugu gunluge yazilir ki "PDF'e basinca
+    // program kilitlendi" sikayetinde sebep belli olsun.
+    QElapsedTimer olcum;
+    olcum.start();
+    m_sayfa = std::make_unique<QWebEnginePage>();
+    qInfo() << "[olcum] PDF motoru (QWebEnginePage) hazirlandi:" << olcum.elapsed() << "ms";
 }
 
 QString TeklifPdfOlusturucu::paraFormati(double tutar, const QString &paraBirimi)

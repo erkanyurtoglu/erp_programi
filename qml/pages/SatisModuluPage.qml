@@ -232,7 +232,7 @@ Item {
                     }
                 }
 
-                Rectangle { Layout.fillWidth: true; Layout.topMargin: 8; Layout.bottomMargin: 8; height: 1; color: Theme.kenarlik }
+                Rectangle { Layout.fillWidth: true; Layout.topMargin: 8; Layout.bottomMargin: 8; Layout.preferredHeight: 1; color: Theme.kenarlik }
 
                 YanMenuButonu {
                     metin: "Müşterilerim"
@@ -334,6 +334,10 @@ Item {
             PersonellerimPage {
                 id: personellerimPage
                 otomatikYukle: false
+                // Kendi satirini ayirt edip kendi hesabini pasife alma
+                // butonunu kapatmak icin (sunucu da reddeder, bkz.
+                // Database::personelAktifDurumDegistir).
+                aktifKullaniciId: root.kullaniciId
             }
 
             // ---- Index 7: "Detay" (revizyon) alt sayfasi ----

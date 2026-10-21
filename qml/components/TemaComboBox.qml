@@ -14,7 +14,7 @@ ComboBox {
     font.family: Theme.fontAilesi
     font.pixelSize: Theme.fontBoyutNormal
 
-    contentItem: Text {
+    contentItem: KisalanMetin {
         text: kok.displayText
         color: Theme.metinBirincil
         font: kok.font
@@ -40,7 +40,7 @@ ComboBox {
         height: 32
         highlighted: kok.highlightedIndex === index
 
-        contentItem: Text {
+        contentItem: KisalanMetin {
             text: secenek.modelData
             color: kok.currentIndex === secenek.index ? Theme.vurguAcik : Theme.metinIkincil
             font.family: Theme.fontAilesi

@@ -192,7 +192,7 @@ Dialog {
             font.bold: true
             font.pixelSize: Theme.fontBoyutOrta
         }
-        Label {
+        KisalanMetin {
             Layout.topMargin: 16
             Layout.fillWidth: true
             text: kok.pdf ? kok.pdf.dosyaAdi : ""
@@ -316,7 +316,7 @@ Dialog {
                 onClicked: kok.yakinlastir(1.2)
             }
 
-            Label {
+            KisalanMetin {
                 Layout.fillWidth: true
                 Layout.leftMargin: 6
                 text: kok.hataMetni.length > 0

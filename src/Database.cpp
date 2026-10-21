@@ -1,6 +1,8 @@
 #include "Database.h"
 #include "AramaWorker.h"
 #include "AramaSorgulari.h"
+#include "SqlYardimcilari.h"
+#include "Tanilama.h"
 
 #include <QSqlQuery>
 #include <QSqlError>
@@ -11,6 +13,7 @@
 #include <QCryptographicHash>
 #include <QHash>
 #include <QRegularExpression>
+#include <QUuid>
 #include <cmath>
 #include <algorithm>
 #include <utility>
@@ -157,33 +160,200 @@ namespace
         return true;
     }
 
-    // Sifreleri duz metin yerine SHA-256 hash olarak saklamak icin.
-    QString sifreyiHashle(const QString &sifre)
+    // ------------------------------------------------------------------
+    // Sifre saklama
+    //
+    // Sifreler kullanici basina rastgele bir TUZ (salt) ile hashlenir:
+    // SHA-256(tuz + sifre). Tuzsuz duz SHA-256'da ayni sifreyi kullanan iki
+    // personelin hash'i birebir ayni cikiyordu -- veritabanini goren biri
+    // kimlerin ayni sifreyi kullandigini anlar, ustelik yaygin sifreler hazir
+    // "rainbow table" ile dogrudan cozulebilirdi.
+    //
+    // Tuz bos verilirse ESKI (tuzsuz) hash uretilir. Bu bilincli bir geriye
+    // donuk uyumluluk yolu: SifreSalt sutunu henuz doldurulmamis kayitlar
+    // eskisi gibi dogrulanir, girisYap onlari sessizce tuzlu hale yukseltir
+    // (bkz. db/12_personel_sifre_salt.sql).
+    // ------------------------------------------------------------------
+    QString sifreyiHashle(const QString &sifre, const QString &tuz = QString())
     {
+        const QByteArray girdi = tuz.isEmpty() ? sifre.toUtf8()
+                                               : (tuz.toUtf8() + sifre.toUtf8());
         return QString::fromLatin1(
-            QCryptographicHash::hash(sifre.toUtf8(), QCryptographicHash::Sha256).toHex());
+            QCryptographicHash::hash(girdi, QCryptographicHash::Sha256).toHex());
     }
+
+    QString yeniTuzUret()
+    {
+        return QString::fromLatin1(QUuid::createUuid().toRfc4122().toHex());
+    }
+
+    // Sifre politikasi: eskiden tek karakterlik sifre bile kabul ediliyordu.
+    const int SIFRE_ASGARI_UZUNLUK = 6;
+
+    // ------------------------------------------------------------------
+    // Form alanlari: ortak temizleme / dogrulama yardimcilari
+    //
+    // Musterilerim / Urunlerim / Personellerim formlarindan gelen her metin
+    // alani bunlardan gecer. Eskiden yalnizca ZORUNLU alanlar (FirmaAdi,
+    // UrunAciklamasi) trim ediliyordu; telefon, e-posta, kategori, urun kodu
+    // ham haliyle yazildigi icin " ABC " gibi kayitlar hem ORDER BY
+    // siralamasini hem de LIKE aramasini sessizce bozuyordu.
+    // ------------------------------------------------------------------
+
+    // Haritadaki metin alanini bosluklardan arindirip doner.
+    QString alan(const QVariantMap &harita, const QString &anahtar)
+    {
+        return harita.value(anahtar).toString().trimmed();
+    }
+
+    // OPSIYONEL metin sutunlari icin parametre: bos deger '' yerine NULL
+    // baglanir. Aksi halde ayni "bos" iki farkli sekilde saklanir ve
+    // PDF/rapor tarafindaki IS NULL / COALESCE kontrolleri tutarsiz davranir.
+    QVariant metinParametresi(const QString &deger)
+    {
+        const QString t = deger.trimmed();
+        if (t.isEmpty())
+            return QVariant(QMetaType(QMetaType::QString));
+        return t;
+    }
+
+    // NOT: likeIcinKacir / likeDeseni / manuelKoduMu / semaKolonuVarMi,
+    // AramaSorgulari ile paylasildigi icin SqlYardimcilari.h'de duruyor.
+
+    // SQL Server yabanci anahtar (FOREIGN KEY) ihlali mi? Silme hatalarinda
+    // dogru mesaji gosterebilmek icin: eskiden HER hata (baglanti kopmasi,
+    // zaman asimi, yetki eksikligi) kullaniciya "bu kayda ait teklifler var"
+    // diye gosteriliyor, yani yanlis yone yonlendiriyordu.
+    bool fkIhlaliMi(const QSqlError &hata)
+    {
+        return hata.nativeErrorCode() == QStringLiteral("547");
+    }
+
+    // Tekil indeks (2601) veya UNIQUE kisit (2627) ihlali mi?
+    bool tekillikIhlaliMi(const QSqlError &hata)
+    {
+        const QString kod = hata.nativeErrorCode();
+        return kod == QStringLiteral("2601") || kod == QStringLiteral("2627");
+    }
+
+    // Cok basit bir e-posta bicim kontrolu ("a@b.co"). Amac gecerliligi
+    // kanitlamak degil, "ahmet" / "ahmet@" gibi acik yazim hatalarini
+    // veritabanina yazmadan yakalamak. Alan opsiyonel: bos deger gecerlidir.
+    bool epostaGecerliMi(const QString &eposta)
+    {
+        const QString t = eposta.trimmed();
+        if (t.isEmpty())
+            return true;
+        static const QRegularExpression desen(QStringLiteral(R"(^[^\s@]+@[^\s@]+\.[^\s@]{2,}$)"));
+        return desen.match(t).hasMatch();
+    }
+
+    // Vergi numarasi: 10 hane (kurumlar) veya 11 hane (TCKN/sahis sirketi).
+    // Rakam arasindaki bosluk/tire/nokta serbest, harf kabul edilmez.
+    // Alan opsiyonel: bos deger gecerlidir.
+    bool vergiNoGecerliMi(const QString &vergiNo)
+    {
+        const QString t = vergiNo.trimmed();
+        if (t.isEmpty())
+            return true;
+        int rakam = 0;
+        for (const QChar &c : t)
+        {
+            if (c.isDigit())
+                ++rakam;
+            else if (c != ' ' && c != '-' && c != '.' && c != '/')
+                return false;
+        }
+        return rakam == 10 || rakam == 11;
+    }
+
+    // Telefon: en az 7 rakam; '+', bosluk, '-', '/', parantez serbest.
+    // Alan opsiyonel: bos deger gecerlidir.
+    bool telefonGecerliMi(const QString &telefon)
+    {
+        const QString t = telefon.trimmed();
+        if (t.isEmpty())
+            return true;
+        static const QRegularExpression desen(QStringLiteral(R"(^[0-9+\s()\-/]{7,25}$)"));
+        if (!desen.match(t).hasMatch())
+            return false;
+        int rakam = 0;
+        for (const QChar &c : t)
+            if (c.isDigit())
+                ++rakam;
+        return rakam >= 7;
+    }
+
 }
 
 Database::Database(QObject *parent) : QObject(parent)
 {
     m_baglantiHazir = baglan();
 
-    // Arama worker'i kendi thread'ine tasi; baglantisini ANCAK thread fiilen
-    // baslayinca (kendi icinde) acar -- bkz. AramaWorker::baglantiyiAc().
-    m_aramaWorker = new AramaWorker();
-    m_aramaWorker->moveToThread(&m_aramaThread);
-    connect(&m_aramaThread, &QThread::started, m_aramaWorker, &AramaWorker::baglantiyiAc);
+    // UC AYRI WORKER, UC AYRI THREAD, UC AYRI ODBC BAGLANTISI.
+    //
+    // Eskiden hepsi TEK worker uzerindeydi ve bu, yavas tek bir sorgunun
+    // programin TUM listelerini kilitlemesine yol aciyordu: sorgular tek bir
+    // olay kuyrugunda sirayla calistigi icin, one giren agir bir teklif
+    // sorgusu (ya da kopmus bir baglantinin zaman asimi) arkasindaki
+    // musteri/urun/personel isteklerini de bekletiyor, kullanici butun
+    // ekranlari ayni anda "Yükleniyor…" halinde goruyordu.
+    //
+    // Ayrim, islerin birbirini bekletmemesi icin kullanim sekline gore:
+    //   * canli arama  -> kullanici YAZARKEN tetiklenir, her zaman akici olmali
+    //   * sayfali listeler -> Musterilerim / Urunlerim / Personellerim / Tedarikcilerim
+    //   * teklif listesi   -> en agir sorgu (teklif_kalemleri uzerinde EXISTS + LIKE)
+    m_aramaWorker = workerBaslat(m_aramaThread, QStringLiteral("erp_arama_baglantisi"));
     connect(m_aramaWorker, &AramaWorker::musteriSonucHazir, this, &Database::musteriSonuclariHazir);
     connect(m_aramaWorker, &AramaWorker::urunSonucHazir, this, &Database::urunSonuclariHazir);
-    connect(&m_aramaThread, &QThread::finished, m_aramaWorker, &QObject::deleteLater);
-    m_aramaThread.start();
+
+    m_listeWorker = workerBaslat(m_listeThread, QStringLiteral("erp_liste_baglantisi"));
+    connect(m_listeWorker, &AramaWorker::musteriListesiHazir, this, &Database::musteriListesiHazir);
+    connect(m_listeWorker, &AramaWorker::urunListesiHazir, this, &Database::urunListesiHazir);
+    connect(m_listeWorker, &AramaWorker::personelListesiHazir, this, &Database::personelListesiHazir);
+    connect(m_listeWorker, &AramaWorker::tedarikciListesiHazir, this, &Database::tedarikciListesiHazir);
+    connect(m_listeWorker, &AramaWorker::rolListesiHazir, this, &Database::rolListesiHazir);
+
+    m_teklifWorker = workerBaslat(m_teklifThread, QStringLiteral("erp_teklif_baglantisi"));
+    connect(m_teklifWorker, &AramaWorker::teklifListesiHazir, this, &Database::teklifListesiHazir);
+}
+
+AramaWorker *Database::workerBaslat(QThread &thread, const QString &baglantiAdi)
+{
+    // Worker kendi thread'ine tasinir; baglantisini ANCAK thread fiilen
+    // baslayinca (kendi icinde) acar -- bkz. AramaWorker::baglantiyiAc().
+    auto *worker = new AramaWorker(baglantiAdi);
+    worker->moveToThread(&thread);
+    connect(&thread, &QThread::started, worker, &AramaWorker::baglantiyiAc);
+    connect(&thread, &QThread::finished, worker, &QObject::deleteLater);
+    thread.start();
+    return worker;
 }
 
 Database::~Database()
 {
-    m_aramaThread.quit();
-    m_aramaThread.wait();
+    // Thread o an bir sorgunun ICINDEYSE quit() hemen etkili olmaz: olay dongusu
+    // ancak sorgu donunce devam edebilir. Bu yuzden once yeterince beklenir --
+    // ODBC istek zaman asimi (ISTEK_ZAMAN_ASIMI_SN) + pay kadar.
+    //
+    // Sure yine de yetmezse thread SONLANDIRILIR. Hos bir cozum degildir, ama
+    // alternatifi kesin bir cokmedir: QThread yikicisi, thread hala calisirken
+    // cagrilirsa uygulamayi abort eder ("QThread: Destroyed while thread is
+    // still running") -- programi kapatan kullanici bunu "program cokerek
+    // kapandi" diye gorur. Kapanis anindayiz; yarim kalan SELECT'in veri
+    // butunlugu acisindan bir sonucu yok (yazma islemleri UI thread'inde
+    // yapilir ve bu noktada coktan bitmistir).
+    const int bekleMs = (ISTEK_ZAMAN_ASIMI_SN + 5) * 1000;
+    for (QThread *thread : { &m_aramaThread, &m_listeThread, &m_teklifThread })
+    {
+        thread->quit();
+        if (thread->wait(bekleMs))
+            continue;
+
+        qWarning() << "Worker thread" << bekleMs << "ms icinde kapanmadi; sonlandiriliyor.";
+        thread->terminate();
+        thread->wait(2000);
+    }
 
     if (m_db.isOpen())
         m_db.close();
@@ -293,7 +463,13 @@ bool Database::baglantiyiHazirla(QSqlDatabase &db, const QString &baglantiAdi,
 
 bool Database::baglan()
 {
+    // Bu cagri UI thread'indedir (Database, main()'de olusturulur): suresi
+    // dogrudan "program acilirken ne kadar donuyor" demektir. Ilk cagri ayni
+    // zamanda Qt'nin QODBC eklentisini de yukler.
+    QElapsedTimer olcum;
+    olcum.start();
     const bool basarili = baglantiAc(m_db, "erp_baglantisi", m_sonHataMesaji);
+    qInfo() << "[olcum] ana baglanti (eklenti yuklemesi dahil):" << olcum.elapsed() << "ms";
     m_sonBaglantiDenemesi.start();
     if (basarili)
         m_sonKullanim.start();
@@ -309,6 +485,7 @@ bool Database::baglantiHazir()
 
 QVariantMap Database::girisYap(const QString &kullaniciAdi, const QString &sifre)
 {
+    ERP_IZ("girisYap");
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["hata"] = QString();
@@ -326,9 +503,15 @@ QVariantMap Database::girisYap(const QString &kullaniciAdi, const QString &sifre
         return sonuc;
     }
 
+    // SifreSalt sutunu db/12_personel_sifre_salt.sql ile eklenir; script henuz
+    // calistirilmamissa sutun yoktur ve giris eski (tuzsuz) yolla isler.
+    const bool tuzKolonu = semaKolonuVarMi(m_db, QStringLiteral("dbo.kullanicilar"),
+                                           QStringLiteral("SifreSalt"));
+
     QSqlQuery query(m_db);
-    query.prepare("SELECT KullaniciId, AdSoyad, KullaniciAdi, SifreHash, AktifMi "
-                  "FROM dbo.kullanicilar WHERE KullaniciAdi = :kullaniciAdi");
+    query.prepare(QString("SELECT KullaniciId, AdSoyad, KullaniciAdi, SifreHash, AktifMi%1 "
+                          "FROM dbo.kullanicilar WHERE KullaniciAdi = :kullaniciAdi")
+                      .arg(tuzKolonu ? QStringLiteral(", SifreSalt") : QString()));
     query.bindValue(":kullaniciAdi", kullaniciAdiTrim);
 
     if (!query.exec())
@@ -359,24 +542,33 @@ QVariantMap Database::girisYap(const QString &kullaniciAdi, const QString &sifre
         return sonuc;
     }
 
-    // Gecis donemi: eski WPF sisteminden gocen kayitlarda sifre duz metin olarak
-    // tasindi (kolon adi SifreHash olsa da icerigi henuz hashlenmemisti). Once
-    // hashli esitligi, olmazsa duz metin esitligini kontrol ediyoruz; duz metinle
-    // eslesirse kullaniciyi bir daha rahatsiz etmeden sessizce hashli hale
-    // yukseltiyoruz (asagidaki UPDATE). Boylece sistem zamanla tamamen hashli
-    // sifrelere gecmis olacak.
-    const QString girilenSifreHash = sifreyiHashle(sifre);
-    bool sifreDogruMu = false;
-    bool hashYukseltmesiGerekli = false;
+    // Sifre dogrulamasinda UC surum birlikte destekleniyor; hepsi ayni gecis
+    // mantiginin halkalari:
+    //   1) TUZLU hash  -- hedef bicim (SifreSalt dolu).
+    //   2) TUZSUZ hash -- db/12 oncesi kaydedilmis sifreler.
+    //   3) DUZ METIN   -- eski WPF sisteminden gocen kayitlar (kolon adi
+    //                     SifreHash olsa da icerigi hashlenmemisti).
+    // 2 veya 3 ile eslesirse kullaniciyi hic rahatsiz etmeden sessizce TUZLU
+    // hale yukseltiyoruz (asagidaki UPDATE). Boylece sistem zamanla tamamen
+    // tuzlu hash'e gecer ve kimsenin sifresini sifirlamak gerekmez.
+    const QString depolananTuz = tuzKolonu ? query.value("SifreSalt").toString() : QString();
 
-    if (depolananSifre == girilenSifreHash)
+    bool sifreDogruMu = false;
+    bool yukseltmeGerekli = false;
+
+    if (!depolananTuz.isEmpty())
+    {
+        sifreDogruMu = (depolananSifre == sifreyiHashle(sifre, depolananTuz));
+    }
+    else if (depolananSifre == sifreyiHashle(sifre))
     {
         sifreDogruMu = true;
+        yukseltmeGerekli = true;
     }
     else if (depolananSifre == sifre)
     {
         sifreDogruMu = true;
-        hashYukseltmesiGerekli = true;
+        yukseltmeGerekli = true;
     }
 
     if (!sifreDogruMu)
@@ -385,16 +577,25 @@ QVariantMap Database::girisYap(const QString &kullaniciAdi, const QString &sifre
         return sonuc;
     }
 
-    if (hashYukseltmesiGerekli)
+    // Yukseltme ancak tuz sutunu varsa yapilabilir; yoksa kayit oldugu gibi
+    // kalir ve giris yine basarili sayilir (script calistirilinca yukseltilir).
+    if (yukseltmeGerekli && tuzKolonu)
     {
+        const QString yeniTuz = yeniTuzUret();
         QSqlQuery guncelle(m_db);
-        guncelle.prepare("UPDATE dbo.kullanicilar SET SifreHash = :hash WHERE KullaniciId = :id");
-        guncelle.bindValue(":hash", girilenSifreHash);
+        guncelle.prepare("UPDATE dbo.kullanicilar SET SifreHash = :hash, SifreSalt = :tuz "
+                         "WHERE KullaniciId = :id");
+        guncelle.bindValue(":hash", sifreyiHashle(sifre, yeniTuz));
+        guncelle.bindValue(":tuz", yeniTuz);
         guncelle.bindValue(":id", kullaniciId);
         if (!guncelle.exec())
-            qWarning() << "Sifre hash yukseltmesi basarisiz (giris yine de basarili sayilir):"
+            qWarning() << "Sifre tuzlu hale yukseltilemedi (giris yine de basarili sayilir):"
                        << guncelle.lastError().text();
     }
+
+    // Is kurallarinin SUNUCUDA bilmesi gereken oturum bilgisi (bkz.
+    // aktifKullaniciId): QML'den gelen bir id'ye guvenmek yerine burada tutulur.
+    m_aktifKullaniciId = kullaniciId;
 
     sonuc["basarili"] = true;
     sonuc["kullaniciId"] = kullaniciId;
@@ -406,29 +607,44 @@ QVariantMap Database::girisYap(const QString &kullaniciAdi, const QString &sifre
 
 bool Database::yoneticiSifresiDogrula(const QString &sifre)
 {
+    ERP_IZ("yoneticiSifresiDogrula");
     if (sifre.isEmpty() || !baglantiHazir())
         return false;
 
+    const bool tuzKolonu = semaKolonuVarMi(m_db, QStringLiteral("dbo.kullanicilar"),
+                                           QStringLiteral("SifreSalt"));
+
     QSqlQuery query(m_db);
-    query.prepare(
-        "SELECT DISTINCT k.SifreHash "
+    query.prepare(QString(
+        "SELECT DISTINCT k.SifreHash%1 "
         "FROM dbo.kullanicilar k "
         "JOIN dbo.kullanici_rolleri kr ON kr.KullaniciId = k.KullaniciId "
         "JOIN dbo.roller r ON r.RolId = kr.RolId "
-        "WHERE k.AktifMi = 1 AND r.RolAdi IN (N'Yönetici', N'Göç - Geçici Tam Yetkili')");
+        "WHERE k.AktifMi = 1 AND r.RolAdi IN (N'Yönetici', N'Göç - Geçici Tam Yetkili')")
+        .arg(tuzKolonu ? QStringLiteral(", k.SifreSalt") : QString()));
     if (!query.exec())
     {
         qWarning() << "yoneticiSifresiDogrula sorgusu basarisiz:" << query.lastError().text();
         return false;
     }
 
-    // girisYap ile ayni kural: hashli ya da (henuz yukseltilmemis) duz metin.
-    const QString girilenHash = sifreyiHashle(sifre);
+    // girisYap ile ayni uc surum: tuzlu hash, tuzsuz hash veya (henuz
+    // yukseltilmemis) duz metin. Yukseltme burada YAPILMAZ -- bu metot sadece
+    // dogrulama yapar; yukseltme kullanici kendi girisini yaptiginda olur.
     while (query.next())
     {
         const QString depolanan = query.value(0).toString();
-        if (depolanan == girilenHash || depolanan == sifre)
+        const QString tuz = tuzKolonu ? query.value(1).toString() : QString();
+
+        if (!tuz.isEmpty())
+        {
+            if (depolanan == sifreyiHashle(sifre, tuz))
+                return true;
+        }
+        else if (depolanan == sifreyiHashle(sifre) || depolanan == sifre)
+        {
             return true;
+        }
     }
     return false;
 }
@@ -466,110 +682,6 @@ QVariantList Database::kullaniciModulleriniGetir(int kullaniciId)
     return moduller;
 }
 
-void Database::whereKosullariniOlustur(const QString &arama,
-                                        const QString &tarihFiltresi,
-                                        const QString &baslangicTarihi,
-                                        const QString &bitisTarihi,
-                                        const QString &durumFiltresi,
-                                        QString &whereClauseOut,
-                                        QVariantMap &parametrelerOut) const
-{
-    QStringList kosullar;
-
-    // "N Gün" = bugun dahil son N takvim gunu ("1 Gün" yalnizca bugun). Eskiden
-    // gece yarisindan N gun geriye gidiliyordu; "1 Gün" fiilen dun + bugunu
-    // (2 gun), "1 Hafta" 8 gunu getiriyordu.
-    static const QHash<QString, int> gunFiltreleri = {
-        { QStringLiteral("1 Gün"), 1 }, { QStringLiteral("1 Hafta"), 7 },
-        { QStringLiteral("15 Gün"), 15 }, { QStringLiteral("30 Gün"), 30 },
-    };
-    if (gunFiltreleri.contains(tarihFiltresi))
-    {
-        kosullar << QString("t.OlusturmaTarihi >= DATEADD(day, -%1, CAST(GETDATE() AS date))")
-                        .arg(gunFiltreleri.value(tarihFiltresi) - 1);
-    }
-    else if (tarihFiltresi == "Özel Tarih" && !baslangicTarihi.isEmpty() && !bitisTarihi.isEmpty())
-    {
-        // baslangicTarihi / bitisTarihi QML'den "yyyy-MM-dd" formatinda geliyor;
-        // ters secilmisse (baslangic > bitis) yer degistirilir -- aksi halde
-        // BETWEEN hic kayit dondurmez ve liste bos sanilir.
-        QString bas = baslangicTarihi;
-        QString bit = bitisTarihi;
-        if (bas > bit)
-            std::swap(bas, bit);
-        kosullar << "CAST(t.OlusturmaTarihi AS date) BETWEEN :baslangic AND :bitis";
-        parametrelerOut[":baslangic"] = bas;
-        parametrelerOut[":bitis"] = bit;
-    }
-    // Tek tarih secildiyse acik uclu aralik: eskiden filtre sessizce yok
-    // sayiliyor, kullanici filtrelenmis sandigi TUM listeyi goruyordu.
-    else if (tarihFiltresi == "Özel Tarih" && !baslangicTarihi.isEmpty())
-    {
-        kosullar << "CAST(t.OlusturmaTarihi AS date) >= :baslangic";
-        parametrelerOut[":baslangic"] = baslangicTarihi;
-    }
-    else if (tarihFiltresi == "Özel Tarih" && !bitisTarihi.isEmpty())
-    {
-        kosullar << "CAST(t.OlusturmaTarihi AS date) <= :bitis";
-        parametrelerOut[":bitis"] = bitisTarihi;
-    }
-
-    const QString aramaTrim = arama.trimmed();
-    if (!aramaTrim.isEmpty())
-    {
-        // Numara aramasi, ekranda gorunen Teklif No uzerinden yapilir (TeklifId
-        // uzerinden DEGIL): "1203" kok teklifi ve tum revizyonlarini, "1203/Rev.2"
-        // (ya da "1203/2", "1203 R2", "1203-Rev2") yalnizca o revizyonu bulur.
-        static const QRegularExpression teklifNoDeseni(
-            QStringLiteral("^#?(\\d+)(?:\\s*(?:[/-]\\s*(?:rev\\.?|r)?|rev\\.?|r)\\s*(\\d+))?$"),
-            QRegularExpression::CaseInsensitiveOption);
-        const QRegularExpressionMatch noEslesmesi = teklifNoDeseni.match(aramaTrim);
-        const bool noEslesiyorMu = noEslesmesi.hasMatch();
-        const bool revizyonVarMi = noEslesiyorMu && !noEslesmesi.captured(2).isEmpty();
-
-        QString aramaKosulu = "(";
-        if (noEslesiyorMu)
-        {
-            aramaKosulu += revizyonVarMi
-                ? QString("(%1 = :kokTeklifNo AND t.RevizyonNo = :revizyonNo) OR ").arg(teklifNoSql("t"))
-                : QString("%1 = :kokTeklifNo OR ").arg(teklifNoSql("t"));
-        }
-
-        aramaKosulu +=
-            "m.FirmaAdi LIKE :aramaLike OR "
-            "p.AdSoyad LIKE :aramaLike OR "
-            // Teklife ozel duzenlenmis aciklama (tk.UrunAciklamasi -- PDF'e
-            // basilan metin) ve katalogun Ingilizce aciklamasi da aranir;
-            // eskiden yalnizca katalogun Turkce aciklamasina bakiliyordu.
-            "EXISTS (SELECT 1 FROM dbo.teklif_kalemleri tk "
-            "        INNER JOIN dbo.urunler u ON u.UrunId = tk.UrunId "
-            "        WHERE tk.TeklifId = t.TeklifId "
-            "          AND (tk.UrunAciklamasi LIKE :aramaLike OR u.UrunAciklamasi LIKE :aramaLike "
-            "               OR u.UrunAciklamasiEn LIKE :aramaLike OR u.UrunKodu LIKE :aramaLike))"
-            ")";
-
-        kosullar << aramaKosulu;
-        parametrelerOut[":aramaLike"] = "%" + aramaTrim + "%";
-        if (noEslesiyorMu)
-        {
-            parametrelerOut[":kokTeklifNo"] = noEslesmesi.captured(1).toInt();
-            if (revizyonVarMi)
-                parametrelerOut[":revizyonNo"] = noEslesmesi.captured(2).toInt();
-        }
-    }
-
-    // "Giden Tekliflerim" durumFiltresi'ni bos birakip TUM teklifleri (durumdan
-    // bagimsiz) gosterir -- bu sekme WPF'teki gibi bir gecmis/log gibi davraniyor.
-    // "Alinan Tekliflerim" / "Biten Tekliflerim" ise burada tek bir Durum degeriyle filtreler.
-    if (!durumFiltresi.trimmed().isEmpty())
-    {
-        kosullar << "t.Durum = :durum";
-        parametrelerOut[":durum"] = durumFiltresi.trimmed();
-    }
-
-    whereClauseOut = kosullar.isEmpty() ? QString() : ("WHERE " + kosullar.join(" AND "));
-}
-
 QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
                                             const QString &tarihFiltresi,
                                             const QString &baslangicTarihi,
@@ -578,215 +690,51 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
                                             int sayfaBoyutu,
                                             const QString &durumFiltresi)
 {
-    QVariantMap sonuc;
-    sonuc["kayitlar"] = QVariantList();
-    sonuc["toplamKayit"] = 0;
-    sonuc["toplamSayfa"] = 1;
-    sonuc["mevcutSayfa"] = 1;
-    sonuc["paraBirimiToplamlari"] = QVariantList();
-
+    ERP_IZ("gecmisTekliflerGetir");
+    // SENKRON yol -- yalnizca geriye donuk uyumluluk icin durur. Ekranlar
+    // gecmisTekliflerGetirBaslat'i kullanmalidir: bu cagri, sorgu suresince
+    // UI thread'ini bloke eder (bkz. Database.h'deki asenkron yol notu).
     if (!baglantiHazir())
     {
         qWarning() << "gecmisTekliflerGetir: veritabani baglantisi yok.";
-        return sonuc;
+        QVariantMap bos;
+        bos["kayitlar"] = QVariantList();
+        bos["toplamKayit"] = 0;
+        bos["toplamSayfa"] = 1;
+        bos["mevcutSayfa"] = 1;
+        bos["paraBirimiToplamlari"] = QVariantList();
+        return bos;
     }
+    return teklifListesiSorgusu(m_db, arama, tarihFiltresi, baslangicTarihi, bitisTarihi,
+                                sayfaNo, sayfaBoyutu, durumFiltresi);
+}
 
-    QString whereClause;
-    QVariantMap parametreler;
-    whereKosullariniOlustur(arama, tarihFiltresi, baslangicTarihi, bitisTarihi, durumFiltresi, whereClause, parametreler);
-
-    // 1) Toplam kayit sayisi (sayfalama hesabi icin).
-    const QString sayimSorgusu = QString(
-        "SELECT COUNT(*) "
-        "FROM dbo.teklifler t "
-        "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
-        "LEFT JOIN dbo.kullanicilar p ON p.KullaniciId = t.KullaniciId "
-        "%1").arg(whereClause);
-
-    QSqlQuery sayimQuery(m_db);
-    sayimQuery.prepare(sayimSorgusu);
-    for (auto it = parametreler.constBegin(); it != parametreler.constEnd(); ++it)
-        sayimQuery.bindValue(it.key(), it.value());
-
-    if (!sayimQuery.exec())
+int Database::gecmisTekliflerGetirBaslat(const QString &arama,
+                                          const QString &tarihFiltresi,
+                                          const QString &baslangicTarihi,
+                                          const QString &bitisTarihi,
+                                          int sayfaNo,
+                                          int sayfaBoyutu,
+                                          const QString &durumFiltresi)
+{
+    const int istekNo = ++m_listeIstekSayaci;
+    if (!m_teklifWorker)
     {
-        qWarning() << "Teklif sayisi sorgusu basarisiz:" << sayimQuery.lastError().text();
-        return sonuc;
+        // Worker yoksa (olmamasi gereken durum) cagiran taraf asili kalmasin.
+        emit teklifListesiHazir(istekNo, QVariantMap());
+        return istekNo;
     }
-
-    int toplamKayit = 0;
-    if (sayimQuery.next())
-        toplamKayit = sayimQuery.value(0).toInt();
-
-    const int toplamSayfa = std::max(1, static_cast<int>(std::ceil(toplamKayit / static_cast<double>(sayfaBoyutu))));
-    sayfaNo = std::clamp(sayfaNo, 1, toplamSayfa);
-
-    // 2) Sayfa verisi.
-    // NOT: Yeni semada sevk_bilgileri.TeklifId UNIQUE oldugu icin bir teklifin
-    // birden fazla sevk kaydina sahip olmasi artik yapisal olarak imkansiz;
-    // yine de OUTER APPLY + TOP 1 korunuyor (ekstra guvenlik, maliyeti yok).
-    //
-    // KopyaKaynakTeklifId sutunu 07 numarali script ile SONRADAN eklendigi icin
-    // sorguya ancak gercekten varsa giriyor -- script'i calistirmamis bir
-    // veritabaninda teklif listesi "gecersiz sutun adi" hatasiyla bos kalmasin.
-    // Kopya kaynaginin Teklif No'su icin kaynak satirin numarasi/RevizyonNo'su da
-    // okunur (kaynak silinmisse NULL gelir, o zaman numara gosterilmez).
-    const bool kopyaKolonuVar = kopyaKolonuVarMi();
-    const QString kopyaSutunu = kopyaKolonuVar
-        ? QString("t.KopyaKaynakTeklifId, %1 AS KopyaKaynakNo, kk.RevizyonNo AS KopyaKaynakRevizyonNo")
-              .arg(teklifNoSql("kk"))
-        : QStringLiteral("CAST(NULL AS INT) AS KopyaKaynakTeklifId, CAST(NULL AS INT) AS KopyaKaynakNo, "
-                         "CAST(NULL AS INT) AS KopyaKaynakRevizyonNo");
-    const QString kopyaJoin = kopyaKolonuVar
-        ? QStringLiteral("LEFT JOIN dbo.teklifler kk ON kk.TeklifId = t.KopyaKaynakTeklifId ")
-        : QString();
-    const QString veriSorgusu = QString(
-        "SELECT t.TeklifId, m.FirmaAdi, t.OlusturmaTarihi, t.KabulTarihi, "
-        "       t.TeslimatTarihi, t.TeslimTarihi, t.UretimPdfTarihi, "
-        "       p.KullaniciAdi AS PersonelKullaniciAdi, t.Durum, t.RedSebebi, sb.Aciklamalar, "
-        "       t.MusteriNotu, t.UretimNotu, t.AnaTeklifId, t.RevizyonNo, %4 AS TeklifNo, %2, "
-        "       son.TeklifId AS GuncelTeklifId, son.RevizyonNo AS GuncelRevizyonNo, "
-        "       t.ParaBirimi, tt.GenelToplam "
-        "FROM dbo.teklifler t "
-        "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
-        "LEFT JOIN dbo.kullanicilar p ON p.KullaniciId = t.KullaniciId "
-        "LEFT JOIN dbo.teklif_toplamlari tt ON tt.TeklifId = t.TeklifId "
-        "%3"
-        "OUTER APPLY ("
-        "    SELECT TOP 1 sbi.Aciklamalar "
-        "    FROM dbo.sevk_bilgileri sbi "
-        "    WHERE sbi.TeklifId = t.TeklifId "
-        "    ORDER BY sbi.SevkBilgileriId DESC"
-        ") sb "
-        // Bu satirin ait oldugu revizyon zincirinin EN SON kaydi. "Revize Edildi"
-        // durumundaki satirlarda "yerine gecen teklif" olarak gosterilir; diger
-        // satirlarda (zincirin sonu zaten kendisidir) UI tarafinda kullanilmaz.
-        "OUTER APPLY ("
-        "    SELECT TOP 1 g.TeklifId, g.RevizyonNo "
-        "    FROM dbo.teklifler g "
-        "    WHERE g.TeklifId = ISNULL(t.AnaTeklifId, t.TeklifId) "
-        "       OR g.AnaTeklifId = ISNULL(t.AnaTeklifId, t.TeklifId) "
-        "    ORDER BY g.RevizyonNo DESC"
-        ") son "
-        "%1 "
-        "ORDER BY t.OlusturmaTarihi DESC "
-        "OFFSET :offset ROWS FETCH NEXT :sayfaBoyutu ROWS ONLY")
-        .arg(whereClause, kopyaSutunu, kopyaJoin, teklifNoSql("t"));
-
-    QSqlQuery veriQuery(m_db);
-    veriQuery.prepare(veriSorgusu);
-    for (auto it = parametreler.constBegin(); it != parametreler.constEnd(); ++it)
-        veriQuery.bindValue(it.key(), it.value());
-    veriQuery.bindValue(":offset", (sayfaNo - 1) * sayfaBoyutu);
-    veriQuery.bindValue(":sayfaBoyutu", sayfaBoyutu);
-
-    if (!veriQuery.exec())
-    {
-        qWarning() << "Teklif listesi sorgusu basarisiz:" << veriQuery.lastError().text();
-        return sonuc;
-    }
-
-    QVariantList kayitlar;
-    while (veriQuery.next())
-    {
-        QVariantMap kayit;
-        kayit["teklifId"] = veriQuery.value("TeklifId").toInt();
-        kayit["firmaAdi"] = veriQuery.value("FirmaAdi").toString();
-        kayit["teklifTarihi"] = tarihStr(veriQuery.value("OlusturmaTarihi"));
-        kayit["kabulTarihi"] = tarihStr(veriQuery.value("KabulTarihi"));
-        kayit["teslimatTarihi"] = tarihStr(veriQuery.value("TeslimatTarihi"));
-        kayit["teslimTarihi"] = tarihStr(veriQuery.value("TeslimTarihi"));
-        kayit["uretimPdfTarihi"] = tarihSaatStr(veriQuery.value("UretimPdfTarihi"));
-        kayit["personelKullaniciAdi"] = veriQuery.value("PersonelKullaniciAdi").toString();
-        kayit["durum"] = veriQuery.value("Durum").toString();
-        kayit["redSebebi"] = veriQuery.value("RedSebebi").toString();
-        kayit["aciklamalar"] = veriQuery.value("Aciklamalar").toString();
-        kayit["musteriNotu"] = veriQuery.value("MusteriNotu").toString();
-        kayit["uretimNotu"] = veriQuery.value("UretimNotu").toString();
-        // Revizyon izleme: AnaTeklifId doluysa bu satir bir revizyondur --
-        // Giden Tekliflerim listesinde "Rev N" rozetiyle gosterilir (bkz.
-        // GecmisTekliflerPage.qml). anaTeklifId hep KOK teklifin TeklifId'sini
-        // tasir (bu satirin kendisi orijinalse anaTeklifId 0'dir).
-        kayit["anaTeklifId"] = veriQuery.value("AnaTeklifId").isNull() ? 0 : veriQuery.value("AnaTeklifId").toInt();
-        kayit["revizyonNo"] = veriQuery.value("RevizyonNo").toInt();
-        // Zincirin en son (gecerli) kaydi: durum "Revize Edildi" ise bu teklifin
-        // YERINE GECEN teklif budur ve rozet ipucunda gosterilir.
-        kayit["guncelTeklifId"] = veriQuery.value("GuncelTeklifId").toInt();
-        kayit["guncelRevizyonNo"] = veriQuery.value("GuncelRevizyonNo").toInt();
-        // Kopya izi: bu teklif baska bir teklifin "Kopya" butonuyla olusturulduysa
-        // kaynak teklifin id'si. Revizyondan farkli olarak hicbir gecerlilik
-        // kurali tasimaz -- yalnizca listede bilgi olarak gosterilir.
-        kayit["kopyaKaynakTeklifId"] = veriQuery.value("KopyaKaynakTeklifId").isNull()
-            ? 0 : veriQuery.value("KopyaKaynakTeklifId").toInt();
-
-        // Ekranda gosterilen numaralar: hepsi Teklif No bicimindedir (bkz.
-        // teklifNoBicimle). teklifId/guncelTeklifId/kopyaKaynakTeklifId yalnizca
-        // islem yapmak icin tasinir, kullaniciya gosterilmez.
-        // "kokTeklifNo" (int): revizyon eki olmadan numara; liste bunu Rev.N
-        // rozetiyle yan yana gosterir.
-        const int kokTeklifNo = veriQuery.value("TeklifNo").toInt();
-        kayit["kokTeklifNo"] = kokTeklifNo;
-        kayit["teklifNo"] = teklifNoBicimle(kokTeklifNo, kayit["revizyonNo"].toInt());
-        // Zincirin en son kaydi ayni numarayi tasir, yalnizca revizyonu farklidir.
-        kayit["guncelTeklifNo"] = teklifNoBicimle(kokTeklifNo, kayit["guncelRevizyonNo"].toInt());
-        kayit["kopyaKaynakTeklifNo"] = veriQuery.value("KopyaKaynakNo").isNull()
-            ? QString()
-            : teklifNoBicimle(veriQuery.value("KopyaKaynakNo").toInt(),
-                              veriQuery.value("KopyaKaynakRevizyonNo").toInt());
-        // Teklifin genel toplami, kendi para biriminde (KDV dahil).
-        const QString pb = veriQuery.value("ParaBirimi").toString().trimmed();
-        kayit["paraBirimi"] = pb.isEmpty() ? QStringLiteral("TL") : pb;
-        kayit["genelToplam"] = veriQuery.value("GenelToplam").toDouble();
-        kayitlar << kayit;
-    }
-
-    // Sekme toplami (Alınan/Biten Tekliflerim): filtreye uyan TUM kayitlarin
-    // (yalnizca bu sayfanin degil) genel toplami, para birimi bazinda -- USD ve
-    // TL tutarlari toplanamaz. Giden Tekliflerim'de (durum filtresi yok) revize
-    // edilmis/reddedilmis surumler de listede oldugu icin toplam anlamsizdir,
-    // hesaplanmaz.
-    QVariantList paraBirimiToplamlari;
-    if (!durumFiltresi.trimmed().isEmpty())
-    {
-        QSqlQuery toplamQuery(m_db);
-        toplamQuery.prepare(QString(
-            "SELECT ISNULL(NULLIF(LTRIM(RTRIM(t.ParaBirimi)), ''), 'TL') AS PB, "
-            "       SUM(ISNULL(tt.GenelToplam, 0)) AS Toplam "
-            "FROM dbo.teklifler t "
-            "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
-            "LEFT JOIN dbo.kullanicilar p ON p.KullaniciId = t.KullaniciId "
-            "LEFT JOIN dbo.teklif_toplamlari tt ON tt.TeklifId = t.TeklifId "
-            "%1 "
-            "GROUP BY ISNULL(NULLIF(LTRIM(RTRIM(t.ParaBirimi)), ''), 'TL') "
-            "ORDER BY PB DESC").arg(whereClause));
-        for (auto it = parametreler.constBegin(); it != parametreler.constEnd(); ++it)
-            toplamQuery.bindValue(it.key(), it.value());
-        if (toplamQuery.exec())
-        {
-            while (toplamQuery.next())
-            {
-                QVariantMap satir;
-                satir["paraBirimi"] = toplamQuery.value("PB").toString();
-                satir["toplam"] = toplamQuery.value("Toplam").toDouble();
-                paraBirimiToplamlari << satir;
-            }
-        }
-        else
-        {
-            qWarning() << "Teklif toplam sorgusu basarisiz:" << toplamQuery.lastError().text();
-        }
-    }
-    sonuc["paraBirimiToplamlari"] = paraBirimiToplamlari;
-
-    sonuc["kayitlar"] = kayitlar;
-    sonuc["toplamKayit"] = toplamKayit;
-    sonuc["toplamSayfa"] = toplamSayfa;
-    sonuc["mevcutSayfa"] = sayfaNo;
-    return sonuc;
+    QMetaObject::invokeMethod(m_teklifWorker, "teklifListesiCalistir", Qt::QueuedConnection,
+                              Q_ARG(int, istekNo), Q_ARG(QString, arama),
+                              Q_ARG(QString, tarihFiltresi), Q_ARG(QString, baslangicTarihi),
+                              Q_ARG(QString, bitisTarihi), Q_ARG(int, sayfaNo),
+                              Q_ARG(int, sayfaBoyutu), Q_ARG(QString, durumFiltresi));
+    return istekNo;
 }
 
 bool Database::teklifSil(int teklifId)
 {
+    ERP_IZ("teklifSil");
     // Yonetici sifresi onayi QML tarafinda (SifreOnayDialog) istenir.
     m_sonHataMesaji.clear();
     if (teklifId <= 0 || !baglantiHazir())
@@ -903,6 +851,7 @@ void Database::musteriAraBaslat(const QString &arama, int limit)
 
 void Database::urunAraBaslat(const QString &arama, int limit, const QString &dil)
 {
+    qInfo() << "[olcum] urunAraBaslat istegi kuyruga alindi, arama=" << arama << "dil=" << dil;
     if (m_aramaWorker)
         QMetaObject::invokeMethod(m_aramaWorker, "urunAraCalistir", Qt::QueuedConnection,
                                    Q_ARG(QString, arama), Q_ARG(int, limit), Q_ARG(QString, dil));
@@ -910,6 +859,7 @@ void Database::urunAraBaslat(const QString &arama, int limit, const QString &dil
 
 QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
 {
+    ERP_IZ("teklifKaydet");
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["teklifId"] = 0;
@@ -1370,6 +1320,7 @@ bool Database::duzeltmeKuraliniDenetle(int teklifId, QString &hataOut)
 
 bool Database::teklifDuzeltilebilirMi(int teklifId)
 {
+    ERP_IZ("teklifDuzeltilebilirMi");
     m_sonHataMesaji.clear();
     if (teklifId <= 0 || !baglantiHazir())
         return false;
@@ -1381,6 +1332,7 @@ bool Database::teklifDuzeltilebilirMi(int teklifId)
 
 QVariantMap Database::teklifDuzelt(int teklifId, const QVariantMap &teklif, const QString &sebep)
 {
+    ERP_IZ("teklifDuzelt");
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["teklifId"] = teklifId;
@@ -1567,6 +1519,7 @@ QVariantMap Database::teklifDuzelt(int teklifId, const QVariantMap &teklif, cons
 
 QVariantMap Database::teklifDuzenlemeVerisiGetir(int teklifId)
 {
+    ERP_IZ("teklifDuzenlemeVerisiGetir");
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["hata"] = QString();
@@ -1797,6 +1750,7 @@ bool Database::kopyaKolonuVarMi()
 
 QString Database::teklifNoGetir(int teklifId)
 {
+    ERP_IZ("teklifNoGetir");
     if (teklifId <= 0 || !baglantiHazir())
         return QString::number(teklifId);
 
@@ -1943,6 +1897,7 @@ QString Database::teklifDurumuGetir(int teklifId)
 
 bool Database::teklifTeslimatTarihiGuncelle(int teklifId, const QString &teslimatTarihi)
 {
+    ERP_IZ("teklifTeslimatTarihiGuncelle");
     if (teklifId <= 0 || !baglantiHazir())
         return false;
 
@@ -1970,6 +1925,7 @@ bool Database::teklifTeslimatTarihiGuncelle(int teklifId, const QString &teslima
 
 bool Database::teklifMusteriNotuGuncelle(int teklifId, const QString &musteriNotu)
 {
+    ERP_IZ("teklifMusteriNotuGuncelle");
     if (teklifId <= 0 || !baglantiHazir())
         return false;
 
@@ -1996,6 +1952,7 @@ bool Database::teklifMusteriNotuGuncelle(int teklifId, const QString &musteriNot
 
 bool Database::teklifUretimNotuGuncelle(int teklifId, const QString &uretimNotu)
 {
+    ERP_IZ("teklifUretimNotuGuncelle");
     if (teklifId <= 0 || !baglantiHazir())
         return false;
 
@@ -2058,6 +2015,7 @@ bool Database::teklifKalemiUretimeAcikMi(int teklifKalemId)
 
 bool Database::teklifKalemTamamlandiGuncelle(int teklifKalemId, bool tamamlandi)
 {
+    ERP_IZ("teklifKalemTamamlandiGuncelle");
     if (teklifKalemId <= 0 || !baglantiHazir())
         return false;
 
@@ -2079,6 +2037,7 @@ bool Database::teklifKalemTamamlandiGuncelle(int teklifKalemId, bool tamamlandi)
 
 bool Database::teklifKalemUretimNotuGuncelle(int teklifKalemId, const QString &uretimNotu)
 {
+    ERP_IZ("teklifKalemUretimNotuGuncelle");
     if (teklifKalemId <= 0 || !baglantiHazir())
         return false;
 
@@ -2107,6 +2066,7 @@ QStringList Database::gecerliDurumlar() const
 
 bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QString &redSebebi, int kullaniciId)
 {
+    ERP_IZ("teklifDurumGuncelle");
     if (!baglantiHazir())
         return false;
 
@@ -2260,6 +2220,7 @@ void Database::durumDegisiminiLogla(int teklifId, const QString &eskiDurum, cons
 
 QVariantList Database::teklifDurumGecmisiGetir(int teklifId)
 {
+    ERP_IZ("teklifDurumGecmisiGetir");
     QVariantList gecmis;
     if (!baglantiHazir() || teklifId <= 0)
         return gecmis;
@@ -2451,87 +2412,134 @@ QVariantList Database::teklifDurumGecmisiGetir(int teklifId)
     return gecmis;
 }
 
-QVariantMap Database::musteriListesiGetir(const QString &arama, int sayfaNo, int sayfaBoyutu)
+// ----------------------------------------------------------------------
+// Sayfali listeler. Sorgu SQL'i AramaSorgulari'nda durur ve ayni dosya
+// AramaWorker tarafindan da kullanilir (bkz. *ListesiGetirBaslat) -- boylece
+// senkron ve asenkron yol birbirinden sapmaz.
+// ----------------------------------------------------------------------
+QVariantMap Database::musteriListesiGetir(const QString &arama, int sayfaNo,
+                                           int sayfaBoyutu, bool arsivliDahil)
+{
+    ERP_IZ("musteriListesiGetir");
+    if (!baglantiHazir())
+        return QVariantMap();
+    return musteriListesiSorgusu(m_db, arama, sayfaNo, sayfaBoyutu, arsivliDahil);
+}
+
+int Database::musteriListesiGetirBaslat(const QString &arama, int sayfaNo,
+                                         int sayfaBoyutu, bool arsivliDahil)
+{
+    const int istekNo = ++m_listeIstekSayaci;
+    if (!m_listeWorker)
+    {
+        // Worker yoksa (olmamasi gereken durum) cagiran taraf asili kalmasin.
+        emit musteriListesiHazir(istekNo, QVariantMap());
+        return istekNo;
+    }
+    QMetaObject::invokeMethod(m_listeWorker, "musteriListesiCalistir", Qt::QueuedConnection,
+                              Q_ARG(int, istekNo), Q_ARG(QString, arama), Q_ARG(int, sayfaNo),
+                              Q_ARG(int, sayfaBoyutu), Q_ARG(bool, arsivliDahil));
+    return istekNo;
+}
+
+int Database::urunListesiGetirBaslat(const QString &arama, int sayfaNo,
+                                      int sayfaBoyutu, bool arsivliDahil)
+{
+    const int istekNo = ++m_listeIstekSayaci;
+    if (!m_listeWorker)
+    {
+        emit urunListesiHazir(istekNo, QVariantMap());
+        return istekNo;
+    }
+    QMetaObject::invokeMethod(m_listeWorker, "urunListesiCalistir", Qt::QueuedConnection,
+                              Q_ARG(int, istekNo), Q_ARG(QString, arama), Q_ARG(int, sayfaNo),
+                              Q_ARG(int, sayfaBoyutu), Q_ARG(bool, arsivliDahil));
+    return istekNo;
+}
+
+int Database::personelListesiGetirBaslat(const QString &arama, int sayfaNo,
+                                          int sayfaBoyutu, bool pasifDahil)
+{
+    const int istekNo = ++m_listeIstekSayaci;
+    if (!m_listeWorker)
+    {
+        emit personelListesiHazir(istekNo, QVariantMap());
+        return istekNo;
+    }
+    QMetaObject::invokeMethod(m_listeWorker, "personelListesiCalistir", Qt::QueuedConnection,
+                              Q_ARG(int, istekNo), Q_ARG(QString, arama), Q_ARG(int, sayfaNo),
+                              Q_ARG(int, sayfaBoyutu), Q_ARG(bool, pasifDahil));
+    return istekNo;
+}
+
+QVariantMap Database::iliskiliKayitSonucu(const QString &mesaj)
 {
     QVariantMap sonuc;
-    sonuc["kayitlar"] = QVariantList();
-    sonuc["toplamKayit"] = 0;
-    sonuc["toplamSayfa"] = 1;
-    sonuc["mevcutSayfa"] = 1;
-
-    if (!baglantiHazir())
-        return sonuc;
-
-    const QString aramaTrim = arama.trimmed();
-    QString whereClause;
-    if (!aramaTrim.isEmpty())
-        whereClause = "WHERE FirmaAdi LIKE :aramaLike OR IlgiliKisi LIKE :aramaLike OR FirmaEposta LIKE :aramaLike";
-
-    QSqlQuery sayimQuery(m_db);
-    sayimQuery.prepare(QString("SELECT COUNT(*) FROM dbo.musteriler %1").arg(whereClause));
-    if (!aramaTrim.isEmpty())
-        sayimQuery.bindValue(":aramaLike", "%" + aramaTrim + "%");
-
-    if (!sayimQuery.exec())
-    {
-        qWarning() << "musteriListesiGetir (sayim) basarisiz:" << sayimQuery.lastError().text();
-        return sonuc;
-    }
-
-    int toplamKayit = 0;
-    if (sayimQuery.next())
-        toplamKayit = sayimQuery.value(0).toInt();
-
-    const int toplamSayfa = std::max(1, static_cast<int>(std::ceil(toplamKayit / static_cast<double>(sayfaBoyutu))));
-    sayfaNo = std::clamp(sayfaNo, 1, toplamSayfa);
-
-    QSqlQuery veriQuery(m_db);
-    veriQuery.prepare(QString(
-        "SELECT MusteriId, FirmaAdi, FirmaAdresi, FirmaTelefonu, FirmaEposta, "
-        "       VergiDairesi, VergiNumarasi, IlgiliKisi, IlgiliKisiTelefonu "
-        "FROM dbo.musteriler %1 "
-        "ORDER BY FirmaAdi "
-        "OFFSET :offset ROWS FETCH NEXT :sayfaBoyutu ROWS ONLY").arg(whereClause));
-    if (!aramaTrim.isEmpty())
-        veriQuery.bindValue(":aramaLike", "%" + aramaTrim + "%");
-    veriQuery.bindValue(":offset", (sayfaNo - 1) * sayfaBoyutu);
-    veriQuery.bindValue(":sayfaBoyutu", sayfaBoyutu);
-
-    if (!veriQuery.exec())
-    {
-        qWarning() << "musteriListesiGetir (veri) basarisiz:" << veriQuery.lastError().text();
-        return sonuc;
-    }
-
-    QVariantList kayitlar;
-    while (veriQuery.next())
-    {
-        QVariantMap m;
-        m["musteriId"] = veriQuery.value("MusteriId").toInt();
-        m["firmaAdi"] = veriQuery.value("FirmaAdi").toString();
-        m["firmaAdresi"] = veriQuery.value("FirmaAdresi").toString();
-        m["firmaTelefonu"] = veriQuery.value("FirmaTelefonu").toString();
-        m["firmaEposta"] = veriQuery.value("FirmaEposta").toString();
-        m["vergiDairesi"] = veriQuery.value("VergiDairesi").toString();
-        m["vergiNumarasi"] = veriQuery.value("VergiNumarasi").toString();
-        m["ilgiliKisi"] = veriQuery.value("IlgiliKisi").toString();
-        m["ilgiliKisiTelefonu"] = veriQuery.value("IlgiliKisiTelefonu").toString();
-        kayitlar << m;
-    }
-
-    sonuc["kayitlar"] = kayitlar;
-    sonuc["toplamKayit"] = toplamKayit;
-    sonuc["toplamSayfa"] = toplamSayfa;
-    sonuc["mevcutSayfa"] = sayfaNo;
+    sonuc["basarili"] = false;
+    sonuc["hata"] = mesaj;
+    // Ekran bu bayragi gorunce kullaniciya kalici silme yerine ARSIVLEMEYI onerir.
+    sonuc["iliskiliKayitVar"] = true;
     return sonuc;
+}
+
+namespace
+{
+    // musteriEkle / musteriGuncelle'nin ortak alan denetimi. Hatali bir sey
+    // varsa hataOut doldurulur ve false doner.
+    bool musteriAlanlariniDenetle(const QVariantMap &musteri, QString &hataOut)
+    {
+        if (alan(musteri, "firmaAdi").isEmpty())
+        {
+            hataOut = "Firma adı boş olamaz.";
+            return false;
+        }
+        if (!epostaGecerliMi(alan(musteri, "firmaEposta")))
+        {
+            hataOut = "E-posta adresi geçerli görünmüyor (örnek: ad@firma.com).";
+            return false;
+        }
+        if (!telefonGecerliMi(alan(musteri, "firmaTelefonu")))
+        {
+            hataOut = "Telefon numarası geçerli görünmüyor (en az 7 rakam olmalı).";
+            return false;
+        }
+        if (!telefonGecerliMi(alan(musteri, "ilgiliKisiTelefonu")))
+        {
+            hataOut = "İlgili kişi telefonu geçerli görünmüyor (en az 7 rakam olmalı).";
+            return false;
+        }
+        if (!vergiNoGecerliMi(alan(musteri, "vergiNumarasi")))
+        {
+            hataOut = "Vergi numarası 10 haneli (şirket) veya 11 haneli (şahıs) olmalıdır.";
+            return false;
+        }
+        return true;
+    }
+
+    // Musteri parametrelerini sorguya baglar. Zorunlu olan FirmaAdi haric tum
+    // alanlar OPSIYONEL: bos birakilanlar '' yerine NULL kaydedilir.
+    void musteriParametreleriniBagla(QSqlQuery &query, const QVariantMap &musteri)
+    {
+        query.bindValue(":firmaAdi", alan(musteri, "firmaAdi"));
+        query.bindValue(":firmaAdresi", metinParametresi(alan(musteri, "firmaAdresi")));
+        query.bindValue(":firmaTelefonu", metinParametresi(alan(musteri, "firmaTelefonu")));
+        query.bindValue(":firmaEposta", metinParametresi(alan(musteri, "firmaEposta")));
+        query.bindValue(":vergiDairesi", metinParametresi(alan(musteri, "vergiDairesi")));
+        query.bindValue(":vergiNumarasi", metinParametresi(alan(musteri, "vergiNumarasi")));
+        query.bindValue(":ilgiliKisi", metinParametresi(alan(musteri, "ilgiliKisi")));
+        query.bindValue(":ilgiliKisiTel", metinParametresi(alan(musteri, "ilgiliKisiTelefonu")));
+    }
 }
 
 QVariantMap Database::musteriEkle(const QVariantMap &musteri)
 {
+    ERP_IZ("musteriEkle");
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["musteriId"] = 0;
     sonuc["hata"] = QString();
+    sonuc["mukerrer"] = false;
+    sonuc["mukerrerAd"] = QString();
 
     if (!baglantiHazir())
     {
@@ -2539,11 +2547,34 @@ QVariantMap Database::musteriEkle(const QVariantMap &musteri)
         return sonuc;
     }
 
-    const QString firmaAdi = musteri.value("firmaAdi").toString().trimmed();
-    if (firmaAdi.isEmpty())
+    QString hata;
+    if (!musteriAlanlariniDenetle(musteri, hata))
     {
-        sonuc["hata"] = "Firma adı boş olamaz.";
+        sonuc["hata"] = hata;
         return sonuc;
+    }
+
+    const QString firmaAdi = alan(musteri, "firmaAdi");
+
+    // MUKERRER FIRMA UYARISI: ayni isim iki kez eklenince teklif gecmisi iki
+    // kayda bolunuyor ve hangisinin dogru oldugu anlasilmiyordu. Sert bir
+    // UNIQUE kisiti koymuyoruz (ayni ismi tasiyan farkli sube/tuzel kisiler
+    // gercek bir ihtiyac), bunun yerine kullaniciya soruyoruz: onay
+    // "mukerrerOnayi" ile geri gelirse kayit yapilir.
+    if (!musteri.value("mukerrerOnayi", false).toBool())
+    {
+        QSqlQuery kontrol(m_db);
+        kontrol.prepare("SELECT TOP (1) FirmaAdi FROM dbo.musteriler "
+                        "WHERE LTRIM(RTRIM(FirmaAdi)) = :firmaAdi");
+        kontrol.bindValue(":firmaAdi", firmaAdi);
+        if (kontrol.exec() && kontrol.next())
+        {
+            sonuc["mukerrer"] = true;
+            sonuc["mukerrerAd"] = kontrol.value(0).toString();
+            sonuc["hata"] = "\"" + kontrol.value(0).toString()
+                            + "\" adlı müşteri zaten kayıtlı.";
+            return sonuc;
+        }
     }
 
     QSqlQuery query(m_db);
@@ -2552,14 +2583,7 @@ QVariantMap Database::musteriEkle(const QVariantMap &musteri)
         "(FirmaAdi, FirmaAdresi, FirmaTelefonu, FirmaEposta, VergiDairesi, VergiNumarasi, IlgiliKisi, IlgiliKisiTelefonu) "
         "OUTPUT INSERTED.MusteriId "
         "VALUES (:firmaAdi, :firmaAdresi, :firmaTelefonu, :firmaEposta, :vergiDairesi, :vergiNumarasi, :ilgiliKisi, :ilgiliKisiTel)");
-    query.bindValue(":firmaAdi", firmaAdi);
-    query.bindValue(":firmaAdresi", musteri.value("firmaAdresi").toString());
-    query.bindValue(":firmaTelefonu", musteri.value("firmaTelefonu").toString());
-    query.bindValue(":firmaEposta", musteri.value("firmaEposta").toString());
-    query.bindValue(":vergiDairesi", musteri.value("vergiDairesi").toString());
-    query.bindValue(":vergiNumarasi", musteri.value("vergiNumarasi").toString());
-    query.bindValue(":ilgiliKisi", musteri.value("ilgiliKisi").toString());
-    query.bindValue(":ilgiliKisiTel", musteri.value("ilgiliKisiTelefonu").toString());
+    musteriParametreleriniBagla(query, musteri);
 
     if (!query.exec() || !query.next())
     {
@@ -2575,6 +2599,7 @@ QVariantMap Database::musteriEkle(const QVariantMap &musteri)
 
 QVariantMap Database::musteriGuncelle(int musteriId, const QVariantMap &musteri)
 {
+    ERP_IZ("musteriGuncelle");
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["hata"] = QString();
@@ -2585,10 +2610,10 @@ QVariantMap Database::musteriGuncelle(int musteriId, const QVariantMap &musteri)
         return sonuc;
     }
 
-    const QString firmaAdi = musteri.value("firmaAdi").toString().trimmed();
-    if (firmaAdi.isEmpty())
+    QString hata;
+    if (!musteriAlanlariniDenetle(musteri, hata))
     {
-        sonuc["hata"] = "Firma adı boş olamaz.";
+        sonuc["hata"] = hata;
         return sonuc;
     }
 
@@ -2599,14 +2624,7 @@ QVariantMap Database::musteriGuncelle(int musteriId, const QVariantMap &musteri)
         "FirmaEposta = :firmaEposta, VergiDairesi = :vergiDairesi, VergiNumarasi = :vergiNumarasi, "
         "IlgiliKisi = :ilgiliKisi, IlgiliKisiTelefonu = :ilgiliKisiTel "
         "WHERE MusteriId = :musteriId");
-    query.bindValue(":firmaAdi", firmaAdi);
-    query.bindValue(":firmaAdresi", musteri.value("firmaAdresi").toString());
-    query.bindValue(":firmaTelefonu", musteri.value("firmaTelefonu").toString());
-    query.bindValue(":firmaEposta", musteri.value("firmaEposta").toString());
-    query.bindValue(":vergiDairesi", musteri.value("vergiDairesi").toString());
-    query.bindValue(":vergiNumarasi", musteri.value("vergiNumarasi").toString());
-    query.bindValue(":ilgiliKisi", musteri.value("ilgiliKisi").toString());
-    query.bindValue(":ilgiliKisiTel", musteri.value("ilgiliKisiTelefonu").toString());
+    musteriParametreleriniBagla(query, musteri);
     query.bindValue(":musteriId", musteriId);
 
     if (!query.exec())
@@ -2616,15 +2634,26 @@ QVariantMap Database::musteriGuncelle(int musteriId, const QVariantMap &musteri)
         return sonuc;
     }
 
+    // Kayit bulunamadiysa (baska biri silmis olabilir) sessizce "basarili"
+    // demek yerine kullaniciya soyluyoruz -- aksi halde form kapanir ve
+    // degisikligin kaydedildigi sanilirdi.
+    if (query.numRowsAffected() == 0)
+    {
+        sonuc["hata"] = "Müşteri bulunamadı; kayıt silinmiş olabilir. Listeyi yenileyin.";
+        return sonuc;
+    }
+
     sonuc["basarili"] = true;
     return sonuc;
 }
 
 QVariantMap Database::musteriSil(int musteriId)
 {
+    ERP_IZ("musteriSil");
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["hata"] = QString();
+    sonuc["iliskiliKayitVar"] = false;
 
     if (!baglantiHazir())
     {
@@ -2638,109 +2667,172 @@ QVariantMap Database::musteriSil(int musteriId)
 
     if (!query.exec())
     {
-        // Muhtemel sebep: bu musteriye ait teklif(ler) var (FK kisitlamasi --
-        // teklifler.MusteriId icin ON DELETE CASCADE tanimli degil, bilerek:
-        // bir musteri yanlislikla silinince tekliflerin de silinmesini istemeyiz).
-        qWarning() << "Musteri silinemedi:" << query.lastError().text();
-        sonuc["hata"] = "Müşteri silinemedi: bu müşteriye ait teklifler var.";
+        const QSqlError hata = query.lastError();
+        qWarning() << "Musteri silinemedi:" << hata.text();
+
+        // teklifler.MusteriId icin ON DELETE CASCADE tanimli DEGIL (bilerek:
+        // bir musteri yanlislikla silinince tekliflerin de silinmesini
+        // istemeyiz). Bu yuzden teklifi olan musteri kalici silinemez --
+        // ekran bu durumda arsivlemeyi onerir.
+        //
+        // ONEMLI: eskiden buradaki HER hata (baglanti kopmasi, zaman asimi,
+        // yetki eksikligi) "bu musteriye ait teklifler var" diye gosteriliyor,
+        // yani kullaniciyi yanlis yone yonlendiriyordu.
+        if (fkIhlaliMi(hata))
+            return iliskiliKayitSonucu(
+                "Bu müşteriye ait teklifler olduğu için kalıcı olarak silinemez.");
+
+        sonuc["hata"] = "Müşteri silinemedi: " + hata.text();
         return sonuc;
     }
+
+    if (query.numRowsAffected() == 0)
+    {
+        sonuc["hata"] = "Müşteri bulunamadı; kayıt zaten silinmiş olabilir.";
+        return sonuc;
+    }
+
     sonuc["basarili"] = true;
     return sonuc;
 }
 
-QVariantMap Database::urunListesiGetir(const QString &arama, int sayfaNo, int sayfaBoyutu)
+QVariantMap Database::musteriArsivDurumDegistir(int musteriId, bool aktif)
 {
+    ERP_IZ("musteriArsivDurumDegistir");
     QVariantMap sonuc;
-    sonuc["kayitlar"] = QVariantList();
-    sonuc["toplamKayit"] = 0;
-    sonuc["toplamSayfa"] = 1;
-    sonuc["mevcutSayfa"] = 1;
+    sonuc["basarili"] = false;
+    sonuc["hata"] = QString();
 
     if (!baglantiHazir())
-        return sonuc;
-
-    const QString aramaTrim = arama.trimmed();
-    // "MANUEL-<teklifId>" kodlu satirlar tekliflere ozel gecici kayitlardir,
-    // urun kataloğu listesinde gorunmemeli (bkz. urunAra ustundeki not).
-    // "IS NULL OR": NULL NOT LIKE ... NULL doner; aksi halde kodu girilmemis
-    // (ör. eski programdan gocen) urunler listede hic gorunmezdi.
-    QString whereClause = "WHERE (UrunKodu IS NULL OR UrunKodu NOT LIKE N'MANUEL%')";
-    if (!aramaTrim.isEmpty())
-        whereClause += " AND (UrunKodu LIKE :aramaLike OR UrunAciklamasi LIKE :aramaLike OR Kategori LIKE :aramaLike)";
-
-    QSqlQuery sayimQuery(m_db);
-    sayimQuery.prepare(QString("SELECT COUNT(*) FROM dbo.urunler %1").arg(whereClause));
-    if (!aramaTrim.isEmpty())
-        sayimQuery.bindValue(":aramaLike", "%" + aramaTrim + "%");
-
-    if (!sayimQuery.exec())
     {
-        qWarning() << "urunListesiGetir (sayim) basarisiz:" << sayimQuery.lastError().text();
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
     }
 
-    int toplamKayit = 0;
-    if (sayimQuery.next())
-        toplamKayit = sayimQuery.value(0).toInt();
-
-    const int toplamSayfa = std::max(1, static_cast<int>(std::ceil(toplamKayit / static_cast<double>(sayfaBoyutu))));
-    sayfaNo = std::clamp(sayfaNo, 1, toplamSayfa);
-
-    // ONEMLI (performans): UrunAciklamasi ve UrunAciklamasiEn nvarchar(MAX)'tir.
-    // "ORDER BY UrunKodu ... OFFSET/FETCH" bu sutunlarla ayni SELECT'te olursa
-    // SQL Server tablonun TAMAMINI (LOB icerikleriyle birlikte) siralamak zorunda
-    // kaliyor -- olculen sure: 25 saniye. Bu sure boyunca UI thread'i tamamen
-    // blokeli kaliyordu ("Yanit Vermiyor").
-    //
-    // Cozum "ertelenmis join" (deferred join): once SADECE anahtar sutunu
-    // siralayip sayfayi seciyoruz (LOB tasinmaz, ~12 ms), sonra secilen 50 satirin
-    // genis sutunlarini anahtar uzerinden okuyoruz. Olculen sure: ~42 ms.
-    QSqlQuery veriQuery(m_db);
-    veriQuery.prepare(QString(
-        "SELECT u.UrunId, u.UrunKodu, u.Kategori, u.UrunAciklamasi, u.UrunAciklamasiEn, "
-        "       u.BirimFiyat, u.GuncelMaliyetTL "
-        "FROM dbo.urunler AS u "
-        "INNER JOIN ("
-        "    SELECT UrunId FROM dbo.urunler %1 "
-        "    ORDER BY UrunKodu "
-        "    OFFSET :offset ROWS FETCH NEXT :sayfaBoyutu ROWS ONLY"
-        ") AS sayfa ON sayfa.UrunId = u.UrunId "
-        "ORDER BY u.UrunKodu").arg(whereClause));
-    if (!aramaTrim.isEmpty())
-        veriQuery.bindValue(":aramaLike", "%" + aramaTrim + "%");
-    veriQuery.bindValue(":offset", (sayfaNo - 1) * sayfaBoyutu);
-    veriQuery.bindValue(":sayfaBoyutu", sayfaBoyutu);
-
-    if (!veriQuery.exec())
+    if (!semaKolonuVarMi(m_db, QStringLiteral("dbo.musteriler"), QStringLiteral("AktifMi")))
     {
-        qWarning() << "urunListesiGetir (veri) basarisiz:" << veriQuery.lastError().text();
+        sonuc["hata"] = "Arşivleme için db/13_musteri_urun_arsiv.sql betiği çalıştırılmalı.";
         return sonuc;
     }
 
-    QVariantList kayitlar;
-    while (veriQuery.next())
+    QSqlQuery query(m_db);
+    query.prepare("UPDATE dbo.musteriler SET AktifMi = :aktif WHERE MusteriId = :id");
+    query.bindValue(":aktif", aktif);
+    query.bindValue(":id", musteriId);
+
+    if (!query.exec())
     {
-        QVariantMap u;
-        u["urunId"] = veriQuery.value("UrunId").toInt();
-        u["urunKodu"] = veriQuery.value("UrunKodu").toString();
-        u["kategori"] = veriQuery.value("Kategori").toString();
-        u["urunAciklamasi"] = veriQuery.value("UrunAciklamasi").toString();
-        u["urunAciklamasiEn"] = veriQuery.value("UrunAciklamasiEn").toString();
-        u["birimFiyat"] = veriQuery.value("BirimFiyat").isNull() ? 0.0 : veriQuery.value("BirimFiyat").toDouble();
-        u["maliyet"] = veriQuery.value("GuncelMaliyetTL").isNull() ? 0.0 : veriQuery.value("GuncelMaliyetTL").toDouble();
-        kayitlar << u;
+        qWarning() << "musteriArsivDurumDegistir basarisiz:" << query.lastError().text();
+        sonuc["hata"] = (aktif ? QString("Müşteri arşivden çıkarılamadı: ")
+                               : QString("Müşteri arşivlenemedi: ")) + query.lastError().text();
+        return sonuc;
     }
 
-    sonuc["kayitlar"] = kayitlar;
-    sonuc["toplamKayit"] = toplamKayit;
-    sonuc["toplamSayfa"] = toplamSayfa;
-    sonuc["mevcutSayfa"] = sayfaNo;
+    if (query.numRowsAffected() == 0)
+    {
+        sonuc["hata"] = "Müşteri bulunamadı; kayıt silinmiş olabilir.";
+        return sonuc;
+    }
+
+    sonuc["basarili"] = true;
     return sonuc;
+}
+
+QVariantMap Database::urunListesiGetir(const QString &arama, int sayfaNo,
+                                        int sayfaBoyutu, bool arsivliDahil)
+{
+    ERP_IZ("urunListesiGetir");
+    if (!baglantiHazir())
+        return QVariantMap();
+    return urunListesiSorgusu(m_db, arama, sayfaNo, sayfaBoyutu, arsivliDahil);
+}
+
+namespace
+{
+    // urunEkle / urunGuncelle'nin ortak alan denetimi.
+    bool urunAlanlariniDenetle(const QVariantMap &urun, QString &hataOut)
+    {
+        if (alan(urun, "urunAciklamasi").isEmpty())
+        {
+            hataOut = "Ürün açıklaması boş olamaz.";
+            return false;
+        }
+
+        // "MANUEL" oneki REZERVEDIR: bu kodla kaydedilen urun, manuel teklif
+        // kalemleri icin olusturulan gecici satirlarla birlikte urun katalogu
+        // listelerinden filtrelenir -- yani veritabanina yazilir ama hicbir
+        // ekranda gorunmez, dolayisiyla duzenlenemez ve silinemez olurdu.
+        if (manuelKoduMu(alan(urun, "urunKodu")))
+        {
+            hataOut = "Ürün kodu \"MANUEL\" ile başlayamaz; bu ön ek sistem tarafından "
+                      "teklife özel manuel kalemler için kullanılır.";
+            return false;
+        }
+
+        if (urun.value("birimFiyat", 0).toDouble() < 0 || urun.value("maliyet", 0).toDouble() < 0)
+        {
+            hataOut = "Birim fiyat ve maliyet negatif olamaz.";
+            return false;
+        }
+        return true;
+    }
+
+    void urunParametreleriniBagla(QSqlQuery &query, const QVariantMap &urun)
+    {
+        // Urun kodu, kategori ve EN aciklamasi OPSIYONEL: bos birakilanlar
+        // '' yerine NULL kaydedilir -- boylece "kodu girilmemis urun" tek bir
+        // sekilde ('' degil NULL) temsil edilir ve kod kontrolu
+        // (urunKoduKullanimdaMi) bos kodlari dogru sekilde kapsam disi tutar.
+        query.bindValue(":urunKodu", metinParametresi(alan(urun, "urunKodu")));
+        query.bindValue(":kategori", metinParametresi(alan(urun, "kategori")));
+        query.bindValue(":aciklama", alan(urun, "urunAciklamasi"));
+        query.bindValue(":aciklamaEn", metinParametresi(alan(urun, "urunAciklamasiEn")));
+        query.bindValue(":birimFiyat", urun.value("birimFiyat", 0).toDouble());
+        query.bindValue(":maliyet", urun.value("maliyet", 0).toDouble());
+    }
+}
+
+// Girilen urun kodu baska bir urunde kullanilmis mi? (haricUrunId > 0 ise o
+// kayit disarida birakilir -- guncellemede urunun kendi kodu catisma saymaz.)
+// Kod bos ise kontrol yapilmaz: kod opsiyoneldir ve kodsuz urunler tekillik
+// kapsaminda degildir.
+//
+// Urun kodu tekilliginin TEK bekcisi budur -- veritabaninda destekleyici bir
+// tekil indeks yoktur ve kurulamaz (gerekce: db/14_urun_kodu_tekil.sql).
+// "MANUEL" onekli kodlar buraya hic gelmez: urunAlanlariniDenetle onlari
+// daha once reddeder.
+bool Database::urunKoduKullanimdaMi(const QString &urunKodu, int haricUrunId, QString &sahipOut)
+{
+    const QString kod = urunKodu.trimmed();
+    if (kod.isEmpty())
+        return false;
+
+    QSqlQuery query(m_db);
+    query.prepare("SELECT TOP (1) UrunId, UrunAciklamasi FROM dbo.urunler "
+                  "WHERE LTRIM(RTRIM(UrunKodu)) = :kod AND UrunId <> :haric");
+    query.bindValue(":kod", kod);
+    query.bindValue(":haric", haricUrunId);
+
+    if (!query.exec())
+    {
+        // Kontrol calismadiysa (baglanti/zaman asimi) kaydi engellemiyoruz:
+        // kullanicinin isini bir tekillik SUPHESI yuzunden durdurmak,
+        // mukerrer kod riskinden daha kotu. Asil INSERT/UPDATE zaten hemen
+        // ardindan deneniyor; o da basarisiz olursa kullanici hatayi gorur.
+        qWarning() << "urunKoduKullanimdaMi basarisiz:" << query.lastError().text();
+        return false;
+    }
+
+    if (!query.next())
+        return false;
+
+    sahipOut = query.value("UrunAciklamasi").toString().trimmed();
+    return true;
 }
 
 QVariantMap Database::urunEkle(const QVariantMap &urun)
 {
+    ERP_IZ("urunEkle");
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["urunId"] = 0;
@@ -2752,10 +2844,21 @@ QVariantMap Database::urunEkle(const QVariantMap &urun)
         return sonuc;
     }
 
-    const QString aciklama = urun.value("urunAciklamasi").toString().trimmed();
-    if (aciklama.isEmpty())
+    QString hata;
+    if (!urunAlanlariniDenetle(urun, hata))
     {
-        sonuc["hata"] = "Ürün açıklaması boş olamaz.";
+        sonuc["hata"] = hata;
+        return sonuc;
+    }
+
+    // MUKERRER URUN KODU: ayni kodla iki urun varsa Teklif Ver ekranindaki
+    // aramada hangisinin secildigi belirsiz kaliyor, maliyet guncellemesi
+    // (urunMaliyetiGuncelle) yanlis satira gidebiliyordu.
+    QString sahip;
+    if (urunKoduKullanimdaMi(alan(urun, "urunKodu"), 0, sahip))
+    {
+        sonuc["hata"] = "\"" + alan(urun, "urunKodu") + "\" kodu başka bir üründe kullanılıyor"
+                        + (sahip.isEmpty() ? QString() : " (" + sahip + ")") + ".";
         return sonuc;
     }
 
@@ -2765,17 +2868,15 @@ QVariantMap Database::urunEkle(const QVariantMap &urun)
         "(UrunKodu, Kategori, UrunAciklamasi, UrunAciklamasiEn, BirimFiyat, ParaBirimi, GuncelMaliyetTL) "
         "OUTPUT INSERTED.UrunId "
         "VALUES (:urunKodu, :kategori, :aciklama, :aciklamaEn, :birimFiyat, N'TL', :maliyet)");
-    query.bindValue(":urunKodu", urun.value("urunKodu").toString());
-    query.bindValue(":kategori", urun.value("kategori").toString());
-    query.bindValue(":aciklama", aciklama);
-    query.bindValue(":aciklamaEn", urun.value("urunAciklamasiEn").toString());
-    query.bindValue(":birimFiyat", urun.value("birimFiyat", 0).toDouble());
-    query.bindValue(":maliyet", urun.value("maliyet", 0).toDouble());
+    urunParametreleriniBagla(query, urun);
 
     if (!query.exec() || !query.next())
     {
-        qWarning() << "urunEkle basarisiz:" << query.lastError().text();
-        sonuc["hata"] = "Ürün kaydedilemedi: " + query.lastError().text();
+        const QSqlError sqlHata = query.lastError();
+        qWarning() << "urunEkle basarisiz:" << sqlHata.text();
+        sonuc["hata"] = tekillikIhlaliMi(sqlHata)
+            ? QString("Bu ürün kodu başka bir üründe kullanılıyor.")
+            : "Ürün kaydedilemedi: " + sqlHata.text();
         return sonuc;
     }
 
@@ -2786,6 +2887,7 @@ QVariantMap Database::urunEkle(const QVariantMap &urun)
 
 QVariantMap Database::urunGuncelle(int urunId, const QVariantMap &urun)
 {
+    ERP_IZ("urunGuncelle");
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["hata"] = QString();
@@ -2796,10 +2898,18 @@ QVariantMap Database::urunGuncelle(int urunId, const QVariantMap &urun)
         return sonuc;
     }
 
-    const QString aciklama = urun.value("urunAciklamasi").toString().trimmed();
-    if (aciklama.isEmpty())
+    QString hata;
+    if (!urunAlanlariniDenetle(urun, hata))
     {
-        sonuc["hata"] = "Ürün açıklaması boş olamaz.";
+        sonuc["hata"] = hata;
+        return sonuc;
+    }
+
+    QString sahip;
+    if (urunKoduKullanimdaMi(alan(urun, "urunKodu"), urunId, sahip))
+    {
+        sonuc["hata"] = "\"" + alan(urun, "urunKodu") + "\" kodu başka bir üründe kullanılıyor"
+                        + (sahip.isEmpty() ? QString() : " (" + sahip + ")") + ".";
         return sonuc;
     }
 
@@ -2809,18 +2919,22 @@ QVariantMap Database::urunGuncelle(int urunId, const QVariantMap &urun)
         "UrunKodu = :urunKodu, Kategori = :kategori, UrunAciklamasi = :aciklama, "
         "UrunAciklamasiEn = :aciklamaEn, BirimFiyat = :birimFiyat, GuncelMaliyetTL = :maliyet "
         "WHERE UrunId = :urunId");
-    query.bindValue(":urunKodu", urun.value("urunKodu").toString());
-    query.bindValue(":kategori", urun.value("kategori").toString());
-    query.bindValue(":aciklama", aciklama);
-    query.bindValue(":aciklamaEn", urun.value("urunAciklamasiEn").toString());
-    query.bindValue(":birimFiyat", urun.value("birimFiyat", 0).toDouble());
-    query.bindValue(":maliyet", urun.value("maliyet", 0).toDouble());
+    urunParametreleriniBagla(query, urun);
     query.bindValue(":urunId", urunId);
 
     if (!query.exec())
     {
-        qWarning() << "urunGuncelle basarisiz:" << query.lastError().text();
-        sonuc["hata"] = "Ürün güncellenemedi: " + query.lastError().text();
+        const QSqlError sqlHata = query.lastError();
+        qWarning() << "urunGuncelle basarisiz:" << sqlHata.text();
+        sonuc["hata"] = tekillikIhlaliMi(sqlHata)
+            ? QString("Bu ürün kodu başka bir üründe kullanılıyor.")
+            : "Ürün güncellenemedi: " + sqlHata.text();
+        return sonuc;
+    }
+
+    if (query.numRowsAffected() == 0)
+    {
+        sonuc["hata"] = "Ürün bulunamadı; kayıt silinmiş olabilir. Listeyi yenileyin.";
         return sonuc;
     }
 
@@ -2830,9 +2944,11 @@ QVariantMap Database::urunGuncelle(int urunId, const QVariantMap &urun)
 
 QVariantMap Database::urunSil(int urunId)
 {
+    ERP_IZ("urunSil");
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["hata"] = QString();
+    sonuc["iliskiliKayitVar"] = false;
 
     if (!baglantiHazir())
     {
@@ -2846,17 +2962,74 @@ QVariantMap Database::urunSil(int urunId)
 
     if (!query.exec())
     {
-        // Muhtemel sebep: bu urune ait teklif_kalemleri var (FK kisitlamasi).
-        qWarning() << "Urun silinemedi:" << query.lastError().text();
-        sonuc["hata"] = "Ürün silinemedi: bu ürünü içeren teklifler var.";
+        const QSqlError hata = query.lastError();
+        qWarning() << "Urun silinemedi:" << hata.text();
+
+        // musteriSil ile ayni kural (oradaki ayrintili nota bakin): teklif
+        // kaleminde kullanilmis urun kalici silinemez, ekran arsivlemeyi onerir.
+        if (fkIhlaliMi(hata))
+            return iliskiliKayitSonucu(
+                "Bu ürünü içeren teklifler olduğu için kalıcı olarak silinemez.");
+
+        sonuc["hata"] = "Ürün silinemedi: " + hata.text();
         return sonuc;
     }
+
+    if (query.numRowsAffected() == 0)
+    {
+        sonuc["hata"] = "Ürün bulunamadı; kayıt zaten silinmiş olabilir.";
+        return sonuc;
+    }
+
+    sonuc["basarili"] = true;
+    return sonuc;
+}
+
+QVariantMap Database::urunArsivDurumDegistir(int urunId, bool aktif)
+{
+    ERP_IZ("urunArsivDurumDegistir");
+    QVariantMap sonuc;
+    sonuc["basarili"] = false;
+    sonuc["hata"] = QString();
+
+    if (!baglantiHazir())
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+
+    if (!semaKolonuVarMi(m_db, QStringLiteral("dbo.urunler"), QStringLiteral("AktifMi")))
+    {
+        sonuc["hata"] = "Arşivleme için db/13_musteri_urun_arsiv.sql betiği çalıştırılmalı.";
+        return sonuc;
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare("UPDATE dbo.urunler SET AktifMi = :aktif WHERE UrunId = :id");
+    query.bindValue(":aktif", aktif);
+    query.bindValue(":id", urunId);
+
+    if (!query.exec())
+    {
+        qWarning() << "urunArsivDurumDegistir basarisiz:" << query.lastError().text();
+        sonuc["hata"] = (aktif ? QString("Ürün arşivden çıkarılamadı: ")
+                               : QString("Ürün arşivlenemedi: ")) + query.lastError().text();
+        return sonuc;
+    }
+
+    if (query.numRowsAffected() == 0)
+    {
+        sonuc["hata"] = "Ürün bulunamadı; kayıt silinmiş olabilir.";
+        return sonuc;
+    }
+
     sonuc["basarili"] = true;
     return sonuc;
 }
 
 bool Database::urunMaliyetiGuncelle(int urunId, double maliyetTl)
 {
+    ERP_IZ("urunMaliyetiGuncelle");
     m_sonHataMesaji.clear();
 
     // Manuel kalemlerin katalogda karsiligi yoktur (urunId = 0) -- sessizce gec.
@@ -2891,143 +3064,134 @@ bool Database::urunMaliyetiGuncelle(int urunId, double maliyetTl)
     return query.numRowsAffected() > 0;
 }
 
-QVariantList Database::rolListesiGetir()
+void Database::rolListesiGetirBaslat()
 {
-    QVariantList sonuc;
-    if (!baglantiHazir())
-        return sonuc;
-
-    QSqlQuery query(m_db);
-    query.prepare("SELECT RolId, RolAdi FROM dbo.roller ORDER BY RolAdi");
-    if (!query.exec())
+    if (!m_listeWorker)
     {
-        qWarning() << "rolListesiGetir basarisiz:" << query.lastError().text();
-        return sonuc;
+        emit rolListesiHazir(QVariantList());
+        return;
     }
-    while (query.next())
-    {
-        QVariantMap r;
-        r["rolId"] = query.value("RolId").toInt();
-        r["rolAdi"] = query.value("RolAdi").toString();
-        sonuc << r;
-    }
-    return sonuc;
+    QMetaObject::invokeMethod(m_listeWorker, "rolListesiCalistir", Qt::QueuedConnection);
 }
 
-QVariantMap Database::personelListesiGetir(const QString &arama, int sayfaNo, int sayfaBoyutu)
+QVariantMap Database::personelListesiGetir(const QString &arama, int sayfaNo,
+                                            int sayfaBoyutu, bool pasifDahil)
 {
-    QVariantMap sonuc;
-    sonuc["kayitlar"] = QVariantList();
-    sonuc["toplamKayit"] = 0;
-    sonuc["toplamSayfa"] = 1;
-    sonuc["mevcutSayfa"] = 1;
-
+    ERP_IZ("personelListesiGetir");
     if (!baglantiHazir())
-        return sonuc;
+        return QVariantMap();
+    return personelListesiSorgusu(m_db, arama, sayfaNo, sayfaBoyutu, pasifDahil);
+}
 
-    const QString aramaTrim = arama.trimmed();
-    QString whereClause;
-    if (!aramaTrim.isEmpty())
-        whereClause = "WHERE AdSoyad LIKE :aramaLike OR KullaniciAdi LIKE :aramaLike";
+int Database::aktifYoneticiSayisi(int haricKullaniciId)
+{
+    // yoneticiSifresiDogrula ile AYNI rol kumesi: yonetici sifresiyle korunan
+    // islemleri acabilen herkes. Bu iki yer birbirinden saparsa, "yonetici
+    // kaldi" denip aslinda hicbir yonetici kalmamis olabilir.
+    QSqlQuery query(m_db);
+    query.prepare(
+        "SELECT COUNT(DISTINCT k.KullaniciId) "
+        "FROM dbo.kullanicilar k "
+        "JOIN dbo.kullanici_rolleri kr ON kr.KullaniciId = k.KullaniciId "
+        "JOIN dbo.roller r ON r.RolId = kr.RolId "
+        "WHERE k.AktifMi = 1 AND k.KullaniciId <> :haric "
+        "  AND r.RolAdi IN (N'Yönetici', N'Göç - Geçici Tam Yetkili')");
+    query.bindValue(":haric", haricKullaniciId);
 
-    QSqlQuery sayimQuery(m_db);
-    sayimQuery.prepare(QString("SELECT COUNT(*) FROM dbo.kullanicilar %1").arg(whereClause));
-    if (!aramaTrim.isEmpty())
-        sayimQuery.bindValue(":aramaLike", "%" + aramaTrim + "%");
-
-    if (!sayimQuery.exec())
+    if (!query.exec() || !query.next())
     {
-        qWarning() << "personelListesiGetir (sayim) basarisiz:" << sayimQuery.lastError().text();
-        return sonuc;
+        qWarning() << "aktifYoneticiSayisi basarisiz:" << query.lastError().text();
+        return -1;   // bilinmiyor
     }
+    return query.value(0).toInt();
+}
 
-    int toplamKayit = 0;
-    if (sayimQuery.next())
-        toplamKayit = sayimQuery.value(0).toInt();
-
-    const int toplamSayfa = std::max(1, static_cast<int>(std::ceil(toplamKayit / static_cast<double>(sayfaBoyutu))));
-    sayfaNo = std::clamp(sayfaNo, 1, toplamSayfa);
-
-    QSqlQuery veriQuery(m_db);
-    veriQuery.prepare(QString(
-        "SELECT KullaniciId, AdSoyad, KullaniciAdi, Telefon, Pozisyon, AktifMi "
-        "FROM dbo.kullanicilar %1 "
-        "ORDER BY AdSoyad "
-        "OFFSET :offset ROWS FETCH NEXT :sayfaBoyutu ROWS ONLY").arg(whereClause));
-    if (!aramaTrim.isEmpty())
-        veriQuery.bindValue(":aramaLike", "%" + aramaTrim + "%");
-    veriQuery.bindValue(":offset", (sayfaNo - 1) * sayfaBoyutu);
-    veriQuery.bindValue(":sayfaBoyutu", sayfaBoyutu);
-
-    if (!veriQuery.exec())
+namespace
+{
+    // personelEkle / personelGuncelle'nin ortak alan denetimi. sifreZorunlu
+    // false ise (guncelleme) bos sifre "degistirme" anlamina gelir ve
+    // uzunluk kontrolu yalnizca DOLU sifreye uygulanir.
+    bool personelAlanlariniDenetle(const QVariantMap &personel, bool sifreZorunlu, QString &hataOut)
     {
-        qWarning() << "personelListesiGetir (veri) basarisiz:" << veriQuery.lastError().text();
-        return sonuc;
-    }
-
-    // Once sayfadaki personeller tamamen okunur, sonra TEK sorguyla rolleri cekilir.
-    // Eskiden her satir icin, veriQuery'nin sonuc kumesi hala acikken ayni baglantida
-    // ayri bir rol sorgusu calisiyordu (N+1): hem gereksiz ag gidis-donusu hem de
-    // MARS kapali ODBC baglantisinda "connection is busy" riski.
-    QList<QVariantMap> personeller;
-    QStringList idListesi;
-    while (veriQuery.next())
-    {
-        const int kullaniciId = veriQuery.value("KullaniciId").toInt();
-        QVariantMap p;
-        p["kullaniciId"] = kullaniciId;
-        p["adSoyad"] = veriQuery.value("AdSoyad").toString();
-        p["kullaniciAdi"] = veriQuery.value("KullaniciAdi").toString();
-        p["telefon"] = veriQuery.value("Telefon").toString();
-        p["pozisyon"] = veriQuery.value("Pozisyon").toString();
-        p["aktifMi"] = veriQuery.value("AktifMi").toBool();
-        personeller << p;
-        idListesi << QString::number(kullaniciId);
-    }
-    veriQuery.finish();
-
-    QHash<int, QVariantList> rolIdleri;
-    QHash<int, QStringList> rolAdlari;
-    if (!idListesi.isEmpty())
-    {
-        // IN listesi yalnizca veritabanindan okunmus tamsayilardan olusuyor.
-        QSqlQuery rolQuery(m_db);
-        if (rolQuery.exec(QString(
-                "SELECT kr.KullaniciId, r.RolId, r.RolAdi FROM dbo.kullanici_rolleri kr "
-                "INNER JOIN dbo.roller r ON r.RolId = kr.RolId "
-                "WHERE kr.KullaniciId IN (%1) ORDER BY r.RolAdi").arg(idListesi.join(','))))
+        if (alan(personel, "adSoyad").isEmpty() || alan(personel, "kullaniciAdi").isEmpty())
         {
-            while (rolQuery.next())
+            hataOut = "Ad Soyad ve kullanıcı adı boş olamaz.";
+            return false;
+        }
+
+        // Kullanici adi girise yazilan bir anahtardir: ici bosluklu bir ad
+        // ("ahmet y") giris ekraninda fark edilmeyen hatalara yol acar.
+        if (alan(personel, "kullaniciAdi").contains(QLatin1Char(' ')))
+        {
+            hataOut = "Kullanıcı adı boşluk içeremez.";
+            return false;
+        }
+
+        const QString sifre = personel.value("sifre").toString();
+        if (sifreZorunlu && sifre.isEmpty())
+        {
+            hataOut = "Şifre boş olamaz.";
+            return false;
+        }
+        if (!sifre.isEmpty() && sifre.length() < SIFRE_ASGARI_UZUNLUK)
+        {
+            hataOut = QString("Şifre en az %1 karakter olmalıdır.").arg(SIFRE_ASGARI_UZUNLUK);
+            return false;
+        }
+
+        if (!telefonGecerliMi(alan(personel, "telefon")))
+        {
+            hataOut = "Telefon numarası geçerli görünmüyor (en az 7 rakam olmalı).";
+            return false;
+        }
+
+        // EN AZ BIR ROL: rolsuz kullanici giris yapabiliyor ama hicbir modul
+        // goremiyordu (kullaniciModulleriniGetir bos doner) -- kullanici
+        // acisindan sebebi anlasilmaz bir "bos program" durumu olusuyordu.
+        if (personel.value("rolIdListesi").toList().isEmpty())
+        {
+            hataOut = "En az bir rol seçilmelidir; rolsüz personel giriş yapsa bile "
+                      "hiçbir modülü göremez.";
+            return false;
+        }
+        return true;
+    }
+
+    // Personelin rollerini sifirlar ve verilen listeyi yeniden atar. Acik bir
+    // transaction icinde cagrilmalidir. Ekleme yolunda da ayni fonksiyon
+    // kullanilir (orada silinecek rol yoktur, DELETE bos gecer).
+    bool personelRolleriniYaz(QSqlDatabase &db, int kullaniciId,
+                               const QVariantList &rolIdListesi, QString &hataOut)
+    {
+        QSqlQuery rolSil(db);
+        rolSil.prepare("DELETE FROM dbo.kullanici_rolleri WHERE KullaniciId = :kid");
+        rolSil.bindValue(":kid", kullaniciId);
+        if (!rolSil.exec())
+        {
+            hataOut = "Roller güncellenemedi: " + rolSil.lastError().text();
+            return false;
+        }
+
+        for (const QVariant &rolIdVar : rolIdListesi)
+        {
+            QSqlQuery rolEkle(db);
+            rolEkle.prepare("INSERT INTO dbo.kullanici_rolleri (KullaniciId, RolId) VALUES (:kid, :rid)");
+            rolEkle.bindValue(":kid", kullaniciId);
+            rolEkle.bindValue(":rid", rolIdVar.toInt());
+            if (!rolEkle.exec())
             {
-                const int kid = rolQuery.value("KullaniciId").toInt();
-                rolIdleri[kid] << rolQuery.value("RolId").toInt();
-                rolAdlari[kid] << rolQuery.value("RolAdi").toString();
+                qWarning() << "personel rol atama basarisiz:" << rolEkle.lastError().text();
+                hataOut = "Roller atanamadı: " + rolEkle.lastError().text();
+                return false;
             }
         }
-        else
-        {
-            qWarning() << "personelListesiGetir (roller) basarisiz:" << rolQuery.lastError().text();
-        }
+        return true;
     }
-
-    QVariantList kayitlar;
-    for (QVariantMap &p : personeller)
-    {
-        const int kid = p.value("kullaniciId").toInt();
-        p["rolIdListesi"] = rolIdleri.value(kid);
-        p["rolAdlari"] = rolAdlari.value(kid).join(", ");
-        kayitlar << p;
-    }
-
-    sonuc["kayitlar"] = kayitlar;
-    sonuc["toplamKayit"] = toplamKayit;
-    sonuc["toplamSayfa"] = toplamSayfa;
-    sonuc["mevcutSayfa"] = sayfaNo;
-    return sonuc;
 }
 
 QVariantMap Database::personelEkle(const QVariantMap &personel)
 {
+    ERP_IZ("personelEkle");
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["kullaniciId"] = 0;
@@ -3039,13 +3203,10 @@ QVariantMap Database::personelEkle(const QVariantMap &personel)
         return sonuc;
     }
 
-    const QString adSoyad = personel.value("adSoyad").toString().trimmed();
-    const QString kullaniciAdi = personel.value("kullaniciAdi").toString().trimmed();
-    const QString sifre = personel.value("sifre").toString();
-
-    if (adSoyad.isEmpty() || kullaniciAdi.isEmpty() || sifre.isEmpty())
+    QString hata;
+    if (!personelAlanlariniDenetle(personel, /*sifreZorunlu*/ true, hata))
     {
-        sonuc["hata"] = "Ad Soyad, kullanıcı adı ve şifre boş olamaz.";
+        sonuc["hata"] = hata;
         return sonuc;
     }
 
@@ -3055,41 +3216,47 @@ QVariantMap Database::personelEkle(const QVariantMap &personel)
         return sonuc;
     }
 
+    // Tuzlu hash (bkz. sifreyiHashle ustundeki not). Tuz sutunu yoksa
+    // (db/12 calistirilmamissa) eski tuzsuz bicimde kaydediyoruz, boylece
+    // program eski semayla da calismaya devam eder.
+    const bool tuzKolonu = semaKolonuVarMi(m_db, QStringLiteral("dbo.kullanicilar"),
+                                           QStringLiteral("SifreSalt"));
+    const QString tuz = tuzKolonu ? yeniTuzUret() : QString();
+    const QString sifre = personel.value("sifre").toString();
+
     QSqlQuery ekle(m_db);
-    ekle.prepare(
-        "INSERT INTO dbo.kullanicilar (AdSoyad, KullaniciAdi, SifreHash, Telefon, Pozisyon, AktifMi) "
+    ekle.prepare(QString(
+        "INSERT INTO dbo.kullanicilar (AdSoyad, KullaniciAdi, SifreHash, Telefon, Pozisyon, AktifMi%1) "
         "OUTPUT INSERTED.KullaniciId "
-        "VALUES (:adSoyad, :kullaniciAdi, :sifreHash, :telefon, :pozisyon, 1)");
-    ekle.bindValue(":adSoyad", adSoyad);
-    ekle.bindValue(":kullaniciAdi", kullaniciAdi);
-    ekle.bindValue(":sifreHash", sifreyiHashle(sifre));
-    ekle.bindValue(":telefon", personel.value("telefon").toString());
-    ekle.bindValue(":pozisyon", personel.value("pozisyon").toString());
+        "VALUES (:adSoyad, :kullaniciAdi, :sifreHash, :telefon, :pozisyon, 1%2)")
+        .arg(tuzKolonu ? QStringLiteral(", SifreSalt") : QString())
+        .arg(tuzKolonu ? QStringLiteral(", :sifreTuz") : QString()));
+    ekle.bindValue(":adSoyad", alan(personel, "adSoyad"));
+    ekle.bindValue(":kullaniciAdi", alan(personel, "kullaniciAdi"));
+    ekle.bindValue(":sifreHash", sifreyiHashle(sifre, tuz));
+    // Telefon ve pozisyon opsiyonel: bos birakilanlar NULL kaydedilir.
+    ekle.bindValue(":telefon", metinParametresi(alan(personel, "telefon")));
+    ekle.bindValue(":pozisyon", metinParametresi(alan(personel, "pozisyon")));
+    if (tuzKolonu)
+        ekle.bindValue(":sifreTuz", tuz);
 
     if (!ekle.exec() || !ekle.next())
     {
-        qWarning() << "personelEkle basarisiz:" << ekle.lastError().text();
+        const QSqlError sqlHata = ekle.lastError();
+        qWarning() << "personelEkle basarisiz:" << sqlHata.text();
         m_db.rollback();
-        // UNIQUE ihlali en olasi sebep -- KullaniciAdi zaten var.
-        sonuc["hata"] = "Personel kaydedilemedi. Bu kullanıcı adı zaten kullanılıyor olabilir.";
+        sonuc["hata"] = tekillikIhlaliMi(sqlHata)
+            ? QString("\"") + alan(personel, "kullaniciAdi") + "\" kullanıcı adı zaten kullanılıyor."
+            : "Personel kaydedilemedi: " + sqlHata.text();
         return sonuc;
     }
     const int kullaniciId = ekle.value(0).toInt();
 
-    const QVariantList rolIdListesi = personel.value("rolIdListesi").toList();
-    for (const QVariant &rolIdVar : rolIdListesi)
+    if (!personelRolleriniYaz(m_db, kullaniciId, personel.value("rolIdListesi").toList(), hata))
     {
-        QSqlQuery rolEkle(m_db);
-        rolEkle.prepare("INSERT INTO dbo.kullanici_rolleri (KullaniciId, RolId) VALUES (:kid, :rid)");
-        rolEkle.bindValue(":kid", kullaniciId);
-        rolEkle.bindValue(":rid", rolIdVar.toInt());
-        if (!rolEkle.exec())
-        {
-            qWarning() << "personelEkle (rol atama) basarisiz:" << rolEkle.lastError().text();
-            m_db.rollback();
-            sonuc["hata"] = "Roller atanamadı: " + rolEkle.lastError().text();
-            return sonuc;
-        }
+        m_db.rollback();
+        sonuc["hata"] = hata;
+        return sonuc;
     }
 
     if (!m_db.commit())
@@ -3106,6 +3273,7 @@ QVariantMap Database::personelEkle(const QVariantMap &personel)
 
 QVariantMap Database::personelGuncelle(int kullaniciId, const QVariantMap &personel)
 {
+    ERP_IZ("personelGuncelle");
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["hata"] = QString();
@@ -3116,12 +3284,52 @@ QVariantMap Database::personelGuncelle(int kullaniciId, const QVariantMap &perso
         return sonuc;
     }
 
-    const QString adSoyad = personel.value("adSoyad").toString().trimmed();
-    const QString kullaniciAdi = personel.value("kullaniciAdi").toString().trimmed();
-    if (adSoyad.isEmpty() || kullaniciAdi.isEmpty())
+    QString hata;
+    // Guncellemede sifre OPSIYONEL: bos birakilirsa mevcut sifre korunur.
+    if (!personelAlanlariniDenetle(personel, /*sifreZorunlu*/ false, hata))
     {
-        sonuc["hata"] = "Ad Soyad ve kullanıcı adı boş olamaz.";
+        sonuc["hata"] = hata;
         return sonuc;
+    }
+
+    const QVariantList rolIdListesi = personel.value("rolIdListesi").toList();
+
+    // SON YONETICIYI YETKISIZ BIRAKMA KORUMASI: personelAktifDurumDegistir'deki
+    // kurallin ayni gerekcesi -- yonetici rolunu kendinden/son yoneticiden
+    // ALMAK da sistemi kilitler: yonetici sifresi isteyen hicbir islem (teklif
+    // silme, personel kaydi, musteri duzenleme) bir daha yapilamaz.
+    {
+        QSqlQuery yoneticiRolleri(m_db);
+        yoneticiRolleri.prepare("SELECT RolId FROM dbo.roller "
+                                "WHERE RolAdi IN (N'Yönetici', N'Göç - Geçici Tam Yetkili')");
+        if (yoneticiRolleri.exec())
+        {
+            QList<int> yoneticiRolIdleri;
+            while (yoneticiRolleri.next())
+                yoneticiRolIdleri << yoneticiRolleri.value(0).toInt();
+
+            bool yoneticiKalacak = false;
+            for (const QVariant &rolIdVar : rolIdListesi)
+                if (yoneticiRolIdleri.contains(rolIdVar.toInt()))
+                    yoneticiKalacak = true;
+
+            if (!yoneticiKalacak)
+            {
+                const int digerYoneticiler = aktifYoneticiSayisi(kullaniciId);
+                if (digerYoneticiler == 0)
+                {
+                    sonuc["hata"] = "Bu personel sistemdeki tek yönetici; yönetici rolü "
+                                    "kaldırılamaz. Önce başka bir personele yönetici rolü verin.";
+                    return sonuc;
+                }
+                if (digerYoneticiler < 0)
+                {
+                    sonuc["hata"] = "Yönetici sayısı doğrulanamadı; işlem güvenli olmadığı "
+                                    "için yapılmadı. Bağlantıyı kontrol edip tekrar deneyin.";
+                    return sonuc;
+                }
+            }
+        }
     }
 
     if (!m_db.transaction())
@@ -3130,55 +3338,62 @@ QVariantMap Database::personelGuncelle(int kullaniciId, const QVariantMap &perso
         return sonuc;
     }
 
+    const QString sifre = personel.value("sifre").toString();
+    const bool sifreDegisiyor = !sifre.isEmpty();
+    const bool tuzKolonu = semaKolonuVarMi(m_db, QStringLiteral("dbo.kullanicilar"),
+                                           QStringLiteral("SifreSalt"));
+    const QString tuz = (sifreDegisiyor && tuzKolonu) ? yeniTuzUret() : QString();
+
     QString sql = "UPDATE dbo.kullanicilar SET AdSoyad = :adSoyad, KullaniciAdi = :kullaniciAdi, "
                   "Telefon = :telefon, Pozisyon = :pozisyon";
-    const QString sifre = personel.value("sifre").toString();
-    if (!sifre.isEmpty())
+    if (sifreDegisiyor)
+    {
         sql += ", SifreHash = :sifreHash";
+        // Sifre her degistiginde YENI tuz uretilir; eski tuzla kalmasi
+        // hash'in yeni sifreyle uyusmamasina yol acardi.
+        if (tuzKolonu)
+            sql += ", SifreSalt = :sifreTuz";
+    }
     sql += " WHERE KullaniciId = :kullaniciId";
 
     QSqlQuery guncelle(m_db);
     guncelle.prepare(sql);
-    guncelle.bindValue(":adSoyad", adSoyad);
-    guncelle.bindValue(":kullaniciAdi", kullaniciAdi);
-    guncelle.bindValue(":telefon", personel.value("telefon").toString());
-    guncelle.bindValue(":pozisyon", personel.value("pozisyon").toString());
-    if (!sifre.isEmpty())
-        guncelle.bindValue(":sifreHash", sifreyiHashle(sifre));
+    guncelle.bindValue(":adSoyad", alan(personel, "adSoyad"));
+    guncelle.bindValue(":kullaniciAdi", alan(personel, "kullaniciAdi"));
+    guncelle.bindValue(":telefon", metinParametresi(alan(personel, "telefon")));
+    guncelle.bindValue(":pozisyon", metinParametresi(alan(personel, "pozisyon")));
+    if (sifreDegisiyor)
+    {
+        guncelle.bindValue(":sifreHash", sifreyiHashle(sifre, tuz));
+        if (tuzKolonu)
+            guncelle.bindValue(":sifreTuz", tuz);
+    }
     guncelle.bindValue(":kullaniciId", kullaniciId);
 
     if (!guncelle.exec())
     {
-        qWarning() << "personelGuncelle basarisiz:" << guncelle.lastError().text();
+        const QSqlError sqlHata = guncelle.lastError();
+        qWarning() << "personelGuncelle basarisiz:" << sqlHata.text();
         m_db.rollback();
-        sonuc["hata"] = "Personel güncellenemedi. Bu kullanıcı adı zaten kullanılıyor olabilir.";
+        sonuc["hata"] = tekillikIhlaliMi(sqlHata)
+            ? QString("\"") + alan(personel, "kullaniciAdi") + "\" kullanıcı adı zaten kullanılıyor."
+            : "Personel güncellenemedi: " + sqlHata.text();
+        return sonuc;
+    }
+
+    if (guncelle.numRowsAffected() == 0)
+    {
+        m_db.rollback();
+        sonuc["hata"] = "Personel bulunamadı; kayıt silinmiş olabilir. Listeyi yenileyin.";
         return sonuc;
     }
 
     // Rolleri sifirla ve yeniden ata (senkron etmenin en basit yolu).
-    QSqlQuery rolSil(m_db);
-    rolSil.prepare("DELETE FROM dbo.kullanici_rolleri WHERE KullaniciId = :kid");
-    rolSil.bindValue(":kid", kullaniciId);
-    if (!rolSil.exec())
+    if (!personelRolleriniYaz(m_db, kullaniciId, rolIdListesi, hata))
     {
         m_db.rollback();
-        sonuc["hata"] = "Roller güncellenemedi: " + rolSil.lastError().text();
+        sonuc["hata"] = hata;
         return sonuc;
-    }
-
-    const QVariantList rolIdListesi = personel.value("rolIdListesi").toList();
-    for (const QVariant &rolIdVar : rolIdListesi)
-    {
-        QSqlQuery rolEkle(m_db);
-        rolEkle.prepare("INSERT INTO dbo.kullanici_rolleri (KullaniciId, RolId) VALUES (:kid, :rid)");
-        rolEkle.bindValue(":kid", kullaniciId);
-        rolEkle.bindValue(":rid", rolIdVar.toInt());
-        if (!rolEkle.exec())
-        {
-            m_db.rollback();
-            sonuc["hata"] = "Roller atanamadı: " + rolEkle.lastError().text();
-            return sonuc;
-        }
     }
 
     if (!m_db.commit())
@@ -3192,10 +3407,52 @@ QVariantMap Database::personelGuncelle(int kullaniciId, const QVariantMap &perso
     return sonuc;
 }
 
-bool Database::personelAktifDurumDegistir(int kullaniciId, bool aktif)
+QVariantMap Database::personelAktifDurumDegistir(int kullaniciId, bool aktif)
 {
+    ERP_IZ("personelAktifDurumDegistir");
+    QVariantMap sonuc;
+    sonuc["basarili"] = false;
+    sonuc["hata"] = QString();
+
     if (!baglantiHazir())
-        return false;
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+
+    // ---- Pasife almanin iki koruması ----
+    // Ikisinin de onledigi sonuc ayni: programdan GERI DONUSU OLMAYAN bir
+    // kilitlenme. Bu yuzden kontroller istemci tarafinda degil burada.
+    if (!aktif)
+    {
+        // 1) Kullanici kendi hesabini pasife alamaz: pasife aldigi anda kendi
+        //    oturumu gecersizlesir, bir daha giris yapamaz ve -- tek yoneticiyse
+        //    -- hesabini geri acabilecek kimse kalmaz.
+        if (kullaniciId > 0 && kullaniciId == m_aktifKullaniciId)
+        {
+            sonuc["hata"] = "Kendi hesabınızı pasife alamazsınız.";
+            return sonuc;
+        }
+
+        // 2) Sistemde aktif yonetici KALMAYACAKSA islem reddedilir. Aksi halde
+        //    yonetici sifresi isteyen hicbir islem (teklif silme, personel
+        //    kaydi, musteri/urun duzenleme) bir daha yapilamazdi -- ve bu
+        //    durumu duzeltmek de yonetici sifresi gerektirdigi icin program
+        //    kalici olarak kilitli kalirdi.
+        const int kalanYoneticiler = aktifYoneticiSayisi(kullaniciId);
+        if (kalanYoneticiler == 0)
+        {
+            sonuc["hata"] = "Bu personel sistemdeki tek yönetici; pasife alınamaz. "
+                            "Önce başka bir personele yönetici rolü verin.";
+            return sonuc;
+        }
+        if (kalanYoneticiler < 0)
+        {
+            sonuc["hata"] = "Yönetici sayısı doğrulanamadı; işlem güvenli olmadığı için "
+                            "yapılmadı. Bağlantıyı kontrol edip tekrar deneyin.";
+            return sonuc;
+        }
+    }
 
     QSqlQuery query(m_db);
     query.prepare("UPDATE dbo.kullanicilar SET AktifMi = :aktif WHERE KullaniciId = :id");
@@ -3205,9 +3462,19 @@ bool Database::personelAktifDurumDegistir(int kullaniciId, bool aktif)
     if (!query.exec())
     {
         qWarning() << "personelAktifDurumDegistir basarisiz:" << query.lastError().text();
-        return false;
+        sonuc["hata"] = (aktif ? QString("Personel aktif edilemedi: ")
+                               : QString("Personel pasife alınamadı: ")) + query.lastError().text();
+        return sonuc;
     }
-    return true;
+
+    if (query.numRowsAffected() == 0)
+    {
+        sonuc["hata"] = "Personel bulunamadı; kayıt silinmiş olabilir.";
+        return sonuc;
+    }
+
+    sonuc["basarili"] = true;
+    return sonuc;
 }
 
 bool Database::pdfVerisiniOku(int teklifId, QString &firmaAdiOut, QVariantMap &veriOut, QString &hataOut)
@@ -3351,6 +3618,7 @@ bool Database::pdfVerisiniOku(int teklifId, QString &firmaAdiOut, QVariantMap &v
 
 QVariantMap Database::teklifPdfOlustur(int teklifId)
 {
+    ERP_IZ("teklifPdfOlustur");
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["dosyaYolu"] = QString();
@@ -3376,6 +3644,7 @@ QVariantMap Database::teklifPdfOlustur(int teklifId)
 
 QVariantMap Database::uretimPdfOlustur(int teklifId)
 {
+    ERP_IZ("uretimPdfOlustur");
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["dosyaYolu"] = QString();
@@ -3398,6 +3667,7 @@ QVariantMap Database::uretimPdfOlustur(int teklifId)
 
 QVariantMap Database::pdfKaydet(const QVariantMap &pdf)
 {
+    ERP_IZ("pdfKaydet");
     QVariantMap sonuc = TeklifPdfOlusturucu::onizlemeyiKaydet(pdf.value("dosyaYolu").toString(),
                                                               pdf.value("dosyaAdi").toString());
     if (!sonuc.value("basarili").toBool())
@@ -3420,11 +3690,13 @@ QVariantMap Database::pdfKaydet(const QVariantMap &pdf)
 
 void Database::pdfOnizlemesiniSil(const QString &onizlemeYolu)
 {
+    ERP_IZ("pdfOnizlemesiniSil");
     TeklifPdfOlusturucu::onizlemeyiSil(onizlemeYolu);
 }
 
 QString Database::varsayilanSozlesmeMetni(const QString &dil) const
 {
+    ERP_IZ("varsayilanSozlesmeMetni");
     return TeklifPdfOlusturucu::varsayilanSozlesmeMetni(dil.compare("EN", Qt::CaseInsensitive) == 0);
 }
 
@@ -3441,6 +3713,7 @@ namespace
 
 QVariantList Database::sozlesmeSatirlari(const QString &metin, const QVariantMap &teklif) const
 {
+    ERP_IZ("sozlesmeSatirlari");
     const bool ingilizce = teklif.value("dil").toString().compare("EN", Qt::CaseInsensitive) == 0;
     const QDate bugun = sozlesmeTarihi(teklif);
     const auto uygula = [&](const QString &s) {
@@ -3491,6 +3764,7 @@ QVariantList Database::sozlesmeSatirlari(const QString &metin, const QVariantMap
 
 QString Database::sozlesmeSatirlarindanMetin(const QVariantList &satirlar, const QVariantMap &teklif) const
 {
+    ERP_IZ("sozlesmeSatirlarindanMetin");
     const bool ingilizce = teklif.value("dil").toString().compare("EN", Qt::CaseInsensitive) == 0;
     const QDate bugun = sozlesmeTarihi(teklif);
     static const QRegularExpression degiskenDeseni(QStringLiteral("\\{\\{[^{}]+\\}\\}"));
@@ -3557,6 +3831,7 @@ QString Database::sozlesmeSatirlarindanMetin(const QVariantList &satirlar, const
 
 QString Database::teklifSozlesmeMetniGetir(int teklifId, const QString &dil)
 {
+    ERP_IZ("teklifSozlesmeMetniGetir");
     if (teklifId > 0 && baglantiHazir())
     {
         QSqlQuery query(m_db);
@@ -3664,6 +3939,7 @@ bool Database::sevkBilgileriniRevizyonaKopyala(int kokTeklifId, int yeniTeklifId
 
 QVariantMap Database::sevkBilgileriGetir(int teklifId)
 {
+    ERP_IZ("sevkBilgileriGetir");
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["hata"] = QString();
@@ -3762,6 +4038,7 @@ QVariantMap Database::sevkBilgileriGetir(int teklifId)
 
 QVariantMap Database::sevkBilgileriKaydet(int teklifId, const QVariantMap &sevk)
 {
+    ERP_IZ("sevkBilgileriKaydet");
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["hata"] = QString();
@@ -3834,6 +4111,265 @@ QVariantMap Database::sevkBilgileriKaydet(int teklifId, const QVariantMap &sevk)
     {
         qWarning() << "sevkBilgileriKaydet basarisiz:" << teklifId << query.lastError().text();
         sonuc["hata"] = "Sevk bilgileri kaydedilemedi: " + query.lastError().text();
+        return sonuc;
+    }
+
+    sonuc["basarili"] = true;
+    return sonuc;
+}
+
+
+// ===========================================================================
+// SATINALMA: Tedarikcilerim
+// ===========================================================================
+bool Database::modulDuzenleyebilirMi(const QString &modulKodu)
+{
+    if (m_aktifKullaniciId <= 0)
+        return false;
+
+    const QVariantList moduller = kullaniciModulleriniGetir(m_aktifKullaniciId);
+    for (const QVariant &v : moduller)
+    {
+        const QVariantMap m = v.toMap();
+        if (m.value("modulKodu").toString() == modulKodu)
+            return m.value("duzenleyebilir").toBool();
+    }
+    return false;
+}
+
+int Database::tedarikciListesiGetirBaslat(const QString &arama, int sayfaNo,
+                                           int sayfaBoyutu, bool arsivliDahil)
+{
+    const int istekNo = ++m_listeIstekSayaci;
+    if (!m_listeWorker)
+    {
+        emit tedarikciListesiHazir(istekNo, QVariantMap());
+        return istekNo;
+    }
+    QMetaObject::invokeMethod(m_listeWorker, "tedarikciListesiCalistir", Qt::QueuedConnection,
+                              Q_ARG(int, istekNo), Q_ARG(QString, arama), Q_ARG(int, sayfaNo),
+                              Q_ARG(int, sayfaBoyutu), Q_ARG(bool, arsivliDahil));
+    return istekNo;
+}
+
+namespace
+{
+    const char *const TEDARIKCI_YETKI_YOK = "Bu işlem için Satınalma modülünde düzenleme yetkiniz yok.";
+}
+
+QVariantMap Database::tedarikciEkle(const QVariantMap &tedarikci)
+{
+    ERP_IZ("tedarikciEkle");
+    QVariantMap sonuc;
+    sonuc["basarili"] = false;
+    sonuc["tedarikciId"] = 0;
+    sonuc["hata"] = QString();
+    sonuc["mukerrer"] = false;
+    sonuc["mukerrerAd"] = QString();
+
+    if (!baglantiHazir())
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATINALMA")))
+    {
+        sonuc["hata"] = QString::fromUtf8(TEDARIKCI_YETKI_YOK);
+        return sonuc;
+    }
+    if (!semaKolonuVarMi(m_db, QStringLiteral("dbo.tedarikciler"), QStringLiteral("IlgiliKisiTelefonu")))
+    {
+        sonuc["hata"] = "Tedarikçi kaydı için db/15_tedarikci.sql betiği çalıştırılmalı.";
+        return sonuc;
+    }
+
+    QString hata;
+    if (!musteriAlanlariniDenetle(tedarikci, hata))
+    {
+        sonuc["hata"] = hata;
+        return sonuc;
+    }
+
+    const QString firmaAdi = alan(tedarikci, "firmaAdi");
+
+    // Mukerrer firma adi bir HATA degil bir soru (musteriyle ayni mantik):
+    // kullanici "yine de ekle" derse mukerrerOnayi ile tekrar gelir.
+    if (!tedarikci.value("mukerrerOnayi", false).toBool())
+    {
+        QSqlQuery kontrol(m_db);
+        kontrol.prepare("SELECT TOP (1) FirmaAdi FROM dbo.tedarikciler "
+                        "WHERE LTRIM(RTRIM(FirmaAdi)) = :firmaAdi");
+        kontrol.bindValue(":firmaAdi", firmaAdi);
+        if (kontrol.exec() && kontrol.next())
+        {
+            sonuc["mukerrer"] = true;
+            sonuc["mukerrerAd"] = kontrol.value(0).toString();
+            sonuc["hata"] = "\"" + kontrol.value(0).toString() + "\" adlı tedarikçi zaten kayıtlı.";
+            return sonuc;
+        }
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare(
+        "INSERT INTO dbo.tedarikciler "
+        "(FirmaAdi, Adres, Telefon, Eposta, VergiDairesi, VergiNumarasi, IlgiliKisi, IlgiliKisiTelefonu) "
+        "OUTPUT INSERTED.TedarikciId "
+        "VALUES (:firmaAdi, :firmaAdresi, :firmaTelefonu, :firmaEposta, :vergiDairesi, :vergiNumarasi, "
+        "        :ilgiliKisi, :ilgiliKisiTel)");
+    musteriParametreleriniBagla(query, tedarikci);
+
+    if (!query.exec() || !query.next())
+    {
+        qWarning() << "tedarikciEkle basarisiz:" << query.lastError().text();
+        sonuc["hata"] = "Tedarikçi kaydedilemedi: " + query.lastError().text();
+        return sonuc;
+    }
+
+    sonuc["basarili"] = true;
+    sonuc["tedarikciId"] = query.value(0).toInt();
+    return sonuc;
+}
+
+QVariantMap Database::tedarikciGuncelle(int tedarikciId, const QVariantMap &tedarikci)
+{
+    ERP_IZ("tedarikciGuncelle");
+    QVariantMap sonuc;
+    sonuc["basarili"] = false;
+    sonuc["hata"] = QString();
+
+    if (!baglantiHazir())
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATINALMA")))
+    {
+        sonuc["hata"] = QString::fromUtf8(TEDARIKCI_YETKI_YOK);
+        return sonuc;
+    }
+    if (!semaKolonuVarMi(m_db, QStringLiteral("dbo.tedarikciler"), QStringLiteral("IlgiliKisiTelefonu")))
+    {
+        sonuc["hata"] = "Tedarikçi kaydı için db/15_tedarikci.sql betiği çalıştırılmalı.";
+        return sonuc;
+    }
+
+    QString hata;
+    if (!musteriAlanlariniDenetle(tedarikci, hata))
+    {
+        sonuc["hata"] = hata;
+        return sonuc;
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare(
+        "UPDATE dbo.tedarikciler SET "
+        "FirmaAdi = :firmaAdi, Adres = :firmaAdresi, Telefon = :firmaTelefonu, "
+        "Eposta = :firmaEposta, VergiDairesi = :vergiDairesi, VergiNumarasi = :vergiNumarasi, "
+        "IlgiliKisi = :ilgiliKisi, IlgiliKisiTelefonu = :ilgiliKisiTel "
+        "WHERE TedarikciId = :tedarikciId");
+    musteriParametreleriniBagla(query, tedarikci);
+    query.bindValue(":tedarikciId", tedarikciId);
+
+    if (!query.exec())
+    {
+        qWarning() << "tedarikciGuncelle basarisiz:" << query.lastError().text();
+        sonuc["hata"] = "Tedarikçi güncellenemedi: " + query.lastError().text();
+        return sonuc;
+    }
+    if (query.numRowsAffected() == 0)
+    {
+        sonuc["hata"] = "Tedarikçi bulunamadı; kayıt silinmiş olabilir. Listeyi yenileyin.";
+        return sonuc;
+    }
+
+    sonuc["basarili"] = true;
+    return sonuc;
+}
+
+QVariantMap Database::tedarikciSil(int tedarikciId)
+{
+    ERP_IZ("tedarikciSil");
+    QVariantMap sonuc;
+    sonuc["basarili"] = false;
+    sonuc["hata"] = QString();
+    sonuc["iliskiliKayitVar"] = false;
+
+    if (!baglantiHazir())
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATINALMA")))
+    {
+        sonuc["hata"] = QString::fromUtf8(TEDARIKCI_YETKI_YOK);
+        return sonuc;
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare("DELETE FROM dbo.tedarikciler WHERE TedarikciId = :id");
+    query.bindValue(":id", tedarikciId);
+
+    if (!query.exec())
+    {
+        const QSqlError hata = query.lastError();
+        qWarning() << "Tedarikci silinemedi:" << hata.text();
+        // satinalmalar.TedarikciId icin ON DELETE CASCADE yok (bilerek): satinalma
+        // gecmisi olan tedarikci kalici silinemez, ekran arsivlemeyi onerir.
+        if (fkIhlaliMi(hata))
+            return iliskiliKayitSonucu(
+                "Bu tedarikçiye ait satınalma kayıtları olduğu için kalıcı olarak silinemez.");
+
+        sonuc["hata"] = "Tedarikçi silinemedi: " + hata.text();
+        return sonuc;
+    }
+    if (query.numRowsAffected() == 0)
+    {
+        sonuc["hata"] = "Tedarikçi bulunamadı; kayıt zaten silinmiş olabilir.";
+        return sonuc;
+    }
+
+    sonuc["basarili"] = true;
+    return sonuc;
+}
+
+QVariantMap Database::tedarikciArsivDurumDegistir(int tedarikciId, bool aktif)
+{
+    ERP_IZ("tedarikciArsivDurumDegistir");
+    QVariantMap sonuc;
+    sonuc["basarili"] = false;
+    sonuc["hata"] = QString();
+
+    if (!baglantiHazir())
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATINALMA")))
+    {
+        sonuc["hata"] = QString::fromUtf8(TEDARIKCI_YETKI_YOK);
+        return sonuc;
+    }
+    if (!semaKolonuVarMi(m_db, QStringLiteral("dbo.tedarikciler"), QStringLiteral("AktifMi")))
+    {
+        sonuc["hata"] = "Arşivleme için db/15_tedarikci.sql betiği çalıştırılmalı.";
+        return sonuc;
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare("UPDATE dbo.tedarikciler SET AktifMi = :aktif WHERE TedarikciId = :id");
+    query.bindValue(":aktif", aktif);
+    query.bindValue(":id", tedarikciId);
+
+    if (!query.exec())
+    {
+        qWarning() << "tedarikciArsivDurumDegistir basarisiz:" << query.lastError().text();
+        sonuc["hata"] = (aktif ? QString("Tedarikçi arşivden çıkarılamadı: ")
+                               : QString("Tedarikçi arşivlenemedi: ")) + query.lastError().text();
+        return sonuc;
+    }
+    if (query.numRowsAffected() == 0)
+    {
+        sonuc["hata"] = "Tedarikçi bulunamadı; kayıt silinmiş olabilir.";
         return sonuc;
     }
 

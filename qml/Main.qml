@@ -100,6 +100,8 @@ ApplicationWindow {
             onModulSecildi: (modulKodu) => {
                 if (modulKodu === "SATIS")
                     yiginGorunumu.push(satisModuluBileseni, { baslangicSekmesi: 0 });
+                else if (modulKodu === "SATINALMA")
+                    yiginGorunumu.push(satinalmaModuluBileseni, { baslangicSekmesi: 0 });
             }
 
             onTeklifVerSecildi: {
@@ -108,6 +110,11 @@ ApplicationWindow {
 
             onCikisYapildi: {
                 pencere.oturum = null;
+                // Sunucu tarafindaki aktif oturum bilgisi de temizlenir: aksi
+                // halde cikis yapildiktan sonra bile "kendi hesabini pasife
+                // alma" korumasi eski kullaniciya gore calisirdi
+                // (bkz. Database::aktifKullaniciId).
+                database.oturumuKapat();
                 yiginGorunumu.replace(girisBileseni);
             }
         }
@@ -116,6 +123,14 @@ ApplicationWindow {
     Component {
         id: satisModuluBileseni
         SatisModuluPage {
+            oturum: pencere.oturum
+            onAnaMenuyeDon: yiginGorunumu.pop()
+        }
+    }
+
+    Component {
+        id: satinalmaModuluBileseni
+        SatinAlmaModuluPage {
             oturum: pencere.oturum
             onAnaMenuyeDon: yiginGorunumu.pop()
         }

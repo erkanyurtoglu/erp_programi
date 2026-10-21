@@ -55,7 +55,7 @@ Dialog {
                 radius: 2
                 color: kok.vurguRengi
             }
-            Label {
+            KisalanMetin {
                 Layout.fillWidth: true
                 text: kok.baslik
                 color: Theme.metinBirincil

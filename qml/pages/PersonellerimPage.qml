@@ -8,16 +8,18 @@ import erp_programi
 // karsiligi. Kalici silme yerine Aktif/Pasif bayragi kullanilir -- bir personel
 // pasife alinirsa gecmis tekliflerdeki KullaniciId referansi bozulmaz, sadece
 // giris yapamaz hale gelir (bkz. Database::girisYap -> AktifMi kontrolu).
+//
+// Bu sekme yalnizca YONETIM modulunde duzenleme yetkisi olanlara gorunur
+// (bkz. SatisModuluPage.personelYonetebilir).
+//
+// PASIFE ALMANIN SINIRLARI sunucuda zorlanir (bkz.
+// Database::personelAktifDurumDegistir): kullanici kendi hesabini pasife
+// alamaz ve sistemde aktif yonetici kalmayacaksa islem reddedilir. Ikisi de
+// programdan geri donusu olmayan bir kilitlenmeye yol acardi.
+//
+// YUKLEME ASENKRONDUR (bkz. MusterilerimPage.qml'deki ayni not).
 Item {
     id: root
-
-    component FormAlani: TextField {
-        Layout.fillWidth: true
-        color: Theme.metinBirincil
-        placeholderTextColor: Theme.metinCokSoluk
-        font.family: Theme.fontAilesi
-        background: Rectangle { color: Theme.arkaplan; radius: Theme.radiusKucuk; border.width: 1; border.color: Theme.kenarlik }
-    }
 
     readonly property int sayfaBoyutu: 50
 
@@ -25,26 +27,83 @@ Item {
     property var kayitlarListesi: []
     property string aramaMetni: ""
     property var rolListesi: []
+    // Giris yapan kullanicinin id'si (SatisModuluPage'den gelir). Kendi
+    // satirini isaretleyip kendi hesabini pasife alma butonunu kapatmak icin.
+    // Burada database.aktifKullaniciId() DEGIL bu property kullaniliyor:
+    // Q_INVOKABLE bir fonksiyon degisim sinyali yaymadigi icin ona baglanan
+    // bir QML baglantisi oturum degisince kendini guncellemezdi.
+    property int aktifKullaniciId: 0
+    // "Pasifleri göster" anahtari. Varsayilan true: bu ekranin isi tam olarak
+    // personel yonetimi oldugu icin pasif kayitlar da normalde gorunur.
+    property bool pasifGoster: true
+
+    property int bekleyenIstek: 0
+    property bool yukleniyor: false
+    property string listeHatasi: ""
 
     // Bkz. MusterilerimPage.qml'deki ayni not: SatisModuluPage tum sekmeleri
-    // ANINDA olusturur, otomatikYukle false ise burada sorgu atilmaz -- yukleme
-    // sekmeye gercekten gecince yapilir.
+    // ANINDA olusturur, otomatikYukle false ise burada sorgu atilmaz.
     property bool otomatikYukle: true
 
     function sayfayiYukle(sayfaNo) {
-        // rolListesi burada (her sayfa yuklemesinde) da cekiliyor ki hem ilk
-        // acilista hem de otomatikYukle=false oldugu icin sadece sidebar
-        // tiklamasiyla gelen yuklemede (bkz. SatisModuluPage) personel
-        // ekle/duzenle dialogundaki rol secimi her zaman dolu olsun.
-        rolListesi = database.rolListesiGetir()
-        const sonuc = database.personelListesiGetir(aramaMetni, sayfaNo, sayfaBoyutu)
-        sayfaSonucu = sonuc
-        personelListesi.model = []
-        kayitlarListesi = sonuc.kayitlar
-        personelListesi.model = kayitlarListesi
+        islemHatasi.text = ""
+        root.listeHatasi = ""
+
+        // Rol listesi (ekle/duzenle formundaki rol secimi) ASENKRON gelir ve
+        // yalnizca bos ise istenir. Eskiden her sayfa yuklemesinde SENKRON
+        // cekiliyordu: sunucu yogunken bu tek sorgu, Personellerim'e her
+        // tiklamada arayuzu 27 saniyeye kadar kilitliyordu (gunlukteki
+        // "[YAVAS] rolListesiGetir 27718 ms" kaydi tam olarak budur).
+        if (root.rolListesi.length === 0)
+            database.rolListesiGetirBaslat()
+
+        root.yukleniyor = true
+        root.bekleyenIstek = database.personelListesiGetirBaslat(
+            root.aramaMetni, sayfaNo, root.sayfaBoyutu, root.pasifGoster)
+        zamanAsimiZamanlayici.restart()
+    }
+
+    Connections {
+        target: database
+        function onRolListesiHazir(roller) {
+            root.rolListesi = roller
+        }
+
+        function onPersonelListesiHazir(istekNo, sonuc) {
+            if (istekNo !== root.bekleyenIstek)
+                return
+            zamanAsimiZamanlayici.stop()
+            root.yukleniyor = false
+
+            if (!sonuc || sonuc.toplamSayfa === undefined) {
+                root.listeHatasi = "Personel listesi yüklenemedi: veritabanına bağlanılamadı."
+                root.kayitlarListesi = []
+                return
+            }
+
+            root.sayfaSonucu = sonuc
+            // model'e elle atama YAPILMAZ -- bkz. MusterilerimPage'deki not.
+            root.kayitlarListesi = sonuc.kayitlar
+        }
     }
 
     Component.onCompleted: if (otomatikYukle) sayfayiYukle(1)
+
+
+    // Yanit gelmezse ekran sonsuza kadar "Yükleniyor…" demesin: sorgu bu sureyi
+    // asarsa kullaniciya durum bildirilir ve tekrar deneme imkani verilir.
+    // (Istek iptal EDILMEZ; gec de olsa yanit gelirse liste yine dolar.)
+    Timer {
+        id: zamanAsimiZamanlayici
+        interval: 25000
+        onTriggered: {
+            if (!root.yukleniyor)
+                return
+            root.yukleniyor = false
+            root.listeHatasi = "Personel listesi sunucudan yanıt alınamadığı için yüklenemedi. "
+                               + "Sunucu yoğun veya erişilemiyor olabilir; tekrar deneyin."
+        }
+    }
 
     Timer {
         id: aramaZamanlayici
@@ -76,6 +135,7 @@ Item {
                 }
                 Label {
                     text: root.sayfaSonucu.toplamKayit + " kayıt"
+                           + (root.pasifGoster ? "" : " (yalnızca aktifler)")
                     font.family: Theme.fontAilesi
                     font.pixelSize: Theme.fontBoyutKucuk
                     color: Theme.metinSoluk
@@ -85,34 +145,30 @@ Item {
             Item { Layout.fillWidth: true }
 
             Label {
-                id: hataMesajiUst
+                id: islemHatasi
                 color: Theme.tehlikeAcik
                 font.family: Theme.fontAilesi
                 font.pixelSize: Theme.fontBoyutKucuk
                 visible: text.length > 0
                 wrapMode: Text.WordWrap
-                Layout.maximumWidth: 320
+                Layout.maximumWidth: 360
+            }
+
+            TemaOnayKutusu {
+                text: "Pasifleri göster"
+                checked: root.pasifGoster
+                onToggled: {
+                    root.pasifGoster = checked
+                    root.sayfayiYukle(1)
+                }
             }
 
             Button {
                 id: ekleButonu
                 text: "+ Personel Ekle"
                 Layout.preferredHeight: 38
-                onClicked: {
-                    duzenlemeDialogu.kullaniciId = 0
-                    duzenlemeDialogu.title = "Personel Ekle"
-                    hataMesaji.text = ""
-                    adSoyadAlani.text = ""
-                    kullaniciAdiAlani.text = ""
-                    sifreAlani.text = ""
-                    sifreAlani.placeholderText = "Şifre *"
-                    telefonAlani.text = ""
-                    pozisyonAlani.text = ""
-                    for (let i = 0; i < rolCheckboxRepeater.count; i++)
-                        rolCheckboxRepeater.itemAt(i).checked = false
-                    duzenlemeDialogu.open()
-                }
-                background: Rectangle { radius: Theme.radiusKucuk; color: Theme.vurgu }
+                onClicked: duzenlemeDialogu.formuAc(null)
+                background: Rectangle { radius: Theme.radiusKucuk; color: ekleButonu.hovered ? Theme.vurguHover : Theme.vurgu }
                 contentItem: Text {
                     text: ekleButonu.text
                     color: "#ffffff"
@@ -145,7 +201,7 @@ Item {
                 placeholderTextColor: Theme.metinCokSoluk
                 font.family: Theme.fontAilesi
                 font.pixelSize: Theme.fontBoyutNormal
-                placeholderText: "Ad soyad veya kullanıcı adı ara..."
+                placeholderText: "Ad soyad, kullanıcı adı, pozisyon veya telefon ara..."
                 verticalAlignment: TextInput.AlignVCenter
                 onTextChanged: {
                     root.aramaMetni = text
@@ -156,7 +212,7 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            height: 40
+            Layout.preferredHeight: 40
             color: Theme.panel
             radius: Theme.radiusKucuk
             border.width: 1
@@ -175,149 +231,201 @@ Item {
             }
         }
 
-        ListView {
-            id: personelListesi
+        Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            clip: true
-            spacing: 4
-            reuseItems: false
-            model: root.kayitlarListesi
 
-            delegate: Rectangle {
-                id: satir
-                required property int index
-                required property var modelData
+            ListView {
+                id: personelListesi
+                anchors.fill: parent
+                clip: true
+                spacing: 4
+                model: root.kayitlarListesi
 
-                width: ListView.view.width
-                height: 48
-                radius: Theme.radiusKucuk
-                color: satirAlani.containsMouse ? Theme.panelHover : Theme.panel
-                border.width: 1
-                border.color: Theme.kenarlik
-                layer.enabled: true
-                opacity: satir.modelData.aktifMi ? 1.0 : 0.55
+                delegate: Rectangle {
+                    id: satir
+                    required property int index
+                    required property var modelData
 
-                MouseArea {
-                    id: satirAlani
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    acceptedButtons: Qt.NoButton
-                }
+                    // Giris yapan kullanicinin kendi satiri: pasife alma butonu
+                    // burada devre disidir (sunucu da reddeder, ama kullanici
+                    // tiklayip hata almaktansa butonun kapali olmasini gorsun).
+                    readonly property bool kendisiMi: satir.modelData.kullaniciId === root.aktifKullaniciId
 
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 12
-                    anchors.rightMargin: 12
+                    width: ListView.view.width
+                    height: 48
+                    radius: Theme.radiusKucuk
+                    color: satirAlani.containsMouse ? Theme.panelHover : Theme.panel
+                    border.width: 1
+                    border.color: Theme.kenarlik
+                    opacity: satir.modelData.aktifMi ? 1.0 : 0.55
 
-                    Text {
-                        text: satir.modelData.adSoyad
-                        color: Theme.metinBirincil
-                        font.family: Theme.fontAilesi
-                        font.bold: true
-                        font.pixelSize: Theme.fontBoyutNormal
-                        Layout.preferredWidth: 180
-                        elide: Text.ElideRight
-                        Layout.fillHeight: true
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    Text {
-                        text: satir.modelData.kullaniciAdi
-                        color: Theme.metinIkincil
-                        font.family: Theme.fontAilesi
-                        font.pixelSize: Theme.fontBoyutNormal
-                        Layout.preferredWidth: 140
-                        elide: Text.ElideRight
-                        Layout.fillHeight: true
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    Text {
-                        text: satir.modelData.rolAdlari
-                        color: Theme.metinIkincil
-                        font.family: Theme.fontAilesi
-                        font.pixelSize: 11
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 0
-                        elide: Text.ElideRight
-                        Layout.fillHeight: true
-                        verticalAlignment: Text.AlignVCenter
-                    }
-
-                    Rectangle {
-                        Layout.preferredWidth: 70
-                        Layout.preferredHeight: 24
-                        radius: 5
-                        color: satir.modelData.aktifMi ? "#0f2417" : "#1e2a3f"
-                        border.width: 1
-                        border.color: satir.modelData.aktifMi ? Theme.basari : Theme.kenarlik
-                        Text {
-                            anchors.centerIn: parent
-                            text: satir.modelData.aktifMi ? "Aktif" : "Pasif"
-                            font.family: Theme.fontAilesi
-                            font.pixelSize: 10
-                            color: satir.modelData.aktifMi ? Theme.basariAcik : Theme.metinSoluk
-                        }
+                    MouseArea {
+                        id: satirAlani
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        acceptedButtons: Qt.NoButton
                     }
 
                     RowLayout {
-                        Layout.preferredWidth: 150
-                        spacing: 6
+                        anchors.fill: parent
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
 
-                        Button {
-                            text: "Detay"
-                            Layout.preferredWidth: 58
-                            Layout.preferredHeight: 28
-                            onClicked: {
-                                duzenlemeDialogu.kullaniciId = satir.modelData.kullaniciId
-                                duzenlemeDialogu.title = "Personel Düzenle"
-                                hataMesaji.text = ""
-                                adSoyadAlani.text = satir.modelData.adSoyad
-                                kullaniciAdiAlani.text = satir.modelData.kullaniciAdi
-                                sifreAlani.text = ""
-                                sifreAlani.placeholderText = "Şifre (boş bırakılırsa değişmez)"
-                                telefonAlani.text = satir.modelData.telefon
-                                pozisyonAlani.text = satir.modelData.pozisyon
-                                for (let i = 0; i < rolCheckboxRepeater.count; i++) {
-                                    const kutu = rolCheckboxRepeater.itemAt(i)
-                                    kutu.checked = satir.modelData.rolIdListesi.indexOf(kutu.rolId) !== -1
-                                }
-                                duzenlemeDialogu.open()
+                        RowLayout {
+                            Layout.preferredWidth: 180
+                            Layout.fillHeight: true
+                            spacing: 6
+                            KisalanMetin {
+                                text: satir.modelData.adSoyad
+                                color: Theme.metinBirincil
+                                font.family: Theme.fontAilesi
+                                font.bold: true
+                                font.pixelSize: Theme.fontBoyutNormal
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                                Layout.fillHeight: true
+                                verticalAlignment: Text.AlignVCenter
                             }
-                            background: Rectangle { radius: 5; color: "transparent"; border.width: 1; border.color: Theme.kenarlikVurgu }
-                            contentItem: Text { text: "Detay"; color: Theme.vurguAcik; font.family: Theme.fontAilesi; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                        }
-
-                        Button {
-                            text: satir.modelData.aktifMi ? "Pasife Al" : "Aktif Et"
-                            Layout.preferredWidth: 78
-                            Layout.preferredHeight: 28
-                            onClicked: {
-                                const kullaniciId = satir.modelData.kullaniciId
-                                const yeniAktif = !satir.modelData.aktifMi
-                                sifreDialogu.iste(yeniAktif ? "Personeli Aktif Et" : "Personeli Pasife Al",
-                                                  "\"" + satir.modelData.adSoyad + "\" " + (yeniAktif ? "aktif edilsin mi?" : "pasife alınsın mı?"),
-                                                  yeniAktif ? "Aktif Et" : "Pasife Al", !yeniAktif, function() {
-                                    database.personelAktifDurumDegistir(kullaniciId, yeniAktif)
-                                    root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
-                                })
-                            }
-                            background: Rectangle {
-                                radius: 5
+                            // "Siz" isareti: kullanici kendi satirini ayirt etsin.
+                            Rectangle {
+                                visible: satir.kendisiMi
+                                Layout.preferredWidth: 32
+                                Layout.preferredHeight: 18
+                                radius: 4
                                 color: "transparent"
                                 border.width: 1
-                                border.color: satir.modelData.aktifMi ? Theme.tehlike : Theme.basari
+                                border.color: Theme.kenarlikVurgu
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "siz"
+                                    font.family: Theme.fontAilesi
+                                    font.pixelSize: 9
+                                    color: Theme.vurguAcik
+                                }
                             }
-                            contentItem: Text {
-                                text: satir.modelData.aktifMi ? "Pasife Al" : "Aktif Et"
-                                color: satir.modelData.aktifMi ? Theme.tehlikeAcik : Theme.basariAcik
+                        }
+                        KisalanMetin {
+                            text: satir.modelData.kullaniciAdi
+                            color: Theme.metinIkincil
+                            font.family: Theme.fontAilesi
+                            font.pixelSize: Theme.fontBoyutNormal
+                            Layout.preferredWidth: 140
+                            elide: Text.ElideRight
+                            Layout.fillHeight: true
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        KisalanMetin {
+                            text: satir.modelData.rolAdlari
+                            color: Theme.metinIkincil
+                            font.family: Theme.fontAilesi
+                            font.pixelSize: 11
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 0
+                            elide: Text.ElideRight
+                            Layout.fillHeight: true
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        Rectangle {
+                            Layout.preferredWidth: 70
+                            Layout.preferredHeight: 24
+                            radius: 5
+                            color: satir.modelData.aktifMi ? "#0f2417" : "#1e2a3f"
+                            border.width: 1
+                            border.color: satir.modelData.aktifMi ? Theme.basari : Theme.kenarlik
+                            Text {
+                                anchors.centerIn: parent
+                                text: satir.modelData.aktifMi ? "Aktif" : "Pasif"
                                 font.family: Theme.fontAilesi
-                                font.pixelSize: 11
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
+                                font.pixelSize: 10
+                                color: satir.modelData.aktifMi ? Theme.basariAcik : Theme.metinSoluk
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.preferredWidth: 150
+                            spacing: 6
+
+                            Button {
+                                id: detayButonu
+                                text: "Detay"
+                                Layout.preferredWidth: 58
+                                Layout.preferredHeight: 28
+                                onClicked: duzenlemeDialogu.formuAc(satir.modelData)
+                                background: Rectangle { radius: 5; color: detayButonu.hovered ? Theme.panelHover : "transparent"; border.width: 1; border.color: Theme.kenarlikVurgu }
+                                contentItem: Text { text: "Detay"; color: Theme.vurguAcik; font.family: Theme.fontAilesi; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                            }
+
+                            // Buton bir Item icine sarildi, cunku ipucunu
+                            // tasiyan MouseArea butonun KENDI cocugu olamaz:
+                            // devre disi bir Control cocuklarina da
+                            // enabled: false verdigi icin hover olaylari hic
+                            // gelmez ve ipucu asla gorunmezdi.
+                            Item {
+                                Layout.preferredWidth: 78
+                                Layout.preferredHeight: 28
+
+                                    Button {
+                                    id: durumButonu
+                                    anchors.fill: parent
+                                    text: satir.modelData.aktifMi ? "Pasife Al" : "Aktif Et"
+                                    // Kendi hesabini pasife alma engellidir.
+                                    enabled: !(satir.kendisiMi && satir.modelData.aktifMi)
+                                    onClicked: {
+                                        const kullaniciId = satir.modelData.kullaniciId
+                                        const yeniAktif = !satir.modelData.aktifMi
+                                        sifreDialogu.iste(yeniAktif ? "Personeli Aktif Et" : "Personeli Pasife Al",
+                                                          "\"" + satir.modelData.adSoyad + "\" "
+                                                          + (yeniAktif ? "aktif edilsin mi?"
+                                                                       : "pasife alınsın mı? Giriş yapamaz hale gelir, "
+                                                                         + "geçmiş teklifleri olduğu gibi kalır."),
+                                                          yeniAktif ? "Aktif Et" : "Pasife Al", !yeniAktif,
+                                                          function() { root.aktifDurumDegistir(kullaniciId, yeniAktif) })
+                                    }
+                                    background: Rectangle {
+                                        radius: 5
+                                        color: "transparent"
+                                        border.width: 1
+                                        border.color: satir.modelData.aktifMi ? Theme.tehlike : Theme.basari
+                                        opacity: durumButonu.enabled ? 1.0 : 0.4
+                                    }
+                                    contentItem: Text {
+                                        text: durumButonu.text
+                                        color: satir.modelData.aktifMi ? Theme.tehlikeAcik : Theme.basariAcik
+                                        font.family: Theme.fontAilesi
+                                        font.pixelSize: 11
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                        opacity: durumButonu.enabled ? 1.0 : 0.4
+                                    }
+                                    }
+
+                                // Yalnizca buton devre disiyken butonun USTUNE
+                                // serilir ve sebebi ipucu olarak gosterir.
+                                MouseArea {
+                                    id: durumAlani
+                                    anchors.fill: parent
+                                    visible: !durumButonu.enabled
+                                    hoverEnabled: true
+                                    acceptedButtons: Qt.NoButton
+                                    ToolTip.visible: durumAlani.containsMouse
+                                    ToolTip.text: "Kendi hesabınızı pasife alamazsınız."
+                                }
                             }
                         }
                     }
                 }
+            }
+
+            ListeDurumu {
+                anchors.fill: parent
+                yukleniyor: root.yukleniyor
+                hata: root.listeHatasi
+                kayitSayisi: root.kayitlarListesi.length
+                aramaVar: root.aramaMetni.trim().length > 0
+                bosMetin: "Henüz personel eklenmemiş. \"+ Personel Ekle\" ile başlayabilirsiniz."
+                aramaBosMetni: "Aramanıza uygun personel bulunamadı."
             }
         }
 
@@ -328,7 +436,7 @@ Item {
             Button {
                 id: oncekiButonu
                 text: "◀ Önceki"
-                enabled: root.sayfaSonucu.mevcutSayfa > 1
+                enabled: root.sayfaSonucu.mevcutSayfa > 1 && !root.yukleniyor
                 onClicked: root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa - 1)
                 background: Rectangle { radius: Theme.radiusKucuk; color: Theme.panel; border.width: 1; border.color: Theme.kenarlik; opacity: oncekiButonu.enabled ? 1.0 : 0.4 }
                 contentItem: Text { text: oncekiButonu.text; color: Theme.metinBirincil; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutNormal; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; opacity: oncekiButonu.enabled ? 1.0 : 0.4 }
@@ -344,7 +452,7 @@ Item {
             Button {
                 id: sonrakiButonu
                 text: "Sonraki ▶"
-                enabled: root.sayfaSonucu.mevcutSayfa < root.sayfaSonucu.toplamSayfa
+                enabled: root.sayfaSonucu.mevcutSayfa < root.sayfaSonucu.toplamSayfa && !root.yukleniyor
                 onClicked: root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa + 1)
                 background: Rectangle { radius: Theme.radiusKucuk; color: Theme.panel; border.width: 1; border.color: Theme.kenarlik; opacity: sonrakiButonu.enabled ? 1.0 : 0.4 }
                 contentItem: Text { text: sonrakiButonu.text; color: Theme.metinBirincil; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutNormal; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; opacity: sonrakiButonu.enabled ? 1.0 : 0.4 }
@@ -356,35 +464,97 @@ Item {
     TemaDialog {
         id: duzenlemeDialogu
         property int kullaniciId: 0
-        width: 460
-        baslik: title
+        property string acilisAnlikGoruntusu: ""
+        width: 520
+        // Baslik dogrudan "baslik" uzerinden verilir -- Musterilerim/Urunlerim
+        // ile ayni yol. Eskiden Dialog'un "title" ozelligine yazilip
+        // "baslik: title" ile dolayli baglaniyordu.
         onayMetni: "Kaydet"
         elleKapat: true
 
+        // Tek giris noktasi: ekle ve duzenle ayni fonksiyonu kullanir
+        // (eskiden ayni 10 satir iki yerde kopyalanmisti).
+        function formuAc(kayit) {
+            duzenlemeDialogu.kullaniciId = kayit ? kayit.kullaniciId : 0
+            duzenlemeDialogu.baslik = kayit ? "Personel Düzenle" : "Personel Ekle"
+            hataMesaji.text = ""
+            adSoyadAlani.text = kayit ? kayit.adSoyad : ""
+            kullaniciAdiAlani.text = kayit ? kayit.kullaniciAdi : ""
+            sifreAlani.text = ""
+            sifreTekrarAlani.text = ""
+            telefonAlani.text = kayit ? kayit.telefon : ""
+            pozisyonAlani.text = kayit ? kayit.pozisyon : ""
+            // Secim artik kutularin kendisinden degil, bu listeden okunuyor
+            // (bkz. secilenRoller) -- kutular ona BAGLI. Eskiden secim
+            // rolCheckboxRepeater.itemAt(i).checked uzerinden okunup
+            // yazilıyordu; Repeater.itemAt() yalnizca Item dondurdugu icin bu
+            // erisim tip guvenli degildi ve Repeater satiri henuz
+            // olusturmadiysa (ör. rol listesi gec geldiyse) sessizce
+            // calismiyordu.
+            duzenlemeDialogu.secilenRoller = kayit ? kayit.rolIdListesi.slice() : []
+            duzenlemeDialogu.acilisAnlikGoruntusu = JSON.stringify(duzenlemeDialogu.formAlani())
+            duzenlemeDialogu.open()
+        }
+
+        // Secili rol id'leri. Tek dogruluk kaynagi budur.
+        property var secilenRoller: []
+
+        function roluDegistir(rolId, secili) {
+            const liste = duzenlemeDialogu.secilenRoller.slice()
+            const yer = liste.indexOf(rolId)
+            if (secili && yer === -1)
+                liste.push(rolId)
+            else if (!secili && yer !== -1)
+                liste.splice(yer, 1)
+            duzenlemeDialogu.secilenRoller = liste
+        }
+
         function secilenRolIdListesi() {
-            const secilenler = []
-            for (let i = 0; i < rolCheckboxRepeater.count; i++) {
-                const kutu = rolCheckboxRepeater.itemAt(i)
-                if (kutu.checked)
-                    secilenler.push(kutu.rolId)
+            // Formu her zaman AYNI sirada temsil et: "degisiklik var mi?"
+            // karsilastirmasi (degistiMi) metin bazli oldugu icin, kutulara
+            // tiklama sirasi degisikligi gibi gorunmemeli.
+            return duzenlemeDialogu.secilenRoller.slice().sort(function(a, b) { return a - b })
+        }
+
+        function formAlani() {
+            return {
+                adSoyad: adSoyadAlani.text.trim(),
+                kullaniciAdi: kullaniciAdiAlani.text.trim(),
+                sifre: sifreAlani.text,
+                telefon: telefonAlani.text.trim(),
+                pozisyon: pozisyonAlani.text.trim(),
+                rolIdListesi: secilenRolIdListesi()
             }
-            return secilenler
+        }
+
+        function degistiMi() {
+            return JSON.stringify(duzenlemeDialogu.formAlani()) !== duzenlemeDialogu.acilisAnlikGoruntusu
         }
 
         // Personel/rol/sifre degisikligi yonetici sifresiyle onaylanir: aksi halde
-        // Satis modulune erisen herkes kendine "Yönetici" rolu verip yonetici
+        // bu ekrana erisen herkes kendine "Yönetici" rolu verip yonetici
         // sifresiyle korunan islemleri (ör. teklif silme) acabilirdi.
-        onOnaylandi: sifreDialogu.iste("Personeli Kaydet", "", "Kaydet", false, function() { duzenlemeDialogu.kaydet() })
+        // Hicbir sey degismediyse (sadece bakildiysa) sifre sorulmaz.
+        onOnaylandi: {
+            if (duzenlemeDialogu.kullaniciId > 0 && !duzenlemeDialogu.degistiMi()) {
+                duzenlemeDialogu.close()
+                return
+            }
+
+            // SIFRE TEKRARI: yazim hatasi yapilirsa kullanici giris yapamaz
+            // hale gelir ve kendisi duzeltemez -- bu yuzden iki alan birbirini
+            // dogrular. Kontrol burada (kaydetmeden ve sifre sormadan once).
+            if (sifreAlani.text !== sifreTekrarAlani.text) {
+                hataMesaji.text = "Şifre ve şifre tekrarı aynı değil."
+                return
+            }
+
+            sifreDialogu.iste("Personeli Kaydet", "", "Kaydet", false,
+                              function() { duzenlemeDialogu.kaydet() })
+        }
 
         function kaydet() {
-            const veri = {
-                adSoyad: adSoyadAlani.text,
-                kullaniciAdi: kullaniciAdiAlani.text,
-                sifre: sifreAlani.text,
-                telefon: telefonAlani.text,
-                pozisyon: pozisyonAlani.text,
-                rolIdListesi: secilenRolIdListesi()
-            }
+            const veri = formAlani()
             const sonuc = duzenlemeDialogu.kullaniciId > 0
                 ? database.personelGuncelle(duzenlemeDialogu.kullaniciId, veri)
                 : database.personelEkle(veri)
@@ -402,19 +572,48 @@ Item {
 
             Label { id: hataMesaji; color: Theme.tehlikeAcik; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; visible: text.length > 0; Layout.fillWidth: true; wrapMode: Text.WordWrap }
 
-            FormAlani { id: adSoyadAlani; placeholderText: "Ad Soyad *" }
+            // Alanlar artik EtiketliAlan: etiket kutunun USTUNDE durur.
+            // Eskiden alan adlari yalnizca placeholder'daydi, yani kullanici
+            // yazmaya basladigi anda hangi alanda oldugu gorunmez oluyordu.
+            EtiketliAlan { id: adSoyadAlani; etiket: "AD SOYAD *" }
+            EtiketliAlan { id: kullaniciAdiAlani; etiket: "KULLANICI ADI *" }
+
             RowLayout {
                 Layout.fillWidth: true
-                FormAlani { id: kullaniciAdiAlani; placeholderText: "Kullanıcı Adı *" }
-                FormAlani { id: sifreAlani; placeholderText: "Şifre *"; echoMode: TextInput.Password }
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                FormAlani { id: telefonAlani; placeholderText: "Telefon" }
-                FormAlani { id: pozisyonAlani; placeholderText: "Pozisyon" }
+                spacing: 10
+                EtiketliAlan {
+                    id: sifreAlani
+                    // Yeni kayitta zorunlu, duzenlemede bos birakilirsa
+                    // mevcut sifre korunur -- etiket bunu acikca soyluyor
+                    // (eskiden placeholder imperatif olarak eziliyordu).
+                    etiket: duzenlemeDialogu.kullaniciId > 0
+                            ? "YENİ ŞİFRE (BOŞ = DEĞİŞMEZ)" : "ŞİFRE *"
+                    echoMode: TextInput.Password
+                }
+                EtiketliAlan {
+                    id: sifreTekrarAlani
+                    etiket: "ŞİFRE (TEKRAR)"
+                    echoMode: TextInput.Password
+                }
             }
 
-            Label { text: "ROLLER"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.topMargin: 4 }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: Theme.metinCokSoluk
+                font.family: Theme.fontAilesi
+                font.pixelSize: 10
+                text: "Şifre en az 6 karakter olmalıdır."
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                EtiketliAlan { id: telefonAlani; etiket: "TELEFON" }
+                EtiketliAlan { id: pozisyonAlani; etiket: "POZİSYON" }
+            }
+
+            Label { text: "ROLLER *"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.topMargin: 4 }
 
             Flow {
                 Layout.fillWidth: true
@@ -424,47 +623,42 @@ Item {
                     id: rolCheckboxRepeater
                     model: root.rolListesi
 
-                    delegate: CheckBox {
-                        id: kutu
+                    delegate: TemaOnayKutusu {
                         required property var modelData
                         readonly property int rolId: modelData.rolId
                         text: modelData.rolAdi
-
-                        indicator: Rectangle {
-                            implicitWidth: 18
-                            implicitHeight: 18
-                            x: kutu.leftPadding
-                            y: (kutu.height - height) / 2
-                            radius: 4
-                            color: kutu.checked ? Theme.vurgu : Theme.arkaplan
-                            border.width: 1
-                            border.color: kutu.checked ? Theme.vurgu
-                                        : (kutu.hovered ? Theme.metinSoluk : Theme.kenarlik)
-
-                            Text {
-                                anchors.centerIn: parent
-                                visible: kutu.checked
-                                text: "✓"
-                                color: "#ffffff"
-                                font.bold: true
-                                font.pixelSize: 12
-                            }
-                        }
-
-                        contentItem: Label {
-                            text: kutu.text
-                            color: Theme.metinBirincil
-                            font.family: Theme.fontAilesi
-                            font.pixelSize: Theme.fontBoyutKucuk
-                            leftPadding: kutu.indicator.width + 6
-                            verticalAlignment: Text.AlignVCenter
-                        }
+                        checked: duzenlemeDialogu.secilenRoller.indexOf(rolId) !== -1
+                        onToggled: duzenlemeDialogu.roluDegistir(rolId, checked)
                     }
                 }
+            }
+
+            // Rolsuz personel giris yapabiliyor ama hicbir modul goremiyor;
+            // sunucu da bu durumu reddediyor (bkz. Database::personelEkle).
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: Theme.metinCokSoluk
+                font.family: Theme.fontAilesi
+                font.pixelSize: 10
+                text: "En az bir rol seçilmelidir; rolsüz personel giriş yapsa bile hiçbir modülü göremez."
             }
         }
     }
 
     // Personel ekleme/duzenleme/aktif-pasif yonetici sifresiyle onaylanir.
     SifreOnayDialog { id: sifreDialogu }
+
+    function aktifDurumDegistir(kullaniciId, aktif) {
+        const sonuc = database.personelAktifDurumDegistir(kullaniciId, aktif)
+        if (sonuc.basarili) {
+            islemHatasi.text = ""
+            root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
+        } else {
+            // Eskiden donen bool hic kontrol edilmiyordu: islem sessizce
+            // basarisiz olup liste yenileniyordu ve kullanici neden hicbir
+            // seyin degismedigini anlamiyordu.
+            islemHatasi.text = sonuc.hata
+        }
+    }
 }

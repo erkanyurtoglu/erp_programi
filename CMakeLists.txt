@@ -18,10 +18,14 @@ qt_add_executable(erp_programi
     src/AramaWorker.cpp
     src/AramaSorgulari.h
     src/AramaSorgulari.cpp
+    src/SqlYardimcilari.h
+    src/SqlYardimcilari.cpp
     src/TeklifPdfOlusturucu.h
     src/TeklifPdfOlusturucu.cpp
     src/PdfOnizleyici.h
     src/PdfOnizleyici.cpp
+    src/Tanilama.h
+    src/Tanilama.cpp
 )
 
 target_compile_definitions(erp_programi PRIVATE
@@ -71,6 +75,8 @@ qt_add_qml_module(erp_programi
         qml/pages/MusterilerimPage.qml
         qml/pages/UrunlerimPage.qml
         qml/pages/PersonellerimPage.qml
+        qml/pages/SatinAlmaModuluPage.qml
+        qml/pages/TedarikcilerimPage.qml
         qml/components/ModulIkonu.qml
         qml/components/TarihTakvimi.qml
         qml/components/SozlesmeDuzenleDialog.qml
@@ -81,6 +87,10 @@ qt_add_qml_module(erp_programi
         qml/components/TemaComboBox.qml
         qml/components/EtiketliAlan.qml
         qml/components/SifreOnayDialog.qml
+        qml/components/OnayDialog.qml
+        qml/components/ListeDurumu.qml
+        qml/components/KisalanMetin.qml
+        qml/components/TemaOnayKutusu.qml
         qml/components/PdfOnizlemeDialog.qml
 )
 

@@ -27,7 +27,8 @@ Item {
     id: root
 
     // Tarih sutunlarinin basligi: dar sutuna sigmayan basliklar iki satira sarilir.
-    component TarihBasligi: Label {
+    // (KisalanMetin: iki satira da sigmayip kirpilirsa tam baslik ipucunda cikar.)
+    component TarihBasligi: KisalanMetin {
         color: Theme.metinCokSoluk
         font.family: Theme.fontAilesi
         font.pixelSize: Theme.fontBoyutKucuk
@@ -47,13 +48,14 @@ Item {
         Layout.maximumWidth: root.sutunTarih
         Layout.alignment: Qt.AlignVCenter
         spacing: 0
-        Text {
+        KisalanMetin {
             width: root.sutunTarih
             text: parent.deger.length > 0 ? parent.deger.split(" ")[0] : "—"
+            // Saatli degerlerde ipucu tam tarihi/saati birlikte verir.
+            ipucuMetni: parent.deger
             color: parent.deger.length > 0 ? Theme.metinIkincil : Theme.metinCokSoluk
             font.family: Theme.fontAilesi
             font.pixelSize: Theme.fontBoyutKucuk + 1
-            elide: Text.ElideRight
         }
         Text {
             visible: parent.deger.indexOf(" ") > 0
@@ -85,13 +87,22 @@ Item {
     // FIRMA ADI sutunu kalan tum alani kaplar (her iki tarafta da Layout.fillWidth).
     readonly property int sutunBosluk: 8
     readonly property int sutunKenarBosluk: 12
-    // Teklif no + revizyon rozeti + not ikonu.
-    readonly property int sutunTeklifNo: 110
+    // SUTUN OLCULERI: hepsi sabit; FİRMA ADI sutunu artan TUM alani alir.
+    // Satirdaki en onemli bilgi firma adi oldugu icin sabit sutunlar iceriklerinin
+    // gercek ihtiyacina gore dar tutulur -- her kazanilan piksel dogrudan firma
+    // adina gider. (Sigmayan degerler "…" ile kirpilir ve KisalanMetin sayesinde
+    // uzerine gelindiginde tam haliyle okunur; bu yuzden bol pay birakmak gerekmez.)
+    //
+    // Teklif no + revizyon rozeti + not ikonu ("5517 Rev.2 📝").
+    readonly property int sutunTeklifNo: 86
     // Teklif / Kabul / Planlanan Teslim / Teslim / Uretim PDF tarihlerinin her biri.
-    readonly property int sutunTarih: 80
-    readonly property int sutunPersonel: 104
-    // Genel toplam (KDV dahil, teklifin kendi para biriminde).
-    readonly property int sutunTutar: 118
+    // "08.10.2026" bu font boyutunda ~62px; 72 tam sigar (5 sutun x 8px kazanc).
+    readonly property int sutunTarih: 72
+    // Icerik personelin kisa kullanici adidir ("EÖ"); sutunu belirleyen sey
+    // basligin kendisiydi, o yuzden baslik "TEKLİFİ YAPAN" -> "PERSONEL" oldu.
+    readonly property int sutunPersonel: 72
+    // Genel toplam (KDV dahil, teklifin kendi para biriminde): "15.600,00 ₺".
+    readonly property int sutunTutar: 104
 
     function paraSembolu(pb) {
         return pb === "USD" ? "$" : (pb === "EUR" ? "€" : "₺")
@@ -110,8 +121,27 @@ Item {
     readonly property int sutunDurum: 126
     // Detay + PDF (+ Uretim + İrsaliye) + Sil butonlari ve aralarindaki 6px
     // bosluklar; "Kopya" butonu gosterildiginde kendisi + boslugu icin +64.
-    readonly property int sutunIslemler: (root.uretimButonuGoster ? 340 : 190)
+    //
+    // Alınan/Biten sekmesindeki olcu butonlarin GERCEK ihtiyacindan turetilir:
+    // Detay 58 + PDF 50 + Uretim 64 + İrsaliye 70 + 4 x 6px bosluk = 266; uzun
+    // metin/DPI icin pay birakilip 272 kullanilir. Burada eskiden 340
+    // yaziyordu: bu fazlalik dar ekranda (1920 ekranda bile) satirin
+    // toplam genisligini pencereye sigmayacak hale getiriyor, RowLayout da
+    // once FİRMA ADI sutununu sifira eziyor, sonra artani tasirip son butonu
+    // -- "İrsaliye" -- sagdan kirpiyordu.
+    readonly property int sutunIslemler: (root.uretimButonuGoster ? 272 : 190)
                                          + (root.kopyaButonuGoster ? 64 : 0)
+    // FİRMA ADI satirin en onemli bilgisidir: pencere daralsa bile sutun bu
+    // olcunun altina ezilmez (eskiden tek "esneyen" sutun o oldugu icin once o
+    // sifirlaniyor, basligi bile kaybolup satirda "F…" kaliyordu).
+    readonly property int firmaSutunuEnAz: 150
+
+    // Firma adina bu kadar yer kalmayacak kadar dar pencerelerde, satirin ikincil
+    // tarih sutunlari (PLANLANAN TESLİM ve ÜRETİM PDF) gizlenir. Boylece daralma
+    // firma adindan degil en az kullanilan sutunlardan karsilanir; satir hicbir
+    // zaman pencereyi tasirip son butonu ("İrsaliye") kirpmaz.
+    readonly property bool ikincilTarihSutunlariGoster: root.width >= 1200
+
     // Aciklamalar sutunu yalnizca yer oldugunda gosterilir; dar ekranda Firma Adi
     // sutunu ezilmesin diye gizlenir (icerik yine satirin tooltip'inde okunur).
     readonly property bool aciklamaSutunuGoster: root.width >= 1360
@@ -274,6 +304,14 @@ Item {
     // QML tarafinda iki kez farkli JS array kopyasi uretip ListView'in eski/yeni
     // model karsilastirmasini (change-set) sasirtmasi ihtimaline karsi.
     property var kayitlarListesi: []
+
+    // Asenkron yuklemenin durumu (bkz. root.sayfayiYukle). "bekleyenIstek", en
+    // son baslatilan sorgunun numarasi: yalnizca BU numarayla donen sonuc
+    // ekrana basilir, boylece hizli yazarken gecikmis sonuc guncelini ezmez.
+    property int bekleyenIstek: 0
+    property bool yukleniyor: false
+    property string listeHatasi: ""
+
     property string aramaMetni: ""
     property string secilenTarihFiltresi: "Hepsi"
     property string baslangicTarihi: ""
@@ -394,22 +432,65 @@ Item {
         return durum === "Kabul Edildi" || durum === "Tamamlandı"
     }
 
+    // YUKLEME ASENKRONDUR: sorgu, canli arama ve diger sayfali listelerle ayni
+    // worker thread'i uzerinde calisir, sonuc database.teklifListesiHazir
+    // sinyaliyle gelir. Eskiden burada gecmisTekliflerGetir SENKRON cagriliyordu
+    // ve sorgu (ozellikle arama metni varken) UI thread'ini saniyelerce bloke
+    // edip pencereyi "Yanıt Vermiyor" durumuna dusuruyordu.
     function sayfayiYukle(sayfaNo) {
-        const sonuc = database.gecmisTekliflerGetir(
-            aramaMetni, secilenTarihFiltresi, baslangicTarihi, bitisTarihi, sayfaNo, sayfaBoyutu, root.durumFiltresi);
-        sayfaSonucu = sonuc;
-        // Model'i once bosaltip sonra doldurmak, ListView'in olasi hatali bir
-        // "change-set" (ekleme/silme farki) hesaplamasi yerine temiz bir "reset"
-        // yapmasini garantiler.
-        teklifListesi.model = [];
-        kayitlarListesi = sonuc.kayitlar;
-        teklifListesi.model = kayitlarListesi;
+        root.listeHatasi = ""
+        root.yukleniyor = true
+        root.bekleyenIstek = database.gecmisTekliflerGetirBaslat(
+            root.aramaMetni, root.secilenTarihFiltresi, root.baslangicTarihi,
+            root.bitisTarihi, sayfaNo, root.sayfaBoyutu, root.durumFiltresi)
+        zamanAsimiZamanlayici.restart()
+    }
+
+    Connections {
+        target: database
+        function onTeklifListesiHazir(istekNo, sonuc) {
+            if (istekNo !== root.bekleyenIstek)
+                return                       // eskimis sonuc -- yok say
+            zamanAsimiZamanlayici.stop()
+            root.yukleniyor = false
+
+            // Worker baglanti kuramadiysa bos harita yayinlar.
+            if (!sonuc || sonuc.toplamSayfa === undefined) {
+                root.listeHatasi = "Teklif listesi yüklenemedi: veritabanına bağlanılamadı."
+                root.sayfaSonucu = ({ kayitlar: [], toplamKayit: 0, toplamSayfa: 1, mevcutSayfa: 1 })
+                root.kayitlarListesi = []
+                return
+            }
+
+            root.sayfaSonucu = sonuc
+            // Model'i once bosaltip sonra doldurmak, ListView'in olasi hatali bir
+            // "change-set" (ekleme/silme farki) hesaplamasi yerine temiz bir
+            // "reset" yapmasini garantiler.
+            root.kayitlarListesi = []
+            root.kayitlarListesi = sonuc.kayitlar
+        }
     }
 
     Component.onCompleted: if (otomatikYukle) sayfayiYukle(1)
 
     // Arama kutusunda her tus vurusunda degil, kullanici yazmayi biraktiktan
     // kisa bir sure sonra sorgu atiyoruz (WPF tarafindaki DispatcherTimer ile ayni fikir).
+
+    // Yanit gelmezse ekran sonsuza kadar "Yükleniyor…" demesin: sorgu bu sureyi
+    // asarsa kullaniciya durum bildirilir ve tekrar deneme imkani verilir.
+    // (Istek iptal EDILMEZ; gec de olsa yanit gelirse liste yine dolar.)
+    Timer {
+        id: zamanAsimiZamanlayici
+        interval: 25000
+        onTriggered: {
+            if (!root.yukleniyor)
+                return
+            root.yukleniyor = false
+            root.listeHatasi = "Teklif listesi sunucudan yanıt alınamadığı için yüklenemedi. "
+                               + "Sunucu yoğun veya erişilemiyor olabilir; tekrar deneyin."
+        }
+    }
+
     Timer {
         id: aramaZamanlayici
         interval: 350
@@ -605,18 +686,18 @@ Item {
                 // icin maximumWidth ile sinirliyoruz; aksi halde "TEKLİFİ YAPAN" gibi
                 // uzun bir baslik metni kendi dogal genisligiyle sutunu sisirip veri
                 // satirlariyla arasinda kayma olusturabiliyor.
-                Label { text: "TEKLİF NO"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunTeklifNo; Layout.maximumWidth: root.sutunTeklifNo }
-                Label { text: "FİRMA ADI"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.fillWidth: true; Layout.horizontalStretchFactor: 2; Layout.preferredWidth: 0 }
+                KisalanMetin { text: "TEKLİF NO"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunTeklifNo; Layout.maximumWidth: root.sutunTeklifNo }
+                KisalanMetin { text: "FİRMA ADI"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.fillWidth: true; Layout.horizontalStretchFactor: 2; Layout.preferredWidth: 0; Layout.minimumWidth: root.firmaSutunuEnAz }
                 TarihBasligi { text: "TEKLİF TARİHİ" }
                 TarihBasligi { text: "KABUL TARİHİ" }
-                TarihBasligi { text: "PLANLANAN TESLİM" }
+                TarihBasligi { text: "PLANLANAN TESLİM"; visible: root.ikincilTarihSutunlariGoster }
                 TarihBasligi { text: "TESLİM TARİHİ" }
-                TarihBasligi { text: "ÜRETİM PDF" }
-                Label { text: "TEKLİFİ YAPAN"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunPersonel; Layout.maximumWidth: root.sutunPersonel }
-                Label { text: "TUTAR"; horizontalAlignment: Text.AlignRight; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunTutar; Layout.maximumWidth: root.sutunTutar }
-                Label { text: "DURUM"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunDurum; Layout.maximumWidth: root.sutunDurum }
-                Label { visible: root.aciklamaSutunuGoster; text: "AÇIKLAMALAR"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.fillWidth: true; Layout.horizontalStretchFactor: 1; Layout.preferredWidth: 0 }
-                Label { text: "İŞLEMLER"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunIslemler; Layout.maximumWidth: root.sutunIslemler }
+                TarihBasligi { text: "ÜRETİM PDF"; visible: root.ikincilTarihSutunlariGoster }
+                KisalanMetin { text: "PERSONEL"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunPersonel; Layout.maximumWidth: root.sutunPersonel }
+                KisalanMetin { text: "TUTAR"; horizontalAlignment: Text.AlignRight; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunTutar; Layout.maximumWidth: root.sutunTutar }
+                KisalanMetin { text: "DURUM"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunDurum; Layout.maximumWidth: root.sutunDurum }
+                KisalanMetin { visible: root.aciklamaSutunuGoster; text: "AÇIKLAMALAR"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.fillWidth: true; Layout.horizontalStretchFactor: 1; Layout.preferredWidth: 0 }
+                KisalanMetin { text: "İŞLEMLER"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunIslemler; Layout.maximumWidth: root.sutunIslemler }
             }
         }
 
@@ -631,6 +712,21 @@ Item {
             // riskini tamamen ortadan kaldiriyor (her delegate sifirdan olusturulur).
             reuseItems: false
             model: root.kayitlarListesi
+
+            // Bos liste / yukleniyor / baglanti hatasi gostergesi. Yukleme artik
+            // asenkron oldugu icin liste sorgu suresince bos gorunur; kullanici
+            // neyi bekledigini bilmeli. "parent: teklifListesi" ile gosterge
+            // icerikle birlikte kaydirilmaz, gorunumun uzerine sabit serilir.
+            ListeDurumu {
+                parent: teklifListesi
+                anchors.fill: parent
+                yukleniyor: root.yukleniyor
+                hata: root.listeHatasi
+                kayitSayisi: root.kayitlarListesi.length
+                aramaVar: root.aramaMetni.trim().length > 0
+                bosMetin: "Gösterilecek teklif yok."
+                aramaBosMetni: "Aramanıza uygun teklif bulunamadı."
+            }
 
             // ONEMLI: reuseItems (delegate recycling) acikken, "modelData"yi
             // "required property" olarak tanimlamazsak, oge yeniden kullanildiginda
@@ -777,7 +873,7 @@ Item {
                         // Artan alani yutar; boylece teklif no + rozet sola yaslanir.
                         Item { Layout.fillWidth: true }
                     }
-                    Text {
+                    KisalanMetin {
                         text: satir.modelData.firmaAdi
                         color: Theme.metinBirincil
                         font.family: Theme.fontAilesi
@@ -791,32 +887,35 @@ Item {
                         // preferredWidth: 0 RowLayout'a bu ogeyi kalan alana KISALTMASINI
                         // soyler, boylece elide gercekten calisir ve sutunlar hizali kalir.
                         Layout.preferredWidth: 0
+                        Layout.minimumWidth: root.firmaSutunuEnAz
                         Layout.horizontalStretchFactor: 2
                         Layout.fillHeight: true
-                        verticalAlignment: Text.AlignVCenter
-                        elide: Text.ElideRight
                     }
                     // Teklif -> kabul -> planlanan teslim -> gercek teslim -> uretim PDF.
                     // Bos tarihler "—" ile gosterilir.
                     TarihHucresi { deger: satir.modelData.teklifTarihi }
                     TarihHucresi { deger: satir.modelData.kabulTarihi }
-                    TarihHucresi { deger: satir.modelData.teslimatTarihi }
+                    TarihHucresi { deger: satir.modelData.teslimatTarihi; visible: root.ikincilTarihSutunlariGoster }
                     TarihHucresi { deger: satir.modelData.teslimTarihi }
-                    TarihHucresi { deger: satir.modelData.uretimPdfTarihi }
-                    Text {
+                    TarihHucresi { deger: satir.modelData.uretimPdfTarihi; visible: root.ikincilTarihSutunlariGoster }
+                    KisalanMetin {
                         text: satir.modelData.personelKullaniciAdi
+                        // Hucrede personelin kisa kullanici adi ("EÖ") yazar; tam
+                        // adi ipucunda okunur, bu yuzden kirpilmasa da gosterilir.
+                        ipucuMetni: (satir.modelData.personelAdSoyad || "").length > 0
+                                    ? satir.modelData.personelAdSoyad
+                                    : satir.modelData.personelKullaniciAdi
+                        ipucuHepGoster: true
                         color: Theme.metinIkincil
                         font.family: Theme.fontAilesi
                         font.pixelSize: Theme.fontBoyutNormal
                         Layout.preferredWidth: root.sutunPersonel
                         Layout.maximumWidth: root.sutunPersonel
-                        verticalAlignment: Text.AlignVCenter
                         Layout.fillHeight: true
-                        elide: Text.ElideRight
                         clip: true
                     }
                     // Genel toplam (KDV dahil), teklifin kendi para biriminde.
-                    Text {
+                    KisalanMetin {
                         text: root.tutarMetni(satir.modelData.genelToplam, satir.modelData.paraBirimi)
                         color: satir.modelData.durum === "Revize Edildi" ? Theme.metinCokSoluk : Theme.metinBirincil
                         font.family: "Consolas"
@@ -1013,8 +1112,7 @@ Item {
                     }
 
                     // Aciklamalar (sevk aciklamasi). Tam metin tooltip'te.
-                    Text {
-                        id: aciklamaHucresi
+                    KisalanMetin {
                         visible: root.aciklamaSutunuGoster
                         text: root.aciklamaMetni(satir.modelData)
                         color: Theme.metinIkincil
@@ -1024,18 +1122,6 @@ Item {
                         Layout.preferredWidth: 0
                         Layout.horizontalStretchFactor: 1
                         Layout.fillHeight: true
-                        verticalAlignment: Text.AlignVCenter
-                        elide: Text.ElideRight
-
-                        ToolTip.visible: aciklamaAlani.containsMouse && aciklamaHucresi.truncated
-                        ToolTip.text: aciklamaHucresi.text
-                        ToolTip.delay: 400
-                        MouseArea {
-                            id: aciklamaAlani
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            acceptedButtons: Qt.NoButton
-                        }
                     }
 
                     RowLayout {
@@ -1248,7 +1334,7 @@ Item {
             Button {
                 id: oncekiButonu
                 text: "◀ Önceki"
-                enabled: root.sayfaSonucu.mevcutSayfa > 1
+                enabled: root.sayfaSonucu.mevcutSayfa > 1 && !root.yukleniyor
                 onClicked: root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa - 1)
                 background: Rectangle {
                     radius: Theme.radiusKucuk
@@ -1278,7 +1364,7 @@ Item {
             Button {
                 id: sonrakiButonu
                 text: "Sonraki ▶"
-                enabled: root.sayfaSonucu.mevcutSayfa < root.sayfaSonucu.toplamSayfa
+                enabled: root.sayfaSonucu.mevcutSayfa < root.sayfaSonucu.toplamSayfa && !root.yukleniyor
                 onClicked: root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa + 1)
                 background: Rectangle {
                     radius: Theme.radiusKucuk

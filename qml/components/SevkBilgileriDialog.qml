@@ -162,7 +162,7 @@ Dialog {
             border.width: 1
             border.color: takvim.visible ? Theme.kenarlikVurgu : Theme.kenarlik
 
-            Text {
+            KisalanMetin {
                 anchors.left: parent.left
                 // Temizle isareti gizliyken metin sagdaki bosluga kadar uzanir;
                 // isaretin genisligini "gorunurse implicitWidth" diye baglamak
@@ -322,7 +322,7 @@ Dialog {
                 radius: 2
                 color: Theme.uyari
             }
-            Label {
+            KisalanMetin {
                 Layout.fillWidth: true
                 text: "Sevk ve İrsaliye Bilgileri"
                 color: Theme.metinBirincil
@@ -333,7 +333,7 @@ Dialog {
             }
         }
 
-        Label {
+        KisalanMetin {
             text: "Teklif " + kok.teklifNo
                   + (kok.firmaAdi.length > 0 ? "  •  " + kok.firmaAdi : "")
                   + (kok.saltOkunur ? "  •  Salt okunur" : "")

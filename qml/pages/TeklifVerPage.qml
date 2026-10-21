@@ -657,8 +657,8 @@ Item {
     //
     // Gocten gelen dovizli tekliflerde kayitli kur yoktur (veri.kurBilinmiyor):
     // eski kur 1 kabul edilirse 54 USD 54 TL sanilir ve "Kuru Güncelle" fiyati
-    // 1,15 USD'ye dusururdu. Bu tekliflerde de doviz fiyatlari (maliyet dahil)
-    // korunur, TL karsiligi guncel kurla hesaplanir.
+    // 1,15 USD'ye dusururdu. Bu tekliflerde de doviz BIRIM FIYATLARI korunur,
+    // TL karsiligi guncel kurla hesaplanir. Maliyet ise TL'dir (bkz. asagisi).
     function teklifVerisiniYukle(teklifId, guncelKur) {
         const veri = database.teklifDuzenlemeVerisiGetir(teklifId)
         if (!veri.basarili) {
@@ -688,7 +688,6 @@ Item {
         // bilinmeyen (gocten gelen) dovizli teklifte. Revizyon/detayda teklifin
         // kaydedildigi kur yuklenir.
         const kurCekilecek = dovizliMi && (guncelKur === true || veri.kurBilinmiyor === true)
-        const maliyetDovizden = veri.kurBilinmiyor === true
 
         // DOVIZ FIYATI SABIT: dovizli teklifin HER akisinda (kopya, revizyon,
         // duzeltme) musteriye verilmis doviz fiyatlari (birim fiyat, paketleme,
@@ -737,8 +736,12 @@ Item {
             ? veri.kalemler.map(k => Object.assign({}, k, {
                   sabitBirimDoviz: k.birimFiyatDoviz,
                   birimFiyatTl: kurCekilecek ? k.birimFiyatDoviz : k.birimFiyatTl,
-                  sabitMaliyetDoviz: maliyetDovizden ? k.maliyetDoviz : undefined,
-                  maliyet: maliyetDovizden ? k.maliyetDoviz : k.maliyet
+                  // Maliyet HER ZAMAN TL'dir (katalog maliyeti). Gocten gelen
+                  // dovizli tekliflerde Kur=1 oldugu icin maliyetDoviz alani da
+                  // ayni TL degerini tasir; onu doviz sanip kullanmak
+                  // 125.000 TL'lik maliyeti 125.000 $ gosteriyor ve kar orani
+                  // eksiye dusuyordu. Doviz bagi yalnizca birim fiyata kurulur.
+                  maliyet: k.maliyet
               }))
             : veri.kalemler
 
@@ -1717,7 +1720,7 @@ Item {
                                                     anchors.leftMargin: 10
                                                     anchors.rightMargin: 10
                                                     spacing: 0
-                                                    Label {
+                                                    KisalanMetin {
                                                         text: modelData.firmaAdi
                                                         color: Theme.metinBirincil
                                                         font.family: Theme.fontAilesi
@@ -1725,7 +1728,7 @@ Item {
                                                         elide: Text.ElideRight
                                                         Layout.fillWidth: true
                                                     }
-                                                    Label {
+                                                    KisalanMetin {
                                                         text: modelData.ilgiliKisi
                                                         visible: text.length > 0
                                                         color: Theme.metinSoluk
@@ -1889,7 +1892,7 @@ Item {
                                 Layout.minimumWidth: 100
                                 Layout.maximumWidth: 100
                                 spacing: 4
-                                Label { text: "İNDİRİM %"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; elide: Text.ElideRight; Layout.maximumWidth: 100 }
+                                KisalanMetin { text: "İNDİRİM %"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; elide: Text.ElideRight; Layout.maximumWidth: 100 }
                                 UcretAlani { id: indirimAlaniWrap; baslangicDegeri: 0; birim: "%"; enFazla: 100 }
                             }
                             ColumnLayout {
@@ -1909,7 +1912,7 @@ Item {
                                 Layout.minimumWidth: 100
                                 Layout.maximumWidth: 100
                                 spacing: 4
-                                Label { text: "PAKETLEME"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; elide: Text.ElideRight; Layout.maximumWidth: 100 }
+                                KisalanMetin { text: "PAKETLEME"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; elide: Text.ElideRight; Layout.maximumWidth: 100 }
                                 UcretAlani {
                                     id: paketlemeAlaniWrap; baslangicDegeri: 0; birim: "TL"
                                     onDuzenlendi: root.ucretBaginiKaldir("paketleme")
@@ -2005,7 +2008,7 @@ Item {
                                     anchors.leftMargin: 10
                                     anchors.rightMargin: 6
                                     spacing: 4
-                                    Text {
+                                    KisalanMetin {
                                         Layout.fillWidth: true
                                         text: root.teslimatTarihi.length > 0 ? root.tarihGoster(root.teslimatTarihi) : "Tarih seçin"
                                         color: root.teslimatTarihi.length > 0 ? Theme.metinBirincil : Theme.metinCokSoluk
@@ -2263,14 +2266,16 @@ Item {
                                 ColumnLayout {
                                     Layout.fillWidth: true
                                     spacing: 1
-                                    Label {
+                                    KisalanMetin {
                                         text: urunSatiri.modelData.urunKodu
                                         color: Theme.metinBirincil
                                         font.family: Theme.fontAilesi
                                         font.bold: true
                                         font.pixelSize: Theme.fontBoyutKucuk
+                                        Layout.fillWidth: true
+                                        Layout.preferredWidth: 0
                                     }
-                                    Label {
+                                    KisalanMetin {
                                         text: urunSatiri.modelData.urunAciklamasi
                                         color: Theme.metinSoluk
                                         font.family: Theme.fontAilesi
@@ -2642,7 +2647,7 @@ Item {
                                     color: Theme.panelVurgu
                                     border.width: 1
                                     border.color: Theme.kenarlik
-                                    Label {
+                                    KisalanMetin {
                                         anchors.centerIn: parent
                                         text: sepetSatiri.modelData.urunKodu || "MANUEL"
                                         color: Theme.metinIkincil
@@ -2680,7 +2685,11 @@ Item {
                                         border.width: aciklamaGirdisi.activeFocus || (aciklamaGirdisi.hovered && !aciklamaGirdisi.readOnly) ? 1 : 0
                                         border.color: aciklamaGirdisi.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
                                     }
-                                    ToolTip.visible: hovered && !activeFocus && text.length > 40
+                                    // Ipucu, metin alana GERCEKTEN sigmadiginda cikar
+                                    // (eskiden "40 karakterden uzunsa" diye tahmin
+                                    // ediliyordu; genis alanda sigan metinde de aciliyordu).
+                                    ToolTip.visible: hovered && !activeFocus
+                                                     && contentWidth > width - leftPadding - rightPadding
                                     ToolTip.delay: 500
                                     ToolTip.text: text
                                 }
@@ -2731,7 +2740,7 @@ Item {
                                     onDegisti: (yeniDeger) => root.sepetTutarGuncelle(sepetSatiri.index, "birimFiyatTl", yeniDeger)
                                 }
 
-                                Label {
+                                KisalanMetin {
                                     text: root.tutarMetni(sepetSatiri.satirHesabi.indirimliBirimFiyat)
                                     color: Theme.metinIkincil
                                     font.family: "Consolas"
@@ -2741,7 +2750,7 @@ Item {
                                     Layout.preferredWidth: 96
                                 }
 
-                                Label {
+                                KisalanMetin {
                                     text: root.tutarMetni(sepetSatiri.satirHesabi.toplamTutar)
                                     color: Theme.vurguAcik
                                     font.family: "Consolas"
@@ -2952,7 +2961,7 @@ Item {
                         }
                     }
 
-                    Label {
+                    KisalanMetin {
                         text: root.kurMesaji
                         visible: text.length > 0
                         color: root.kurMesajiHata ? Theme.tehlikeAcik : Theme.metinCokSoluk
