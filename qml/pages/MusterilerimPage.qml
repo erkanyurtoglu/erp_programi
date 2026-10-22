@@ -219,8 +219,7 @@ Item {
                 anchors.rightMargin: 12
 
                 Label { text: "NO"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 56 }
-                Label { text: "FİRMA ADI"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 220 }
-                Label { text: "ADRES"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.fillWidth: true }
+                Label { text: "FİRMA ADI"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.fillWidth: true }
                 Label { text: "TELEFON"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 140 }
                 Label { text: "E-POSTA"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 200 }
                 Label { text: "İŞLEMLER"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 196 }
@@ -277,7 +276,7 @@ Item {
                             verticalAlignment: Text.AlignVCenter
                         }
                         RowLayout {
-                            Layout.preferredWidth: 220
+                            Layout.fillWidth: true
                             Layout.fillHeight: true
                             spacing: 6
                             KisalanMetin {
@@ -309,17 +308,6 @@ Item {
                             }
                         }
                         KisalanMetin {
-                            text: satir.modelData.firmaAdresi
-                            color: Theme.metinIkincil
-                            font.family: Theme.fontAilesi
-                            font.pixelSize: Theme.fontBoyutNormal
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 0
-                            Layout.fillHeight: true
-                            elide: Text.ElideRight
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                        KisalanMetin {
                             text: satir.modelData.firmaTelefonu
                             color: Theme.metinIkincil
                             font.family: Theme.fontAilesi
@@ -341,6 +329,9 @@ Item {
                         }
 
                         RowLayout {
+                            // Layout turevlerinde Layout.fillWidth ORTUK olarak
+                            // true'dur; kapatilmazsa bu sutun artan genisligi yutar.
+                            Layout.fillWidth: false
                             Layout.preferredWidth: 196
                             spacing: 6
 

@@ -42,12 +42,11 @@ Item {
         const m = root.modulYetkisi("SATIS")
         return m !== null && m.duzenleyebilir === true
     }
-    // Personel/rol yonetimi yonetim isidir: yalnizca YONETIM modulunde duzenleme
-    // yetkisi olanlara gorunur (eskiden Satis modulune giren herkes gorebiliyordu).
-    readonly property bool personelYonetebilir: {
-        const m = root.modulYetkisi("YONETIM")
-        return m !== null && m.duzenleyebilir === true
-    }
+    // NOT: Personel/rol yonetimi burada DEGIL, Yonetim modulundedir
+    // (bkz. YonetimModuluPage.qml). Gorunurlugu zaten YONETIM yetkisine bagli
+    // oldugu halde Satis kabugunda duruyordu; Satis yetkisi olmayan bir
+    // yoneticinin personel listesine ulasmak icin Satis moduline girmesi
+    // gerekiyordu.
 
     // Duzenleme yetkisi yoksa "Teklif Ver" sekmesi yoktur; modul Giden
     // Tekliflerim'le acilir.
@@ -64,7 +63,7 @@ Item {
     // menude gelinen liste sekmesi secili KALIR ve ust soldaki geri butonu tam
     // kalinan yere dondurur -- boylece "Teklif Ver sekmesini gasp etme" hissi olmaz
     // ve Teklif Ver'de hazirlanan yarim taslak hic etkilenmez (ayri bir ornek).
-    readonly property int revizyonSekmesi: 7
+    readonly property int revizyonSekmesi: 6
     property int revizyonKaynakSekme: 1
 
     function revizyonKaynakSayfasi() {
@@ -250,16 +249,6 @@ Item {
                         urunlerimPage.sayfayiYukle(1)
                     }
                 }
-                YanMenuButonu {
-                    metin: "Personellerim"
-                    visible: root.personelYonetebilir
-                    secili: icerikYiginlar.currentIndex === 6
-                    onTiklandi: {
-                        icerikYiginlar.currentIndex = 6
-                        personellerimPage.sayfayiYukle(1)
-                    }
-                }
-
                 Item { Layout.fillHeight: true }
             }
         }
@@ -331,16 +320,7 @@ Item {
                 otomatikYukle: false
             }
 
-            PersonellerimPage {
-                id: personellerimPage
-                otomatikYukle: false
-                // Kendi satirini ayirt edip kendi hesabini pasife alma
-                // butonunu kapatmak icin (sunucu da reddeder, bkz.
-                // Database::personelAktifDurumDegistir).
-                aktifKullaniciId: root.kullaniciId
-            }
-
-            // ---- Index 7: "Detay" (revizyon) alt sayfasi ----
+            // ---- Index 6: "Detay" (revizyon) alt sayfasi ----
             // Teklif Ver ile AYNI bilesen (yani birebir ayni ekran), ama AYRI bir
             // ornek: Teklif Ver sekmesinde yarim kalmis bir teklif varsa bu akistan
             // hic etkilenmez. Sol menude kendi maddesi yok; sadece listelerdeki

@@ -2399,6 +2399,11 @@ Item {
 
                         RowLayout {
                             Layout.fillWidth: true
+                            // Sepet satirlari (sepetSatiriCerceve) 1px cerceve + 12px
+                            // sol/8px sag ic bosluk ile hizalaniyor; baslik da ayni
+                            // bosluklari kullanmazsa sutunlar satirlarla kaymis gorunur.
+                            Layout.leftMargin: 13
+                            Layout.rightMargin: 9
                             spacing: 8
                             // Satir tasima (▲/▼) sutununun basligi -- bos, sadece
                             // sepet satirlariyla hizayi korumak icin.

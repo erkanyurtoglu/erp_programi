@@ -102,6 +102,8 @@ ApplicationWindow {
                     yiginGorunumu.push(satisModuluBileseni, { baslangicSekmesi: 0 });
                 else if (modulKodu === "SATINALMA")
                     yiginGorunumu.push(satinalmaModuluBileseni, { baslangicSekmesi: 0 });
+                else if (modulKodu === "YONETIM")
+                    yiginGorunumu.push(yonetimModuluBileseni, { baslangicSekmesi: 0 });
             }
 
             onTeklifVerSecildi: {
@@ -131,6 +133,14 @@ ApplicationWindow {
     Component {
         id: satinalmaModuluBileseni
         SatinAlmaModuluPage {
+            oturum: pencere.oturum
+            onAnaMenuyeDon: yiginGorunumu.pop()
+        }
+    }
+
+    Component {
+        id: yonetimModuluBileseni
+        YonetimModuluPage {
             oturum: pencere.oturum
             onAnaMenuyeDon: yiginGorunumu.pop()
         }

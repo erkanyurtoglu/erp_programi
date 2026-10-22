@@ -4,20 +4,6 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import erp_programi
 
-// Personellerim ekrani: WPF'teki Personellerim + PersonelEkle/PersonelDetayWindow
-// karsiligi. Kalici silme yerine Aktif/Pasif bayragi kullanilir -- bir personel
-// pasife alinirsa gecmis tekliflerdeki KullaniciId referansi bozulmaz, sadece
-// giris yapamaz hale gelir (bkz. Database::girisYap -> AktifMi kontrolu).
-//
-// Bu sekme yalnizca YONETIM modulunde duzenleme yetkisi olanlara gorunur
-// (bkz. SatisModuluPage.personelYonetebilir).
-//
-// PASIFE ALMANIN SINIRLARI sunucuda zorlanir (bkz.
-// Database::personelAktifDurumDegistir): kullanici kendi hesabini pasife
-// alamaz ve sistemde aktif yonetici kalmayacaksa islem reddedilir. Ikisi de
-// programdan geri donusu olmayan bir kilitlenmeye yol acardi.
-//
-// YUKLEME ASENKRONDUR (bkz. MusterilerimPage.qml'deki ayni not).
 Item {
     id: root
 
@@ -27,33 +13,21 @@ Item {
     property var kayitlarListesi: []
     property string aramaMetni: ""
     property var rolListesi: []
-    // Giris yapan kullanicinin id'si (SatisModuluPage'den gelir). Kendi
-    // satirini isaretleyip kendi hesabini pasife alma butonunu kapatmak icin.
-    // Burada database.aktifKullaniciId() DEGIL bu property kullaniliyor:
-    // Q_INVOKABLE bir fonksiyon degisim sinyali yaymadigi icin ona baglanan
-    // bir QML baglantisi oturum degisince kendini guncellemezdi.
+
     property int aktifKullaniciId: 0
-    // "Pasifleri göster" anahtari. Varsayilan true: bu ekranin isi tam olarak
-    // personel yonetimi oldugu icin pasif kayitlar da normalde gorunur.
+
     property bool pasifGoster: true
 
     property int bekleyenIstek: 0
     property bool yukleniyor: false
     property string listeHatasi: ""
 
-    // Bkz. MusterilerimPage.qml'deki ayni not: SatisModuluPage tum sekmeleri
-    // ANINDA olusturur, otomatikYukle false ise burada sorgu atilmaz.
     property bool otomatikYukle: true
 
     function sayfayiYukle(sayfaNo) {
         islemHatasi.text = ""
         root.listeHatasi = ""
 
-        // Rol listesi (ekle/duzenle formundaki rol secimi) ASENKRON gelir ve
-        // yalnizca bos ise istenir. Eskiden her sayfa yuklemesinde SENKRON
-        // cekiliyordu: sunucu yogunken bu tek sorgu, Personellerim'e her
-        // tiklamada arayuzu 27 saniyeye kadar kilitliyordu (gunlukteki
-        // "[YAVAS] rolListesiGetir 27718 ms" kaydi tam olarak budur).
         if (root.rolListesi.length === 0)
             database.rolListesiGetirBaslat()
 
@@ -82,17 +56,12 @@ Item {
             }
 
             root.sayfaSonucu = sonuc
-            // model'e elle atama YAPILMAZ -- bkz. MusterilerimPage'deki not.
             root.kayitlarListesi = sonuc.kayitlar
         }
     }
 
     Component.onCompleted: if (otomatikYukle) sayfayiYukle(1)
 
-
-    // Yanit gelmezse ekran sonsuza kadar "Yükleniyor…" demesin: sorgu bu sureyi
-    // asarsa kullaniciya durum bildirilir ve tekrar deneme imkani verilir.
-    // (Istek iptal EDILMEZ; gec de olsa yanit gelirse liste yine dolar.)
     Timer {
         id: zamanAsimiZamanlayici
         interval: 25000
@@ -247,9 +216,6 @@ Item {
                     required property int index
                     required property var modelData
 
-                    // Giris yapan kullanicinin kendi satiri: pasife alma butonu
-                    // burada devre disidir (sunucu da reddeder, ama kullanici
-                    // tiklayip hata almaktansa butonun kapali olmasini gorsun).
                     readonly property bool kendisiMi: satir.modelData.kullaniciId === root.aktifKullaniciId
 
                     width: ListView.view.width
@@ -273,6 +239,10 @@ Item {
                         anchors.rightMargin: 12
 
                         RowLayout {
+                            // Layout turevlerinde Layout.fillWidth ORTUK olarak
+                            // true'dur; kapatilmazsa preferredWidth taban deger olur
+                            // ve sutun artan genisligi yutup sagindakileri ezer.
+                            Layout.fillWidth: false
                             Layout.preferredWidth: 180
                             Layout.fillHeight: true
                             spacing: 6
@@ -287,7 +257,7 @@ Item {
                                 Layout.fillHeight: true
                                 verticalAlignment: Text.AlignVCenter
                             }
-                            // "Siz" isareti: kullanici kendi satirini ayirt etsin.
+
                             Rectangle {
                                 visible: satir.kendisiMi
                                 Layout.preferredWidth: 32
@@ -327,23 +297,30 @@ Item {
                             verticalAlignment: Text.AlignVCenter
                         }
 
-                        Rectangle {
-                            Layout.preferredWidth: 70
+                        Item {
+                            Layout.preferredWidth: 80
                             Layout.preferredHeight: 24
-                            radius: 5
-                            color: satir.modelData.aktifMi ? "#0f2417" : "#1e2a3f"
-                            border.width: 1
-                            border.color: satir.modelData.aktifMi ? Theme.basari : Theme.kenarlik
-                            Text {
-                                anchors.centerIn: parent
-                                text: satir.modelData.aktifMi ? "Aktif" : "Pasif"
-                                font.family: Theme.fontAilesi
-                                font.pixelSize: 10
-                                color: satir.modelData.aktifMi ? Theme.basariAcik : Theme.metinSoluk
+
+                            Rectangle {
+                                width: 70
+                                height: 24
+                                radius: 5
+                                color: satir.modelData.aktifMi ? "#0f2417" : "#1e2a3f"
+                                border.width: 1
+                                border.color: satir.modelData.aktifMi ? Theme.basari : Theme.kenarlik
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: satir.modelData.aktifMi ? "Aktif" : "Pasif"
+                                    font.family: Theme.fontAilesi
+                                    font.pixelSize: 10
+                                    color: satir.modelData.aktifMi ? Theme.basariAcik : Theme.metinSoluk
+                                }
                             }
                         }
 
                         RowLayout {
+                            // Ortuk fillWidth kapatiliyor (bkz. ad soyad sutunu).
+                            Layout.fillWidth: false
                             Layout.preferredWidth: 150
                             spacing: 6
 
@@ -357,20 +334,16 @@ Item {
                                 contentItem: Text { text: "Detay"; color: Theme.vurguAcik; font.family: Theme.fontAilesi; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                             }
 
-                            // Buton bir Item icine sarildi, cunku ipucunu
-                            // tasiyan MouseArea butonun KENDI cocugu olamaz:
-                            // devre disi bir Control cocuklarina da
-                            // enabled: false verdigi icin hover olaylari hic
-                            // gelmez ve ipucu asla gorunmezdi.
+
                             Item {
                                 Layout.preferredWidth: 78
                                 Layout.preferredHeight: 28
 
-                                    Button {
+                                Button {
                                     id: durumButonu
                                     anchors.fill: parent
                                     text: satir.modelData.aktifMi ? "Pasife Al" : "Aktif Et"
-                                    // Kendi hesabini pasife alma engellidir.
+
                                     enabled: !(satir.kendisiMi && satir.modelData.aktifMi)
                                     onClicked: {
                                         const kullaniciId = satir.modelData.kullaniciId
@@ -399,10 +372,9 @@ Item {
                                         verticalAlignment: Text.AlignVCenter
                                         opacity: durumButonu.enabled ? 1.0 : 0.4
                                     }
-                                    }
+                                }
 
-                                // Yalnizca buton devre disiyken butonun USTUNE
-                                // serilir ve sebebi ipucu olarak gosterir.
+
                                 MouseArea {
                                     id: durumAlani
                                     anchors.fill: parent

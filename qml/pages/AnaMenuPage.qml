@@ -27,7 +27,7 @@ Rectangle {
         "STOK":       { baslik: "Stok",           aciklama: "Envanter ve stok hareketleri",         ikon: "kutu",   renk: "#f59e0b",    aktif: false },
         "SATINALMA":  { baslik: "Satınalma",      aciklama: "Tedarikçi ve sipariş yönetimi",        ikon: "sepet",  renk: "#14b8a6",    aktif: true },
         "MUHASEBE":   { baslik: "Muhasebe",       aciklama: "Fatura ve muhasebe kayıtları",         ikon: "cuzdan", renk: "#22c55e",    aktif: false },
-        "YONETIM":    { baslik: "Yönetim",        aciklama: "Kullanıcı ve sistem ayarları",         ikon: "disli",  renk: "#8b5cf6",    aktif: false }
+        "YONETIM":    { baslik: "Yönetim",        aciklama: "Personel, rol ve sistem ayarları",     ikon: "disli",  renk: "#8b5cf6",    aktif: true }
     })
 
     ColumnLayout {

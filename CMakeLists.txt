@@ -77,6 +77,7 @@ qt_add_qml_module(erp_programi
         qml/pages/PersonellerimPage.qml
         qml/pages/SatinAlmaModuluPage.qml
         qml/pages/TedarikcilerimPage.qml
+        qml/pages/YonetimModuluPage.qml
         qml/components/ModulIkonu.qml
         qml/components/TarihTakvimi.qml
         qml/components/SozlesmeDuzenleDialog.qml

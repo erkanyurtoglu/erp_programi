@@ -254,6 +254,12 @@ Item {
                         anchors.rightMargin: 12
 
                         RowLayout {
+                            // DIKKAT: Layout.fillWidth, duz Item'larda false'tur ama
+                            // RowLayout/ColumnLayout gibi layout turevlerinde ORTUK
+                            // OLARAK true'dur. Acikca kapatilmazsa preferredWidth
+                            // yalnizca bir taban deger olur, sutun artan genisligi
+                            // yutar ve saginda kalan AÇIKLAMA sutunu sifira ezilir.
+                            Layout.fillWidth: false
                             Layout.preferredWidth: 110
                             Layout.fillHeight: true
                             spacing: 6
@@ -339,6 +345,8 @@ Item {
                         }
 
                         RowLayout {
+                            // Ortuk fillWidth kapatiliyor (bkz. urun kodu sutunu).
+                            Layout.fillWidth: false
                             Layout.preferredWidth: 196
                             spacing: 6
 
