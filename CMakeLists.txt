@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Quick Qml Sql WebEngineCore Pdf)
+find_package(Qt6 REQUIRED COMPONENTS Core Quick Qml Sql Network WebEngineCore Pdf)
 
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -26,6 +26,8 @@ qt_add_executable(erp_programi
     src/PdfOnizleyici.cpp
     src/Tanilama.h
     src/Tanilama.cpp
+    src/KurServisi.h
+    src/KurServisi.cpp
 )
 
 target_compile_definitions(erp_programi PRIVATE
@@ -59,6 +61,12 @@ set_source_files_properties(qml/PdfOnizleme.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE
 )
 
+# SatinalmaBicim.qml: satinalma ekranlarinin ortak gosterim kurallari
+# (belge numaralari, durum renkleri, para/tarih bicimi).
+set_source_files_properties(qml/SatinalmaBicim.qml PROPERTIES
+    QT_QML_SINGLETON_TYPE TRUE
+)
+
 qt_add_qml_module(erp_programi
     URI erp_programi
     VERSION 1.0
@@ -67,6 +75,7 @@ qt_add_qml_module(erp_programi
         qml/Theme.qml
         qml/SayiBicimi.qml
         qml/PdfOnizleme.qml
+        qml/SatinalmaBicim.qml
         qml/pages/GecmisTekliflerPage.qml
         qml/pages/GirisPage.qml
         qml/pages/AnaMenuPage.qml
@@ -77,6 +86,9 @@ qt_add_qml_module(erp_programi
         qml/pages/PersonellerimPage.qml
         qml/pages/SatinAlmaModuluPage.qml
         qml/pages/TedarikcilerimPage.qml
+        qml/pages/SatinalmaTaleplerPage.qml
+        qml/pages/TalepDuzenlePage.qml
+        qml/pages/SatinalmaSiparislerPage.qml
         qml/pages/YonetimModuluPage.qml
         qml/components/ModulIkonu.qml
         qml/components/TarihTakvimi.qml
@@ -93,6 +105,15 @@ qt_add_qml_module(erp_programi
         qml/components/KisalanMetin.qml
         qml/components/TemaOnayKutusu.qml
         qml/components/PdfOnizlemeDialog.qml
+        qml/components/TemaButon.qml
+        qml/components/TemaMetinKutusu.qml
+        qml/components/SayiKutusu.qml
+        qml/components/OneriliMetinKutusu.qml
+        qml/components/TarihSecici.qml
+        qml/components/DurumRozeti.qml
+        qml/components/SuzgecHapi.qml
+        qml/components/SiparisEylemleri.qml
+        qml/components/SiparisPencereleri.qml
 )
 
 target_link_libraries(erp_programi PRIVATE
@@ -100,6 +121,8 @@ target_link_libraries(erp_programi PRIVATE
     Qt6::Quick
     Qt6::Qml
     Qt6::Sql
+    # TCMB gunluk kur servisi (src/KurServisi.cpp).
+    Qt6::Network
     Qt6::WebEngineCore
     # PDF onizleme: sayfalari islemcide cizen Qt PDF (pdfium).
     Qt6::Pdf

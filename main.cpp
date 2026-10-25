@@ -9,6 +9,7 @@
 #include "src/Database.h"
 #include "src/PdfOnizleyici.h"
 #include "src/Tanilama.h"
+#include "src/KurServisi.h"
 
 int main(int argc, char *argv[])
 {
@@ -31,9 +32,14 @@ int main(int argc, char *argv[])
     PdfOnizleyici pdfOnizleyici;
     qInfo() << "[olcum] acilis: PdfOnizleyici" << acilis.restart() << "ms";
 
+    // Kurlar arka planda cekilir; gelmezse ekranlar elle girise duser.
+    KurServisi kurServisi;
+    kurServisi.yenile();
+
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("database", &database);
     engine.rootContext()->setContextProperty("pdfOnizleyici", &pdfOnizleyici);
+    engine.rootContext()->setContextProperty("kurServisi", &kurServisi);
     engine.addImageProvider("pdfsayfa", pdfOnizleyici.resimSaglayici());
 
     engine.loadFromModule("erp_programi", "Main");

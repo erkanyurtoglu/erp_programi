@@ -12,6 +12,7 @@
 #include "TeklifPdfOlusturucu.h"
 
 class AramaWorker;
+class QSqlQuery;
 
 // Database: SQL Server'daki yeni "LiyaErpVeriTabani" veritabanina QODBC ile
 // baglanir ve QML ekranlarinin ihtiyac duydugu sorgulari Q_INVOKABLE metodlar olarak sunar.
@@ -641,6 +642,136 @@ public:
     Q_INVOKABLE QVariantMap tedarikciSil(int tedarikciId);
     Q_INVOKABLE QVariantMap tedarikciArsivDurumDegistir(int tedarikciId, bool aktif);
 
+    // ---- SATINALMA ----
+    //
+    // Akis (bkz. db/20_satinalma_talep_teklif_siparis.sql):
+    //
+    //   TALEP  ->  TEKLIF KARSILASTIRMA  ->  SIPARIS(LER)  ->  TESLIM  ->  FATURA
+    //
+    //   * Talep: satinalma mudurunun "ne lazim" listesi. Birimlerde PC olmadigi
+    //     icin talebi isteyen kisi degil MUDUR girer; kimin, hangi birim icin,
+    //     ne zamana istedigi talebin basligindadir. Kalemler serbest metindir
+    //     ve her kalem "ne icin" (hangi cihaz) bilgisini tasir -- bir talebin
+    //     kalemleri farkli cihazlara gidebilir.
+    //   * Teklif: talebe firma eklenir (sutun), her kalem icin o firmanin
+    //     birim fiyati girilir (hucre). Her kalemde kazanan firma secilir.
+    //     Firma bir teklifi tek para biriminde verir; kur firma bazindadir.
+    //   * Siparis: secilen hucreler FIRMA BAZINDA gruplanip her firma icin ayri
+    //     bir satinalma siparisi (SA-0001) olusturulur. Uc kalem uc ayri
+    //     firmadan alindiysa uc siparis olur; her birinin teslimati/kargosu
+    //     kendisine aittir.
+    //   * Teslim: kalem bazinda gelen miktar (kismi teslim desteklenir).
+    //   * Fatura: fatura no/tarih/tutar; siparis tutariyla karsilastirilir.
+
+    // Tedarikci secme kutusu icin ARSIVLENMEMIS tedarikcilerin kisa listesi:
+    // [{tedarikciId, firmaAdi}]. Sayfali liste (tedarikciListesiGetirBaslat)
+    // aksine tek seferde doner; tedarikci sayisi birkac yuzu gecmez.
+    Q_INVOKABLE QVariantList tedarikciSecenekleriGetir();
+
+    // Patron onayi esigi (TL). dbo.ayarlar'daki
+    // SATINALMA_PATRON_ONAY_ESIGI_TL degeri; 0 = onay hic istenmez.
+    Q_INVOKABLE double satinalmaOnayEsigiGetir();
+
+    // Kalem adi yazilirken cikan oneriler: daha once ayni adla yapilmis
+    // alimlarin en son hali -- [{kalemAdi, birim, birimFiyat, paraBirimi, kur,
+    // tedarikciAdi, urunLinki, tarih}]. "Bunu en son kactan almistik?"
+    Q_INVOKABLE QVariantList satinalmaKalemOnerileri(const QString &arama, int enFazla = 8);
+
+    // "Ne icin" (pres / sliper / tiraslama...) yazilirken cikan oneriler.
+    Q_INVOKABLE QStringList satinalmaNeIcinOnerileri(const QString &arama, int enFazla = 8);
+
+    // Daha once alim yapilan / fiyat bakilan internet siteleri (direnc.net,
+    // Hepsiburada...); "nereden" alaninda kayitli tedarikcilerle birlikte onerilir.
+    Q_INVOKABLE QStringList satinalmaSiteleriGetir();
+
+    // Talep listesi. durumFiltresi: "acik" (teklif toplanan + kismen
+    // siparisteki), "tamam", "iptal", "tumu". Her satir:
+    // {talepId, talepNo, talepTarihi, isteyenBirim, isteyenKisi, ihtiyacTarihi,
+    //  ihtiyacGunuKaldi, aciklama, kalemSayisi, siparisliKalemSayisi,
+    //  firmaSayisi, neIcinOzeti, kalemOzeti, durum}
+    Q_INVOKABLE QVariantList talepListesiGetir(const QString &durumFiltresi,
+                                               const QString &arama = QString());
+
+    // Talebi tum parcalariyla okur:
+    // {talepId, talepNo, talepTarihi, isteyenBirim, isteyenKisi, ihtiyacTarihi,
+    //  aciklama, iptal, durum,
+    //  kalemler: [{talepKalemId, kalemAdi, neIcin, miktar, birim, aciklama,
+    //              siparisNo, satinalmaId}],      // siparisNo > 0 ise kilitli
+    //  firmalar: [{teklifFirmaId, tedarikciId, firmaAdi, kaynak, teklifLinki,
+    //              paraBirimi, kur, teslimSuresiGun, notu}],
+    //  fiyatlar: [{talepKalemId, teklifFirmaId, birimFiyat, secildi}],
+    //  siparisler: [{satinalmaId, siparisNo, firmaAdi, durum, toplamTutarTL}]}
+    Q_INVOKABLE QVariantMap talepGetir(int talepId);
+
+    // Talebi kaydeder (talepId = 0 ise yeni). Kalem ve firmalar istemcinin
+    // verdigi "anahtar" ile tanimlanir; fiyatlar bu anahtarlarla eslenir:
+    //   {talepId, isteyenBirim, isteyenKisi, ihtiyacTarihi, aciklama,
+    //    kalemler: [{anahtar, talepKalemId, kalemAdi, neIcin, miktar, birim}],
+    //    firmalar: [{anahtar, teklifFirmaId, tedarikciId, firmaAdi, kaynak,
+    //                teklifLinki, paraBirimi, kur, teslimSuresiGun, notu}],
+    //    fiyatlar: [{kalemAnahtar, firmaAnahtar, birimFiyat, secildi}]}
+    // Siparise donusmus kalemler DEGISTIRILMEZ ve silinemez (fiyat/secimleri
+    // de korunur): siparisin dayandigi karsilastirma sonradan bozulmasin.
+    // Donen: {basarili, talepId, talepNo, hata}
+    Q_INVOKABLE QVariantMap talepKaydet(const QVariantMap &talep);
+
+    // Talebi iptal eder (aktif siparisi olan talep iptal edilemez).
+    Q_INVOKABLE QVariantMap talepIptalEt(int talepId, const QString &sebep);
+
+    // Talepte SECILMIS ve henuz siparise donusmemis hucrelerden, firma bazinda
+    // siparis olusturur. siparisBilgileri, firma basina:
+    //   [{teklifFirmaId, teslimatSekli, beklenenTeslimTarihi, patronOnayli}]
+    // tekTeklifGerekcesi: onay esigini asan sipariste karsilastirma icin ikinci
+    // bir firma yoksa ZORUNLU ("3 yerden fiyat alindi mi?" sorusunun izi).
+    // Talep once talepKaydet ile kaydedilmis olmalidir.
+    // Donen: {basarili, siparisler: [{satinalmaId, siparisNo, firmaAdi, durum}], hata}
+    Q_INVOKABLE QVariantMap talepSiparisOlustur(int talepId, const QVariantList &siparisBilgileri,
+                                                const QString &tekTeklifGerekcesi);
+
+    // Siparis listesi. filtre: "tumu", "acik" (teslim alinmamis), "onay",
+    // "geciken", "kismi", "tamam", "iptal". arama: siparis no / firma /
+    // kalem adi / ne icin. Her satir:
+    // {satinalmaId, siparisNo, talepNo, tedarikciAdi, durum, teslimatSekli,
+    //  satinalmaTarihi, beklenenTeslimTarihi, gecikmeGunu, kalemSayisi,
+    //  kalemOzeti, neIcinOzeti, toplamTutarTL, kargoFirmasi, kargoTakipNo}
+    Q_INVOKABLE QVariantList siparisListesiGetir(const QString &filtre,
+                                                 const QString &arama = QString());
+
+    // Siparisi kalemleri ve dayandigi teklif karsilastirmasiyla okur.
+    // Bulunamazsa bos harita doner.
+    Q_INVOKABLE QVariantMap satinalmaGetir(int satinalmaId);
+
+    // Sevkiyat bilgisi: {teslimatSekli, kargoFirmasi, kargoTakipNo,
+    // beklenenTeslimTarihi, yolaCikti}. yolaCikti true ise siparis "Kargoda"
+    // (ekranda: yolda) durumuna gecer.
+    Q_INVOKABLE QVariantMap satinalmaSevkiyatGuncelle(int satinalmaId, const QVariantMap &bilgi);
+
+    // Fatura: {faturaNo, faturaTarihi, faturaTutariTL, muhasebeyeIletildi}.
+    Q_INVOKABLE QVariantMap satinalmaFaturaGuncelle(int satinalmaId, const QVariantMap &bilgi);
+
+    // Modul ozeti (genel bakis + menu rozetleri):
+    // {acikTalep, onayBekleyen, acikSiparis, yolda, geciken, buAyTutarTL,
+    //  faturasiEksik}
+    Q_INVOKABLE QVariantMap satinalmaOzetiGetir();
+
+    // Durum degistirme (Kargoda / İptal / Reddedildi / geri alma).
+    //
+    // Teslim bilgisi BURADAN degistirilmez: 'Teslim Alındı' ve 'Kısmi Teslim'
+    // yalnizca satinalmaTeslimAl ile olusur, cunku ikisi de kalem bazindaki
+    // gelen adetlerden hesaplanir. Teslim alinmis bir siparis 'Sipariş
+    // Verildi'ye geri alinirsa gelen adetler de sifirlanir. Iptal edilen
+    // siparisin kalemleri talepte yeniden "acik" sayilir.
+    Q_INVOKABLE QVariantMap satinalmaDurumGuncelle(int satinalmaId, const QString &yeniDurum,
+                                                    const QString &redSebebi = QString());
+
+    // Patronun sozlu onayini mudur isaretler (patronun programda hesabi yok).
+    Q_INVOKABLE QVariantMap satinalmaOnayiIsaretle(int satinalmaId);
+
+    // Teslim alma. gelenAdetler: [{satinalmaKalemId, gelenAdet}] -- toplam
+    // gelen miktar (o ana kadar gelenlerin hepsi). Durum burada hesaplanir.
+    // Donen: {basarili, durum, hata}
+    Q_INVOKABLE QVariantMap satinalmaTeslimAl(int satinalmaId, const QVariantList &gelenAdetler);
+
     // musteriAraBaslat/urunAraBaslat icin sonuc sinyalleri. "arama" (ve urun icin
     // "dil") istegi yapan tarafa aynen geri gonderilir; QML tarafi bunu arama
     // kutusunun O ANKI metniyle karsilastirip eskimis sonuclari gormezden gelir.
@@ -765,6 +896,12 @@ private:
     // TeklifId'si; zincirin en son uyesi buysa 0. Revize edilmis bir teklif
     // uzerinde islem yapilip yapilamayacagi buna gore belirlenir.
     int teklifYerineGecenIdGetir(int teklifId);
+
+    // Satinalma tablolari (db/20) kurulu mu? Kurulu degilse satinalma
+    // ekranlari islem yapmaz, betigin calistirilmasi gerektigini soyler.
+    bool satinalmaSemasiHazirMi();
+    // Talep / siparis numarasi (sp_getapplock ile korunur; transaction icinde).
+    int satinalmaNoAl(const QString &tablo, const QString &kolon, QString &hataOut);
 
     QSqlDatabase m_db;
     bool m_baglantiHazir = false;

@@ -12,6 +12,8 @@
 #include <QDebug>
 #include <QCryptographicHash>
 #include <QHash>
+#include <QSet>
+#include <QVector>
 #include <QRegularExpression>
 #include <QUuid>
 #include <cmath>
@@ -4374,5 +4376,2147 @@ QVariantMap Database::tedarikciArsivDurumDegistir(int tedarikciId, bool aktif)
     }
 
     sonuc["basarili"] = true;
+    return sonuc;
+}
+
+// ============================================================================
+// SATINALMA
+//
+// Akis: TALEP -> TEKLIF KARSILASTIRMA -> SIPARIS(LER) -> TESLIM -> FATURA
+// (bkz. Database.h'deki not ve db/20_satinalma_talep_teklif_siparis.sql).
+// ============================================================================
+
+namespace
+{
+    const char *const SATINALMA_SEMA_YOK =
+        "Satınalma ekranları için db/20_satinalma_talep_teklif_siparis.sql ve "
+        "db/21_satinalma_arastirma_ve_site_siparis.sql betikleri çalıştırılmalı.";
+
+    // Para alanlari kurus hassasiyetinde saklanir; ara carpimlarin kuyruk
+    // basamaklari toplami kaydirmasin diye her satirda yuvarlanir.
+    double kurusaYuvarla(double deger)
+    {
+        return std::round(deger * 100.0) / 100.0;
+    }
+
+    // Bos para birimi TL sayilir; gecersizse bos doner.
+    QString paraBirimiDuzelt(const QString &ham)
+    {
+        const QString pb = ham.trimmed().toUpper();
+        if (pb.isEmpty() || pb == QStringLiteral("TL") || pb == QStringLiteral("TRY"))
+            return QStringLiteral("TL");
+        if (pb == QStringLiteral("USD") || pb == QStringLiteral("EUR"))
+            return pb;
+        return QString();
+    }
+
+    // Teslimat sekilleri. Kargo firmasi / takip no yalnizca ilk ikisinde
+    // anlamlidir; digerlerinde bu alanlar hic gosterilmez ve NULL yazilir.
+    bool gecerliTeslimatSekliMi(const QString &sekil)
+    {
+        return sekil == QStringLiteral("Kargo")
+            || sekil == QStringLiteral("Ambar / Nakliye")
+            || sekil == QStringLiteral("Tedarikçi getirecek")
+            || sekil == QStringLiteral("Biz alacağız");
+    }
+
+    bool kargoluTeslimatMi(const QString &sekil)
+    {
+        return sekil == QStringLiteral("Kargo") || sekil == QStringLiteral("Ambar / Nakliye");
+    }
+
+    // "Aktif" siparis: iptal / red edilmemis. Talep kaleminin siparise donusup
+    // donusmedigi buna gore hesaplanir -- iptal edilen siparisin kalemleri
+    // talepte yeniden acik sayilir.
+    const char *const AKTIF_SIPARIS_KOSULU = "s.Durum NOT IN (N'İptal', N'Reddedildi')";
+
+    // Siparis "acik" (henuz kapanmamis) sayilan durumlar. Kismi teslim de
+    // aciktir: kalanini beklemeye devam ediyoruz.
+    const char *const ACIK_SIPARIS_KOSULU =
+        "s.Durum NOT IN (N'Teslim Alındı', N'İptal', N'Reddedildi')";
+
+    // Gecikme: beklenen teslim tarihi GECMIS ve siparis hala acik.
+    const char *const GECIKME_GUNU_SQL =
+        "CASE WHEN s.BeklenenTeslimTarihi IS NULL THEN 0 "
+        "     ELSE DATEDIFF(day, s.BeklenenTeslimTarihi, CAST(SYSDATETIME() AS DATE)) END";
+
+    // Talebin, aktif bir siparise donusmus kalemlerinin listesi (alt sorgu).
+    const char *const SIPARISLI_TALEP_KALEMLERI_SQL =
+        "SELECT DISTINCT sk.TalepKalemId FROM dbo.satinalma_kalemleri sk "
+        "JOIN dbo.satinalmalar s ON s.SatinalmaId = sk.SatinalmaId "
+        "WHERE sk.TalepKalemId IS NOT NULL AND s.Durum NOT IN (N'İptal', N'Reddedildi')";
+
+    // Talep durumu saklanmaz, kalemlerden hesaplanir.
+    const char *const TALEP_DURUM_SQL =
+        "CASE WHEN t.IptalMi = 1 THEN N'İptal' "
+        "     WHEN ISNULL(ks.SiparisliKalem, 0) = 0 THEN N'Teklif Toplanıyor' "
+        "     WHEN ks.SiparisliKalem >= ks.KalemSayisi THEN N'Siparişe Dönüştü' "
+        "     ELSE N'Kısmen Siparişte' END";
+
+    // Durum degistirme ekrandan gelir; gecerli kume burada tutulur ki QML'den
+    // serbest metin gelip veritabanina bilinmeyen bir durum yazilmasin.
+    bool elleAyarlanabilirDurumMu(const QString &durum)
+    {
+        return durum == QStringLiteral("Sipariş Verildi")
+            || durum == QStringLiteral("Kargoda")
+            || durum == QStringLiteral("İptal")
+            || durum == QStringLiteral("Reddedildi");
+    }
+
+    QVariant intParametresi(int deger)
+    {
+        return deger > 0 ? QVariant(deger) : QVariant(QMetaType(QMetaType::Int));
+    }
+
+    QVariantMap basarisizSonuc()
+    {
+        QVariantMap sonuc;
+        sonuc["basarili"] = false;
+        sonuc["hata"]     = QString();
+        return sonuc;
+    }
+}
+
+bool Database::satinalmaSemasiHazirMi()
+{
+    return !m_db.record(QStringLiteral("dbo.satinalma_talepleri")).isEmpty()
+        && semaKolonuVarMi(m_db, QStringLiteral("dbo.satinalmalar"), QStringLiteral("TeslimatSekli"))
+        && semaKolonuVarMi(m_db, QStringLiteral("dbo.satinalmalar"), QStringLiteral("SiteSiparisNo"));
+}
+
+int Database::satinalmaNoAl(const QString &tablo, const QString &kolon, QString &hataOut)
+{
+    // Acik transaction icinde cagrilir. Iki bilgisayar ayni anda kaydederse
+    // ayni "en buyuk + 1"i okumasinlar diye numara verme transaction sonuna
+    // kadar kilitlenir (teklif numarasindaki desenin aynisi, bkz.
+    // numaraKilidiAl). tablo/kolon yalnizca bu dosyadaki sabitlerden gelir.
+    QSqlQuery kilit(m_db);
+    kilit.prepare(QStringLiteral(
+        "SET NOCOUNT ON; DECLARE @sonuc INT; "
+        "EXEC @sonuc = sp_getapplock @Resource = N'LiyaErp_%1', @LockMode = 'Exclusive', "
+        "@LockOwner = 'Transaction', @LockTimeout = 15000; "
+        "SELECT @sonuc;").arg(kolon));
+    if (!kilit.exec() || !kilit.next())
+    {
+        qWarning() << "satinalmaNoAl kilit basarisiz:" << kilit.lastError().text();
+        hataOut = QStringLiteral("Numara alınamadı: ") + kilit.lastError().text();
+        return 0;
+    }
+    if (kilit.value(0).toInt() < 0)
+    {
+        hataOut = QStringLiteral("Numara alınamadı: başka bir kayıt sürüyor, lütfen tekrar deneyin.");
+        return 0;
+    }
+
+    QSqlQuery query(m_db);
+    if (!query.exec(QStringLiteral("SELECT ISNULL(MAX(%1), 0) + 1 FROM %2").arg(kolon, tablo))
+        || !query.next())
+    {
+        qWarning() << "satinalmaNoAl basarisiz:" << query.lastError().text();
+        hataOut = QStringLiteral("Numara alınamadı: ") + query.lastError().text();
+        return 0;
+    }
+    return query.value(0).toInt();
+}
+
+QVariantList Database::tedarikciSecenekleriGetir()
+{
+    ERP_IZ("tedarikciSecenekleriGetir");
+    QVariantList liste;
+    if (!baglantiHazir())
+        return liste;
+
+    // AktifMi kolonu 15_tedarikci.sql ile geldi; betik calistirilmamissa
+    // arsiv kavrami yoktur ve hepsi listelenir.
+    const bool arsivKolonu = semaKolonuVarMi(m_db, QStringLiteral("dbo.tedarikciler"),
+                                             QStringLiteral("AktifMi"));
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("SELECT TedarikciId, FirmaAdi FROM dbo.tedarikciler %1 "
+                                 "ORDER BY FirmaAdi")
+                      .arg(arsivKolonu ? QStringLiteral("WHERE AktifMi = 1") : QString()));
+    if (!query.exec())
+    {
+        qWarning() << "tedarikciSecenekleriGetir basarisiz:" << query.lastError().text();
+        return liste;
+    }
+
+    while (query.next())
+    {
+        QVariantMap satir;
+        satir["tedarikciId"] = query.value(0).toInt();
+        satir["firmaAdi"]    = query.value(1).toString();
+        liste.append(satir);
+    }
+    return liste;
+}
+
+double Database::satinalmaOnayEsigiGetir()
+{
+    if (!baglantiHazir())
+        return 0.0;
+    if (m_db.record(QStringLiteral("dbo.ayarlar")).isEmpty())
+        return 0.0;   // 17 numarali betik henuz calistirilmamis
+
+    QSqlQuery query(m_db);
+    query.prepare("SELECT Deger FROM dbo.ayarlar WHERE Anahtar = :anahtar");
+    query.bindValue(":anahtar", QStringLiteral("SATINALMA_PATRON_ONAY_ESIGI_TL"));
+    if (!query.exec() || !query.next())
+        return 0.0;
+
+    bool cevrildi = false;
+    const double esik = query.value(0).toString().trimmed().toDouble(&cevrildi);
+    // Ayara elle bozuk bir deger yazilmissa onay istemek yerine istememek
+    // daha az zarar verir: aksi halde TUM siparisler onayda takilir.
+    return (cevrildi && esik > 0.0) ? esik : 0.0;
+}
+
+QVariantList Database::satinalmaKalemOnerileri(const QString &arama, int enFazla)
+{
+    QVariantList liste;
+    if (!baglantiHazir())
+        return liste;
+    if (!semaKolonuVarMi(m_db, QStringLiteral("dbo.satinalma_kalemleri"), QStringLiteral("KalemAdi")))
+        return liste;
+
+    const QString desen = likeDeseni(arama);
+    if (desen.isEmpty())
+        return liste;
+
+    // Ayni ad defalarca gecer (her alimda bir satir); bizi ilgilendiren, her
+    // ad icin EN SON alim. ROW_NUMBER ile ad basina tek satir birakiliyor.
+    // Iptal/red edilen siparisler "son alim" sayilmaz.
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral(
+        "SELECT TOP (:enFazla) KalemAdi, Birim, BirimFiyatDoviz, ParaBirimi, Kur, "
+        "       TedarikciAdi, UrunLinki, SatinalmaTarihi "
+        "FROM ( "
+        "    SELECT k.KalemAdi, k.Birim, k.BirimFiyatDoviz, k.ParaBirimi, k.Kur, "
+        "           t.FirmaAdi AS TedarikciAdi, k.UrunLinki, s.SatinalmaTarihi, "
+        "           ROW_NUMBER() OVER (PARTITION BY k.KalemAdi "
+        "                              ORDER BY s.SatinalmaTarihi DESC, k.SatinalmaKalemId DESC) AS sira "
+        "    FROM dbo.satinalma_kalemleri k "
+        "    JOIN dbo.satinalmalar s ON s.SatinalmaId = k.SatinalmaId "
+        "    LEFT JOIN dbo.tedarikciler t ON t.TedarikciId = s.TedarikciId "
+        "    WHERE k.KalemAdi LIKE :desen ESCAPE '\\' AND %1 "
+        ") x "
+        "WHERE sira = 1 "
+        "ORDER BY SatinalmaTarihi DESC").arg(QString::fromUtf8(AKTIF_SIPARIS_KOSULU)));
+    query.bindValue(":enFazla", qBound(1, enFazla, 50));
+    query.bindValue(":desen", desen);
+
+    if (!query.exec())
+    {
+        qWarning() << "satinalmaKalemOnerileri basarisiz:" << query.lastError().text();
+        return liste;
+    }
+
+    while (query.next())
+    {
+        QVariantMap satir;
+        satir["kalemAdi"]     = query.value(0).toString();
+        satir["birim"]        = query.value(1).toString();
+        satir["birimFiyat"]   = query.value(2).toDouble();
+        satir["paraBirimi"]   = query.value(3).toString();
+        satir["kur"]          = query.value(4).toDouble();
+        satir["tedarikciAdi"] = query.value(5).toString();
+        satir["urunLinki"]    = query.value(6).toString();
+        satir["tarih"]        = query.value(7).toDate();
+        liste.append(satir);
+    }
+    return liste;
+}
+
+QStringList Database::satinalmaNeIcinOnerileri(const QString &arama, int enFazla)
+{
+    QStringList liste;
+    if (!baglantiHazir() || !satinalmaSemasiHazirMi())
+        return liste;
+
+    const QString desen = likeDeseni(arama);
+    if (desen.isEmpty())
+        return liste;
+
+    // Hem talep kalemlerinde hem eski (talepsiz) siparis kalemlerinde
+    // yazilmis adlar onerilir.
+    QSqlQuery query(m_db);
+    query.prepare(
+        "SELECT TOP (:enFazla) NeIcin FROM ( "
+        "    SELECT NeIcin FROM dbo.satinalma_talep_kalemleri WHERE NeIcin LIKE :desen1 ESCAPE '\\' "
+        "    UNION "
+        "    SELECT NeIcin FROM dbo.satinalma_kalemleri WHERE NeIcin LIKE :desen2 ESCAPE '\\' "
+        ") x WHERE NULLIF(LTRIM(RTRIM(NeIcin)), N'') IS NOT NULL ORDER BY NeIcin");
+    query.bindValue(":enFazla", qBound(1, enFazla, 50));
+    query.bindValue(":desen1", desen);
+    query.bindValue(":desen2", desen);
+
+    if (!query.exec())
+    {
+        qWarning() << "satinalmaNeIcinOnerileri basarisiz:" << query.lastError().text();
+        return liste;
+    }
+    while (query.next())
+        liste.append(query.value(0).toString());
+    return liste;
+}
+
+QStringList Database::satinalmaSiteleriGetir()
+{
+    QStringList liste;
+    if (!baglantiHazir() || !satinalmaSemasiHazirMi())
+        return liste;
+
+    QSqlQuery query(m_db);
+    if (!query.exec(QStringLiteral(
+            "SELECT TOP 100 FirmaAdi FROM dbo.satinalma_teklif_firmalari "
+            "WHERE Kaynak = N'İnternet' AND TedarikciId IS NULL "
+            "GROUP BY FirmaAdi ORDER BY COUNT(*) DESC, FirmaAdi")))
+    {
+        qWarning() << "satinalmaSiteleriGetir basarisiz:" << query.lastError().text();
+        return liste;
+    }
+    while (query.next())
+        liste.append(query.value(0).toString());
+    return liste;
+}
+
+// ---------------------------------------------------------------------------
+// TALEP
+// ---------------------------------------------------------------------------
+
+QVariantList Database::talepListesiGetir(const QString &durumFiltresi, const QString &arama)
+{
+    ERP_IZ("talepListesiGetir");
+    QVariantList liste;
+    if (!baglantiHazir() || !satinalmaSemasiHazirMi())
+        return liste;
+
+    // Acik talep: siparise donusmemis kalemi VAR ya da siparisleri henuz
+    // gelmedi. "Benim siparisim ne durumda?" sorusu boyle talepten cevaplanir;
+    // talep, butun siparisleri teslim alininca tamamlanir.
+    QString filtre;
+    if (durumFiltresi == QStringLiteral("acik"))
+        filtre = QStringLiteral("(Durum IN (N'Teklif Toplanıyor', N'Kısmen Siparişte') "
+                                " OR (Durum = N'Siparişe Dönüştü' AND AcikSiparis > 0))");
+    else if (durumFiltresi == QStringLiteral("tamam"))
+        filtre = QStringLiteral("Durum = N'Siparişe Dönüştü' AND AcikSiparis = 0");
+    else if (durumFiltresi == QStringLiteral("iptal"))
+        filtre = QStringLiteral("Durum = N'İptal'");
+    else
+        filtre = QStringLiteral("1 = 1");
+
+    const QString desen = likeDeseni(arama);
+    bool numaraMi = false;
+    const int aramaNo = arama.trimmed().toInt(&numaraMi);
+    QString aramaKosulu;
+    if (!desen.isEmpty())
+    {
+        aramaKosulu = QStringLiteral(
+            " AND (TalepNo = :aramaNo OR IsteyenKisi LIKE :desen1 ESCAPE '\\' "
+            "      OR EXISTS (SELECT 1 FROM dbo.satinalma_talep_kalemleri a "
+            "                 WHERE a.TalepId = x.TalepId "
+            "                   AND (a.KalemAdi LIKE :desen2 ESCAPE '\\' OR a.NeIcin LIKE :desen3 ESCAPE '\\')))");
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral(
+        "WITH x AS ( "
+        "  SELECT t.TalepId, t.TalepNo, t.TalepTarihi, t.IsteyenBirim, t.IsteyenKisi, t.IhtiyacTarihi, "
+        "         t.Aciklama, ISNULL(ks.KalemSayisi, 0) AS KalemSayisi, "
+        "         ISNULL(ks.SiparisliKalem, 0) AS SiparisliKalem, ISNULL(fs.FirmaSayisi, 0) AS FirmaSayisi, "
+        "         ISNULL(ks.HazirKalem, 0) AS HazirKalem, ISNULL(ks.FiyatBekleyen, 0) AS FiyatBekleyen, "
+        "         ISNULL(ks.KaynakBekleyen, 0) AS KaynakBekleyen, ISNULL(os.AcikSiparis, 0) AS AcikSiparis, "
+        "         %1 AS Durum, "
+        "         ISNULL(STUFF((SELECT TOP 4 N', ' + a.KalemAdi FROM dbo.satinalma_talep_kalemleri a "
+        "                       WHERE a.TalepId = t.TalepId ORDER BY a.SiraNo, a.TalepKalemId "
+        "                       FOR XML PATH(N''), TYPE).value(N'.', N'nvarchar(max)'), 1, 2, N''), N'') "
+        "           AS KalemOzeti, "
+        "         ISNULL(STUFF((SELECT DISTINCT N', ' + a.NeIcin FROM dbo.satinalma_talep_kalemleri a "
+        "                       WHERE a.TalepId = t.TalepId AND NULLIF(a.NeIcin, N'') IS NOT NULL "
+        "                       FOR XML PATH(N''), TYPE).value(N'.', N'nvarchar(max)'), 1, 2, N''), N'') "
+        "           AS NeIcinOzeti "
+        "  FROM dbo.satinalma_talepleri t "
+        // Siparise donusmemis kalemler, alinacak yerin (secili fiyat satiri)
+        // durumuna gore: fiyati belli (hazir), fiyati bekleniyor (0), yeri yok.
+        "  OUTER APPLY ( "
+        "      SELECT COUNT(*) AS KalemSayisi, "
+        "             SUM(CASE WHEN sp.TalepKalemId IS NOT NULL THEN 1 ELSE 0 END) AS SiparisliKalem, "
+        "             SUM(CASE WHEN sp.TalepKalemId IS NULL AND sec.EnYuksek > 0 THEN 1 ELSE 0 END) AS HazirKalem, "
+        "             SUM(CASE WHEN sp.TalepKalemId IS NULL AND sec.Adet > 0 AND ISNULL(sec.EnYuksek, 0) = 0 "
+        "                      THEN 1 ELSE 0 END) AS FiyatBekleyen, "
+        "             SUM(CASE WHEN sp.TalepKalemId IS NULL AND sec.Adet = 0 THEN 1 ELSE 0 END) AS KaynakBekleyen "
+        "      FROM dbo.satinalma_talep_kalemleri tk "
+        "      LEFT JOIN (%2) sp ON sp.TalepKalemId = tk.TalepKalemId "
+        "      OUTER APPLY (SELECT COUNT(*) AS Adet, MAX(fy.BirimFiyat) AS EnYuksek "
+        "                   FROM dbo.satinalma_teklif_fiyatlari fy "
+        "                   WHERE fy.TalepKalemId = tk.TalepKalemId AND fy.SecildiMi = 1) sec "
+        "      WHERE tk.TalepId = t.TalepId "
+        "  ) ks "
+        "  OUTER APPLY (SELECT COUNT(*) AS FirmaSayisi FROM dbo.satinalma_teklif_firmalari f "
+        "               WHERE f.TalepId = t.TalepId) fs "
+        "  OUTER APPLY (SELECT COUNT(*) AS AcikSiparis FROM dbo.satinalmalar s "
+        "               WHERE s.TalepId = t.TalepId AND %5) os "
+        ") "
+        "SELECT TOP 500 TalepId, TalepNo, TalepTarihi, IsteyenBirim, IsteyenKisi, IhtiyacTarihi, "
+        "       DATEDIFF(day, CAST(SYSDATETIME() AS DATE), IhtiyacTarihi) AS GunKaldi, "
+        "       Aciklama, KalemSayisi, SiparisliKalem, FirmaSayisi, Durum, KalemOzeti, NeIcinOzeti, "
+        "       HazirKalem, FiyatBekleyen, KaynakBekleyen, AcikSiparis "
+        "FROM x WHERE %3%4 "
+        // Islem bekleyen talepler uste, teslimat bekleyenler arkalarina;
+        // her grupta ihtiyac tarihi en yakin olan uste (tarihsizler sona).
+        "ORDER BY CASE WHEN Durum IN (N'Teklif Toplanıyor', N'Kısmen Siparişte') THEN 0 "
+        "              WHEN Durum = N'Siparişe Dönüştü' AND AcikSiparis > 0 THEN 1 ELSE 2 END, "
+        "         CASE WHEN IhtiyacTarihi IS NULL THEN 1 ELSE 0 END, IhtiyacTarihi, TalepNo DESC")
+        .arg(QString::fromUtf8(TALEP_DURUM_SQL), QString::fromUtf8(SIPARISLI_TALEP_KALEMLERI_SQL),
+             filtre, aramaKosulu, QString::fromUtf8(ACIK_SIPARIS_KOSULU)));
+    if (!desen.isEmpty())
+    {
+        query.bindValue(":aramaNo", numaraMi ? aramaNo : -1);
+        query.bindValue(":desen1", desen);
+        query.bindValue(":desen2", desen);
+        query.bindValue(":desen3", desen);
+    }
+
+    if (!query.exec())
+    {
+        qWarning() << "talepListesiGetir basarisiz:" << query.lastError().text();
+        return liste;
+    }
+
+    while (query.next())
+    {
+        QVariantMap satir;
+        satir["talepId"]             = query.value(0).toInt();
+        satir["talepNo"]             = query.value(1).toInt();
+        satir["talepTarihi"]         = query.value(2).toDate();
+        satir["isteyenBirim"]        = query.value(3).toString();
+        satir["isteyenKisi"]         = query.value(4).toString();
+        satir["ihtiyacTarihi"]       = query.value(5).toDate();
+        // Ihtiyac tarihi yoksa "kalan gun" anlamsizdir; QML null'a bakar.
+        satir["ihtiyacGunuKaldi"]    = query.value(6).isNull() ? QVariant() : query.value(6).toInt();
+        satir["aciklama"]            = query.value(7).toString();
+        satir["kalemSayisi"]         = query.value(8).toInt();
+        satir["siparisliKalemSayisi"] = query.value(9).toInt();
+        satir["firmaSayisi"]         = query.value(10).toInt();
+        satir["durum"]               = query.value(11).toString();
+        satir["kalemOzeti"]          = query.value(12).toString();
+        satir["neIcinOzeti"]         = query.value(13).toString();
+        satir["hazirKalem"]          = query.value(14).toInt();
+        satir["fiyatBekleyenKalem"]  = query.value(15).toInt();
+        satir["kaynakBekleyenKalem"] = query.value(16).toInt();
+        satir["acikSiparisSayisi"]   = query.value(17).toInt();
+        liste.append(satir);
+    }
+    return liste;
+}
+
+QVariantMap Database::talepGetir(int talepId)
+{
+    ERP_IZ("talepGetir");
+    QVariantMap sonuc;
+    if (!baglantiHazir() || !satinalmaSemasiHazirMi())
+        return sonuc;
+
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral(
+        "SELECT t.TalepId, t.TalepNo, t.TalepTarihi, t.IsteyenBirim, t.IsteyenKisi, t.IhtiyacTarihi, "
+        "       t.Aciklama, t.IptalMi, t.IptalSebebi, %1 AS Durum "
+        "FROM dbo.satinalma_talepleri t "
+        "OUTER APPLY ( "
+        "    SELECT COUNT(*) AS KalemSayisi, "
+        "           SUM(CASE WHEN sp.TalepKalemId IS NOT NULL THEN 1 ELSE 0 END) AS SiparisliKalem "
+        "    FROM dbo.satinalma_talep_kalemleri tk "
+        "    LEFT JOIN (%2) sp ON sp.TalepKalemId = tk.TalepKalemId "
+        "    WHERE tk.TalepId = t.TalepId "
+        ") ks "
+        "WHERE t.TalepId = :id")
+        .arg(QString::fromUtf8(TALEP_DURUM_SQL), QString::fromUtf8(SIPARISLI_TALEP_KALEMLERI_SQL)));
+    query.bindValue(":id", talepId);
+    if (!query.exec() || !query.next())
+    {
+        if (query.lastError().isValid())
+            qWarning() << "talepGetir basarisiz:" << query.lastError().text();
+        return sonuc;
+    }
+
+    sonuc["talepId"]       = query.value(0).toInt();
+    sonuc["talepNo"]       = query.value(1).toInt();
+    sonuc["talepTarihi"]   = query.value(2).toDate();
+    sonuc["isteyenBirim"]  = query.value(3).toString();
+    sonuc["isteyenKisi"]   = query.value(4).toString();
+    // Takvim "yyyy-MM-dd" bekliyor; QDate -> JS Date donusumunde saat dilimi
+    // kaymasi olmasin diye metin olarak da veriliyor.
+    sonuc["ihtiyacTarihi"] = query.value(5).isNull()
+                                 ? QString() : query.value(5).toDate().toString("yyyy-MM-dd");
+    sonuc["aciklama"]      = query.value(6).toString();
+    sonuc["iptal"]         = query.value(7).toBool();
+    sonuc["iptalSebebi"]   = query.value(8).toString();
+    sonuc["durum"]         = query.value(9).toString();
+
+    // Kalemler + (varsa) donustukleri aktif siparis.
+    QVariantList kalemler;
+    QSqlQuery kalemQuery(m_db);
+    kalemQuery.prepare(QStringLiteral(
+        "SELECT tk.TalepKalemId, tk.KalemAdi, tk.NeIcin, tk.Miktar, tk.Birim, tk.Aciklama, "
+        "       sp.SatinalmaId, sp.SiparisNo, tk.Arastirilacak "
+        "FROM dbo.satinalma_talep_kalemleri tk "
+        "OUTER APPLY ( "
+        "    SELECT TOP 1 s.SatinalmaId, s.SiparisNo FROM dbo.satinalma_kalemleri sk "
+        "    JOIN dbo.satinalmalar s ON s.SatinalmaId = sk.SatinalmaId "
+        "    WHERE sk.TalepKalemId = tk.TalepKalemId AND %1 ORDER BY s.SatinalmaId DESC "
+        ") sp "
+        "WHERE tk.TalepId = :id ORDER BY tk.SiraNo, tk.TalepKalemId")
+        .arg(QString::fromUtf8(AKTIF_SIPARIS_KOSULU)));
+    kalemQuery.bindValue(":id", talepId);
+    if (kalemQuery.exec())
+    {
+        while (kalemQuery.next())
+        {
+            QVariantMap kalem;
+            kalem["talepKalemId"] = kalemQuery.value(0).toInt();
+            kalem["kalemAdi"]     = kalemQuery.value(1).toString();
+            kalem["neIcin"]       = kalemQuery.value(2).toString();
+            kalem["miktar"]       = kalemQuery.value(3).toDouble();
+            kalem["birim"]        = kalemQuery.value(4).toString();
+            kalem["aciklama"]     = kalemQuery.value(5).toString();
+            kalem["satinalmaId"]  = kalemQuery.value(6).toInt();
+            kalem["siparisNo"]    = kalemQuery.value(7).toInt();
+            kalem["arastirilacak"] = kalemQuery.value(8).toBool();
+            kalemler.append(kalem);
+        }
+    }
+    else
+    {
+        qWarning() << "talep kalemleri okunamadi:" << kalemQuery.lastError().text();
+    }
+    sonuc["kalemler"] = kalemler;
+
+    // Teklif veren firmalar. Aktif siparisi olan firma kilitlidir.
+    QVariantList firmalar;
+    QSqlQuery firmaQuery(m_db);
+    firmaQuery.prepare(QStringLiteral(
+        "SELECT f.TeklifFirmaId, f.TedarikciId, f.FirmaAdi, f.Kaynak, f.TeklifLinki, f.ParaBirimi, "
+        "       f.Kur, f.TeslimSuresiGun, f.Notu, "
+        "       CASE WHEN EXISTS (SELECT 1 FROM dbo.satinalmalar s "
+        "                         WHERE s.TeklifFirmaId = f.TeklifFirmaId AND %1) "
+        "            THEN 1 ELSE 0 END AS SiparisiVar "
+        "FROM dbo.satinalma_teklif_firmalari f "
+        "WHERE f.TalepId = :id ORDER BY f.SiraNo, f.TeklifFirmaId")
+        .arg(QString::fromUtf8(AKTIF_SIPARIS_KOSULU)));
+    firmaQuery.bindValue(":id", talepId);
+    if (firmaQuery.exec())
+    {
+        while (firmaQuery.next())
+        {
+            QVariantMap firma;
+            firma["teklifFirmaId"]   = firmaQuery.value(0).toInt();
+            firma["tedarikciId"]     = firmaQuery.value(1).toInt();
+            firma["firmaAdi"]        = firmaQuery.value(2).toString();
+            firma["kaynak"]          = firmaQuery.value(3).toString();
+            firma["teklifLinki"]     = firmaQuery.value(4).toString();
+            firma["paraBirimi"]      = firmaQuery.value(5).toString();
+            firma["kur"]             = firmaQuery.value(6).toDouble();
+            firma["teslimSuresiGun"] = firmaQuery.value(7).toInt();
+            firma["notu"]            = firmaQuery.value(8).toString();
+            firma["siparisiVar"]     = firmaQuery.value(9).toInt() == 1;
+            firmalar.append(firma);
+        }
+    }
+    else
+    {
+        qWarning() << "teklif firmalari okunamadi:" << firmaQuery.lastError().text();
+    }
+    sonuc["firmalar"] = firmalar;
+
+    QVariantList fiyatlar;
+    QSqlQuery fiyatQuery(m_db);
+    fiyatQuery.prepare(
+        "SELECT fy.TalepKalemId, fy.TeklifFirmaId, fy.BirimFiyat, fy.SecildiMi, fy.UrunLinki, fy.Notu "
+        "FROM dbo.satinalma_teklif_fiyatlari fy "
+        "JOIN dbo.satinalma_teklif_firmalari f ON f.TeklifFirmaId = fy.TeklifFirmaId "
+        "WHERE f.TalepId = :id ORDER BY f.SiraNo, f.TeklifFirmaId");
+    fiyatQuery.bindValue(":id", talepId);
+    if (fiyatQuery.exec())
+    {
+        while (fiyatQuery.next())
+        {
+            QVariantMap fiyat;
+            fiyat["talepKalemId"]  = fiyatQuery.value(0).toInt();
+            fiyat["teklifFirmaId"] = fiyatQuery.value(1).toInt();
+            fiyat["birimFiyat"]    = fiyatQuery.value(2).toDouble();
+            fiyat["secildi"]       = fiyatQuery.value(3).toBool();
+            fiyat["link"]          = fiyatQuery.value(4).toString();
+            fiyat["notu"]          = fiyatQuery.value(5).toString();
+            fiyatlar.append(fiyat);
+        }
+    }
+    else
+    {
+        qWarning() << "teklif fiyatlari okunamadi:" << fiyatQuery.lastError().text();
+    }
+    sonuc["fiyatlar"] = fiyatlar;
+
+    // Bu talepten olusmus siparisler (iptaller dahil, gecmis gorunsun).
+    QVariantList siparisler;
+    QSqlQuery siparisQuery(m_db);
+    siparisQuery.prepare(
+        "SELECT s.SatinalmaId, s.SiparisNo, ISNULL(t.FirmaAdi, f.FirmaAdi), s.Durum, "
+        "       ISNULL(k.Tutar, 0) "
+        "FROM dbo.satinalmalar s "
+        "LEFT JOIN dbo.tedarikciler t ON t.TedarikciId = s.TedarikciId "
+        "LEFT JOIN dbo.satinalma_teklif_firmalari f ON f.TeklifFirmaId = s.TeklifFirmaId "
+        "OUTER APPLY (SELECT SUM(ToplamTutarTL) AS Tutar FROM dbo.satinalma_kalemleri "
+        "             WHERE SatinalmaId = s.SatinalmaId) k "
+        "WHERE s.TalepId = :id ORDER BY s.SiparisNo");
+    siparisQuery.bindValue(":id", talepId);
+    if (siparisQuery.exec())
+    {
+        while (siparisQuery.next())
+        {
+            QVariantMap siparis;
+            siparis["satinalmaId"]   = siparisQuery.value(0).toInt();
+            siparis["siparisNo"]     = siparisQuery.value(1).toInt();
+            siparis["firmaAdi"]      = siparisQuery.value(2).toString();
+            siparis["durum"]         = siparisQuery.value(3).toString();
+            siparis["toplamTutarTL"] = siparisQuery.value(4).toDouble();
+            siparisler.append(siparis);
+        }
+    }
+    else
+    {
+        qWarning() << "talep siparisleri okunamadi:" << siparisQuery.lastError().text();
+    }
+    sonuc["siparisler"] = siparisler;
+    return sonuc;
+}
+
+QVariantMap Database::talepKaydet(const QVariantMap &talep)
+{
+    ERP_IZ("talepKaydet");
+    QVariantMap sonuc = basarisizSonuc();
+    sonuc["talepId"] = 0;
+    sonuc["talepNo"] = 0;
+
+    if (!baglantiHazir())
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATINALMA")))
+    {
+        sonuc["hata"] = QString::fromUtf8(TEDARIKCI_YETKI_YOK);
+        return sonuc;
+    }
+    if (!satinalmaSemasiHazirMi())
+    {
+        sonuc["hata"] = QString::fromUtf8(SATINALMA_SEMA_YOK);
+        return sonuc;
+    }
+
+    // ---- Denetim (transaction'dan once) ----
+    const QVariantList kalemlerGirdi = talep.value("kalemler").toList();
+    const QVariantList firmalarGirdi = talep.value("firmalar").toList();
+    const QVariantList fiyatlarGirdi = talep.value("fiyatlar").toList();
+
+    if (kalemlerGirdi.isEmpty())
+    {
+        sonuc["hata"] = "Talepte en az bir kalem olmalı.";
+        return sonuc;
+    }
+    for (int i = 0; i < kalemlerGirdi.size(); ++i)
+    {
+        const QVariantMap k = kalemlerGirdi.at(i).toMap();
+        if (alan(k, "kalemAdi").isEmpty())
+        {
+            sonuc["hata"] = QString("%1. kalemin adı boş. Ne alınacağını yazın.").arg(i + 1);
+            return sonuc;
+        }
+        if (k.value("miktar", 0).toDouble() <= 0.0)
+        {
+            sonuc["hata"] = QString("\"%1\" için miktar 0'dan büyük olmalı.").arg(alan(k, "kalemAdi"));
+            return sonuc;
+        }
+    }
+    for (int i = 0; i < firmalarGirdi.size(); ++i)
+    {
+        const QVariantMap f = firmalarGirdi.at(i).toMap();
+        if (alan(f, "firmaAdi").isEmpty())
+        {
+            sonuc["hata"] = QString("%1. fiyat notunda nereden alınacağı boş.").arg(i + 1);
+            return sonuc;
+        }
+        if (paraBirimiDuzelt(alan(f, "paraBirimi")).isEmpty())
+        {
+            sonuc["hata"] = QString("\"%1\" teklifinde para birimi TL, USD veya EUR olmalı.")
+                                .arg(alan(f, "firmaAdi"));
+            return sonuc;
+        }
+    }
+    // Kalem basina en fazla bir secim.
+    {
+        QSet<QString> secilenKalemler;
+        for (const QVariant &ham : fiyatlarGirdi)
+        {
+            const QVariantMap fy = ham.toMap();
+            if (fy.value("birimFiyat", 0).toDouble() < 0.0)
+            {
+                sonuc["hata"] = "Birim fiyat eksi olamaz.";
+                return sonuc;
+            }
+            if (!fy.value("secildi", false).toBool())
+                continue;
+            const QString anahtar = alan(fy, "kalemAnahtar");
+            if (secilenKalemler.contains(anahtar))
+            {
+                sonuc["hata"] = "Bir kalem için yalnızca bir firma seçilebilir.";
+                return sonuc;
+            }
+            secilenKalemler.insert(anahtar);
+        }
+    }
+
+    int talepId = talep.value("talepId", 0).toInt();
+    int talepNo = 0;
+
+    if (!m_db.transaction())
+    {
+        sonuc["hata"] = "İşlem başlatılamadı: " + m_db.lastError().text();
+        return sonuc;
+    }
+    auto hataylaDon = [&](const QString &mesaj) {
+        m_db.rollback();
+        sonuc["hata"] = mesaj;
+        return sonuc;
+    };
+
+    // ---- Baslik ----
+    if (talepId <= 0)
+    {
+        QString noHatasi;
+        talepNo = satinalmaNoAl(QStringLiteral("dbo.satinalma_talepleri"),
+                                QStringLiteral("TalepNo"), noHatasi);
+        if (talepNo <= 0)
+            return hataylaDon(noHatasi);
+
+        QSqlQuery ekle(m_db);
+        ekle.prepare(
+            "INSERT INTO dbo.satinalma_talepleri "
+            "(TalepNo, IsteyenBirim, IsteyenKisi, IhtiyacTarihi, Aciklama, KullaniciId) "
+            "OUTPUT INSERTED.TalepId "
+            "VALUES (:talepNo, :isteyenBirim, :isteyenKisi, :ihtiyacTarihi, :aciklama, :kullaniciId)");
+        ekle.bindValue(":talepNo", talepNo);
+        ekle.bindValue(":isteyenBirim", metinParametresi(alan(talep, "isteyenBirim")));
+        ekle.bindValue(":isteyenKisi", metinParametresi(alan(talep, "isteyenKisi")));
+        ekle.bindValue(":ihtiyacTarihi", tarihParametresi(alan(talep, "ihtiyacTarihi")));
+        ekle.bindValue(":aciklama", metinParametresi(alan(talep, "aciklama")));
+        ekle.bindValue(":kullaniciId", intParametresi(m_aktifKullaniciId));
+        if (!ekle.exec() || !ekle.next())
+        {
+            qWarning() << "talep eklenemedi:" << ekle.lastError().text();
+            return hataylaDon("Talep kaydedilemedi: " + ekle.lastError().text());
+        }
+        talepId = ekle.value(0).toInt();
+    }
+    else
+    {
+        QSqlQuery guncelle(m_db);
+        guncelle.prepare(
+            "UPDATE dbo.satinalma_talepleri SET IsteyenBirim = :isteyenBirim, "
+            "IsteyenKisi = :isteyenKisi, IhtiyacTarihi = :ihtiyacTarihi, Aciklama = :aciklama, "
+            "GuncellemeTarihi = SYSDATETIME() "
+            "OUTPUT INSERTED.TalepNo "
+            "WHERE TalepId = :id AND IptalMi = 0");
+        guncelle.bindValue(":isteyenBirim", metinParametresi(alan(talep, "isteyenBirim")));
+        guncelle.bindValue(":isteyenKisi", metinParametresi(alan(talep, "isteyenKisi")));
+        guncelle.bindValue(":ihtiyacTarihi", tarihParametresi(alan(talep, "ihtiyacTarihi")));
+        guncelle.bindValue(":aciklama", metinParametresi(alan(talep, "aciklama")));
+        guncelle.bindValue(":id", talepId);
+        if (!guncelle.exec())
+        {
+            qWarning() << "talep guncellenemedi:" << guncelle.lastError().text();
+            return hataylaDon("Talep kaydedilemedi: " + guncelle.lastError().text());
+        }
+        if (!guncelle.next())
+            return hataylaDon("Talep bulunamadı ya da iptal edilmiş. Listeyi yenileyin.");
+        talepNo = guncelle.value(0).toInt();
+    }
+
+    // ---- Mevcut durum: kalemler, siparise donusmus olanlar, kilitli firmalar ----
+    QSet<int> mevcutKalemler;
+    QHash<int, int> siparisliKalemler;   // talepKalemId -> siparisNo
+    {
+        QSqlQuery q(m_db);
+        q.prepare(QStringLiteral(
+            "SELECT tk.TalepKalemId, sp.SiparisNo FROM dbo.satinalma_talep_kalemleri tk "
+            "OUTER APPLY (SELECT TOP 1 s.SiparisNo FROM dbo.satinalma_kalemleri sk "
+            "             JOIN dbo.satinalmalar s ON s.SatinalmaId = sk.SatinalmaId "
+            "             WHERE sk.TalepKalemId = tk.TalepKalemId AND %1) sp "
+            "WHERE tk.TalepId = :id").arg(QString::fromUtf8(AKTIF_SIPARIS_KOSULU)));
+        q.bindValue(":id", talepId);
+        if (!q.exec())
+            return hataylaDon("Talep kalemleri okunamadı: " + q.lastError().text());
+        while (q.next())
+        {
+            const int id = q.value(0).toInt();
+            mevcutKalemler.insert(id);
+            if (!q.value(1).isNull())
+                siparisliKalemler.insert(id, q.value(1).toInt());
+        }
+    }
+    QSet<int> mevcutFirmalar;
+    QSet<int> kilitliFirmalar;
+    {
+        QSqlQuery q(m_db);
+        q.prepare(QStringLiteral(
+            "SELECT f.TeklifFirmaId, CASE WHEN EXISTS (SELECT 1 FROM dbo.satinalmalar s "
+            "       WHERE s.TeklifFirmaId = f.TeklifFirmaId AND %1) THEN 1 ELSE 0 END "
+            "FROM dbo.satinalma_teklif_firmalari f WHERE f.TalepId = :id")
+            .arg(QString::fromUtf8(AKTIF_SIPARIS_KOSULU)));
+        q.bindValue(":id", talepId);
+        if (!q.exec())
+            return hataylaDon("Teklif firmaları okunamadı: " + q.lastError().text());
+        while (q.next())
+        {
+            mevcutFirmalar.insert(q.value(0).toInt());
+            if (q.value(1).toInt() == 1)
+                kilitliFirmalar.insert(q.value(0).toInt());
+        }
+    }
+
+    // ---- Kalemler (upsert) ----
+    QHash<QString, int> kalemIdleri;   // istemci anahtari -> TalepKalemId
+    QSet<int> gelenKalemler;
+    {
+        QSqlQuery ekle(m_db);
+        ekle.prepare("INSERT INTO dbo.satinalma_talep_kalemleri "
+                     "(TalepId, SiraNo, KalemAdi, NeIcin, Miktar, Birim, Aciklama, Arastirilacak) "
+                     "OUTPUT INSERTED.TalepKalemId "
+                     "VALUES (:talepId, :sira, :kalemAdi, :neIcin, :miktar, :birim, :aciklama, :arastir)");
+        QSqlQuery guncelle(m_db);
+        guncelle.prepare("UPDATE dbo.satinalma_talep_kalemleri SET SiraNo = :sira, KalemAdi = :kalemAdi, "
+                         "NeIcin = :neIcin, Miktar = :miktar, Birim = :birim, Aciklama = :aciklama, "
+                         "Arastirilacak = :arastir "
+                         "WHERE TalepKalemId = :id AND TalepId = :talepId");
+
+        for (int i = 0; i < kalemlerGirdi.size(); ++i)
+        {
+            const QVariantMap k = kalemlerGirdi.at(i).toMap();
+            const int id = k.value("talepKalemId", 0).toInt();
+            const QString anahtar = alan(k, "anahtar");
+
+            if (id > 0 && mevcutKalemler.contains(id))
+            {
+                gelenKalemler.insert(id);
+                kalemIdleri.insert(anahtar, id);
+                // Siparise donusmus kalem degismez: siparis ona dayaniyor.
+                if (siparisliKalemler.contains(id))
+                    continue;
+
+                guncelle.bindValue(":sira", i);
+                guncelle.bindValue(":kalemAdi", alan(k, "kalemAdi"));
+                guncelle.bindValue(":neIcin", metinParametresi(alan(k, "neIcin")));
+                guncelle.bindValue(":miktar", k.value("miktar").toDouble());
+                guncelle.bindValue(":birim", metinParametresi(alan(k, "birim")));
+                guncelle.bindValue(":aciklama", metinParametresi(alan(k, "aciklama")));
+                guncelle.bindValue(":arastir", k.value("arastirilacak", false).toBool());
+                guncelle.bindValue(":id", id);
+                guncelle.bindValue(":talepId", talepId);
+                if (!guncelle.exec())
+                    return hataylaDon("Talep kalemi kaydedilemedi: " + guncelle.lastError().text());
+                continue;
+            }
+
+            ekle.bindValue(":talepId", talepId);
+            ekle.bindValue(":sira", i);
+            ekle.bindValue(":kalemAdi", alan(k, "kalemAdi"));
+            ekle.bindValue(":neIcin", metinParametresi(alan(k, "neIcin")));
+            ekle.bindValue(":miktar", k.value("miktar").toDouble());
+            ekle.bindValue(":birim", metinParametresi(alan(k, "birim")));
+            ekle.bindValue(":aciklama", metinParametresi(alan(k, "aciklama")));
+            ekle.bindValue(":arastir", k.value("arastirilacak", false).toBool());
+            if (!ekle.exec() || !ekle.next())
+                return hataylaDon("Talep kalemi kaydedilemedi: " + ekle.lastError().text());
+            const int yeniId = ekle.value(0).toInt();
+            ekle.finish();
+            kalemIdleri.insert(anahtar, yeniId);
+        }
+    }
+
+    // Listeden cikarilan kalemler: siparise donusmusse silinemez.
+    for (const int id : std::as_const(mevcutKalemler))
+    {
+        if (gelenKalemler.contains(id))
+            continue;
+        if (siparisliKalemler.contains(id))
+        {
+            return hataylaDon(QString("SA-%1 siparişine dönüşmüş bir kalem silinemez. "
+                                      "Gerekirse önce siparişi iptal edin.")
+                                  .arg(siparisliKalemler.value(id), 4, 10, QChar('0')));
+        }
+        QSqlQuery sil(m_db);
+        sil.prepare("DELETE FROM dbo.satinalma_teklif_fiyatlari WHERE TalepKalemId = :id");
+        sil.bindValue(":id", id);
+        QSqlQuery bagKopar(m_db);
+        // Iptal edilmis siparislerin kalemleri bu talep kalemine bagli
+        // kalabilir; bag koparilir ki kalem silinebilsin.
+        bagKopar.prepare("UPDATE dbo.satinalma_kalemleri SET TalepKalemId = NULL WHERE TalepKalemId = :id");
+        bagKopar.bindValue(":id", id);
+        QSqlQuery kalemSil(m_db);
+        kalemSil.prepare("DELETE FROM dbo.satinalma_talep_kalemleri WHERE TalepKalemId = :id");
+        kalemSil.bindValue(":id", id);
+        if (!sil.exec() || !bagKopar.exec() || !kalemSil.exec())
+        {
+            const QString hata = sil.lastError().isValid() ? sil.lastError().text()
+                               : bagKopar.lastError().isValid() ? bagKopar.lastError().text()
+                               : kalemSil.lastError().text();
+            return hataylaDon("Talep kalemi silinemedi: " + hata);
+        }
+    }
+
+    // ---- Firmalar (upsert) ----
+    QHash<QString, int> firmaIdleri;
+    QSet<int> gelenFirmalar;
+    {
+        QSqlQuery ekle(m_db);
+        ekle.prepare("INSERT INTO dbo.satinalma_teklif_firmalari "
+                     "(TalepId, SiraNo, TedarikciId, FirmaAdi, Kaynak, TeklifLinki, ParaBirimi, Kur, "
+                     " TeslimSuresiGun, Notu) "
+                     "OUTPUT INSERTED.TeklifFirmaId "
+                     "VALUES (:talepId, :sira, :tedarikciId, :firmaAdi, :kaynak, :link, :pb, :kur, "
+                     "        :teslim, :notu)");
+        QSqlQuery guncelle(m_db);
+        guncelle.prepare("UPDATE dbo.satinalma_teklif_firmalari SET SiraNo = :sira, "
+                         "TedarikciId = :tedarikciId, FirmaAdi = :firmaAdi, Kaynak = :kaynak, "
+                         "TeklifLinki = :link, ParaBirimi = :pb, Kur = :kur, TeslimSuresiGun = :teslim, "
+                         "Notu = :notu WHERE TeklifFirmaId = :id AND TalepId = :talepId");
+
+        for (int i = 0; i < firmalarGirdi.size(); ++i)
+        {
+            const QVariantMap f = firmalarGirdi.at(i).toMap();
+            const int id = f.value("teklifFirmaId", 0).toInt();
+            const QString anahtar = alan(f, "anahtar");
+            const QString pb = paraBirimiDuzelt(alan(f, "paraBirimi"));
+            const double kur = pb == QStringLiteral("TL") ? 1.0 : qMax(0.0, f.value("kur", 0).toDouble());
+            const bool internet = alan(f, "kaynak") == QStringLiteral("İnternet");
+
+            auto bagla = [&](QSqlQuery &q) {
+                q.bindValue(":sira", i);
+                q.bindValue(":tedarikciId", internet ? QVariant(QMetaType(QMetaType::Int))
+                                                     : intParametresi(f.value("tedarikciId", 0).toInt()));
+                q.bindValue(":firmaAdi", alan(f, "firmaAdi"));
+                q.bindValue(":kaynak", internet ? QStringLiteral("İnternet") : QStringLiteral("Tedarikçi"));
+                q.bindValue(":link", metinParametresi(alan(f, "teklifLinki")));
+                q.bindValue(":pb", pb);
+                q.bindValue(":kur", kur);
+                q.bindValue(":teslim", intParametresi(f.value("teslimSuresiGun", 0).toInt()));
+                q.bindValue(":notu", metinParametresi(alan(f, "notu")));
+                q.bindValue(":talepId", talepId);
+            };
+
+            if (id > 0 && mevcutFirmalar.contains(id))
+            {
+                gelenFirmalar.insert(id);
+                firmaIdleri.insert(anahtar, id);
+                // Siparisi verilmis firmanin teklifi (para birimi, kur)
+                // degismez: siparis o rakamlara dayaniyor.
+                if (kilitliFirmalar.contains(id))
+                    continue;
+                bagla(guncelle);
+                guncelle.bindValue(":id", id);
+                if (!guncelle.exec())
+                    return hataylaDon("Teklif firması kaydedilemedi: " + guncelle.lastError().text());
+                continue;
+            }
+
+            bagla(ekle);
+            if (!ekle.exec() || !ekle.next())
+                return hataylaDon("Teklif firması kaydedilemedi: " + ekle.lastError().text());
+            const int yeniId = ekle.value(0).toInt();
+            ekle.finish();
+            firmaIdleri.insert(anahtar, yeniId);
+        }
+    }
+
+    for (const int id : std::as_const(mevcutFirmalar))
+    {
+        if (gelenFirmalar.contains(id))
+            continue;
+        if (kilitliFirmalar.contains(id))
+            return hataylaDon("Siparişi verilmiş bir firmanın teklifi silinemez. "
+                              "Gerekirse önce siparişi iptal edin.");
+        QSqlQuery sil(m_db);
+        // Fiyatlar CASCADE ile silinir; iptal edilmis siparislerdeki bag
+        // (TeklifFirmaId) FK degildir, kopuk kalmasi zararsizdir.
+        sil.prepare("DELETE FROM dbo.satinalma_teklif_firmalari WHERE TeklifFirmaId = :id");
+        sil.bindValue(":id", id);
+        if (!sil.exec())
+            return hataylaDon("Teklif firması silinemedi: " + sil.lastError().text());
+    }
+
+    // ---- Fiyatlar: siparise donusmemis kalemlerin fiyatlari yeniden yazilir ----
+    {
+        QStringList korunacak;
+        for (auto it = siparisliKalemler.constBegin(); it != siparisliKalemler.constEnd(); ++it)
+            korunacak << QString::number(it.key());
+
+        QSqlQuery sil(m_db);
+        sil.prepare(QStringLiteral(
+            "DELETE fy FROM dbo.satinalma_teklif_fiyatlari fy "
+            "JOIN dbo.satinalma_talep_kalemleri tk ON tk.TalepKalemId = fy.TalepKalemId "
+            "WHERE tk.TalepId = :id%1")
+            .arg(korunacak.isEmpty() ? QString()
+                                     : QStringLiteral(" AND fy.TalepKalemId NOT IN (%1)")
+                                           .arg(korunacak.join(','))));
+        sil.bindValue(":id", talepId);
+        if (!sil.exec())
+            return hataylaDon("Teklif fiyatları güncellenemedi: " + sil.lastError().text());
+
+        QSqlQuery ekle(m_db);
+        ekle.prepare("INSERT INTO dbo.satinalma_teklif_fiyatlari "
+                     "(TeklifFirmaId, TalepKalemId, BirimFiyat, SecildiMi, UrunLinki, Notu) "
+                     "VALUES (:firmaId, :kalemId, :fiyat, :secildi, :link, :notu)");
+        for (const QVariant &ham : fiyatlarGirdi)
+        {
+            const QVariantMap fy = ham.toMap();
+            const int kalemId = kalemIdleri.value(alan(fy, "kalemAnahtar"), 0);
+            const int firmaId = firmaIdleri.value(alan(fy, "firmaAnahtar"), 0);
+            if (kalemId <= 0 || firmaId <= 0 || siparisliKalemler.contains(kalemId))
+                continue;
+            ekle.bindValue(":firmaId", firmaId);
+            ekle.bindValue(":kalemId", kalemId);
+            ekle.bindValue(":fiyat", fy.value("birimFiyat").toDouble());
+            ekle.bindValue(":secildi", fy.value("secildi", false).toBool());
+            ekle.bindValue(":link", metinParametresi(alan(fy, "link")));
+            ekle.bindValue(":notu", metinParametresi(alan(fy, "notu")));
+            if (!ekle.exec())
+                return hataylaDon("Teklif fiyatı kaydedilemedi: " + ekle.lastError().text());
+        }
+    }
+
+    if (!m_db.commit())
+        return hataylaDon("Talep kaydedilemedi: " + m_db.lastError().text());
+
+    sonuc["basarili"] = true;
+    sonuc["talepId"]  = talepId;
+    sonuc["talepNo"]  = talepNo;
+    return sonuc;
+}
+
+QVariantMap Database::talepIptalEt(int talepId, const QString &sebep)
+{
+    ERP_IZ("talepIptalEt");
+    QVariantMap sonuc = basarisizSonuc();
+    if (!baglantiHazir())
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATINALMA")))
+    {
+        sonuc["hata"] = QString::fromUtf8(TEDARIKCI_YETKI_YOK);
+        return sonuc;
+    }
+    if (!satinalmaSemasiHazirMi())
+    {
+        sonuc["hata"] = QString::fromUtf8(SATINALMA_SEMA_YOK);
+        return sonuc;
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral(
+        "UPDATE t SET IptalMi = 1, IptalSebebi = :sebep, GuncellemeTarihi = SYSDATETIME() "
+        "FROM dbo.satinalma_talepleri t "
+        "WHERE t.TalepId = :id AND t.IptalMi = 0 "
+        "  AND NOT EXISTS (SELECT 1 FROM dbo.satinalmalar s WHERE s.TalepId = t.TalepId AND %1)")
+        .arg(QString::fromUtf8(AKTIF_SIPARIS_KOSULU)));
+    query.bindValue(":sebep", metinParametresi(sebep));
+    query.bindValue(":id", talepId);
+    if (!query.exec())
+    {
+        qWarning() << "talepIptalEt basarisiz:" << query.lastError().text();
+        sonuc["hata"] = "Talep iptal edilemedi: " + query.lastError().text();
+        return sonuc;
+    }
+    if (query.numRowsAffected() == 0)
+    {
+        sonuc["hata"] = "Bu talepten verilmiş aktif sipariş var ya da talep zaten iptal. "
+                        "Önce siparişleri iptal edin.";
+        return sonuc;
+    }
+    sonuc["basarili"] = true;
+    return sonuc;
+}
+
+QVariantMap Database::talepSiparisOlustur(int talepId, const QVariantList &siparisBilgileri,
+                                          const QString &tekTeklifGerekcesi)
+{
+    ERP_IZ("talepSiparisOlustur");
+    QVariantMap sonuc = basarisizSonuc();
+    sonuc["siparisler"] = QVariantList();
+
+    if (!baglantiHazir())
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATINALMA")))
+    {
+        sonuc["hata"] = QString::fromUtf8(TEDARIKCI_YETKI_YOK);
+        return sonuc;
+    }
+    if (!satinalmaSemasiHazirMi())
+    {
+        sonuc["hata"] = QString::fromUtf8(SATINALMA_SEMA_YOK);
+        return sonuc;
+    }
+
+    // Firma basina ekrandan gelen siparis bilgileri.
+    QHash<int, QVariantMap> bilgiler;
+    for (const QVariant &ham : siparisBilgileri)
+    {
+        const QVariantMap b = ham.toMap();
+        bilgiler.insert(b.value("teklifFirmaId").toInt(), b);
+    }
+
+    // Talep basligi (isteyen bilgisi siparislere de yazilir).
+    QSqlQuery talepQuery(m_db);
+    talepQuery.prepare("SELECT IsteyenBirim, IsteyenKisi, IhtiyacTarihi, IptalMi "
+                       "FROM dbo.satinalma_talepleri WHERE TalepId = :id");
+    talepQuery.bindValue(":id", talepId);
+    if (!talepQuery.exec() || !talepQuery.next())
+    {
+        sonuc["hata"] = "Talep bulunamadı. Önce talebi kaydedin.";
+        return sonuc;
+    }
+    if (talepQuery.value(3).toBool())
+    {
+        sonuc["hata"] = "İptal edilmiş talepten sipariş oluşturulamaz.";
+        return sonuc;
+    }
+    const QVariant isteyenBirim  = talepQuery.value(0);
+    const QVariant isteyenKisi   = talepQuery.value(1);
+    const QVariant ihtiyacTarihi = talepQuery.value(2);
+
+    // Secilmis ve henuz siparise donusmemis hucreler + o kalemlere teklif
+    // veren firma sayisi (karsilastirma var mi?).
+    struct Satir
+    {
+        int talepKalemId;
+        QString kalemAdi, neIcin, birim, link;
+        double miktar, birimFiyat;
+        int teklifSayisi;
+    };
+    struct Grup
+    {
+        int teklifFirmaId, tedarikciId, teslimSuresiGun;
+        QString firmaAdi, kaynak, link, paraBirimi;
+        double kur;
+        QVector<Satir> satirlar;
+    };
+    QVector<Grup> gruplar;
+    {
+        QSqlQuery q(m_db);
+        q.prepare(QStringLiteral(
+            "SELECT f.TeklifFirmaId, f.TedarikciId, f.FirmaAdi, f.Kaynak, f.TeklifLinki, f.ParaBirimi, "
+            "       f.Kur, f.TeslimSuresiGun, tk.TalepKalemId, tk.KalemAdi, tk.NeIcin, tk.Birim, "
+            "       tk.Miktar, fy.BirimFiyat, "
+            "       (SELECT COUNT(*) FROM dbo.satinalma_teklif_fiyatlari d "
+            "        WHERE d.TalepKalemId = tk.TalepKalemId) AS TeklifSayisi, "
+            "       fy.UrunLinki "
+            "FROM dbo.satinalma_teklif_fiyatlari fy "
+            "JOIN dbo.satinalma_teklif_firmalari f ON f.TeklifFirmaId = fy.TeklifFirmaId "
+            "JOIN dbo.satinalma_talep_kalemleri tk ON tk.TalepKalemId = fy.TalepKalemId "
+            // Fiyat 0: tedarikciye soruldu, cevap henuz gelmedi. Bu kalemler
+            // talepte acik kalir, fiyat gelince ayrica siparis edilir.
+            "WHERE tk.TalepId = :id AND fy.SecildiMi = 1 AND fy.BirimFiyat > 0 "
+            "  AND tk.TalepKalemId NOT IN (%1) "
+            "ORDER BY f.SiraNo, f.TeklifFirmaId, tk.SiraNo, tk.TalepKalemId")
+            .arg(QString::fromUtf8(SIPARISLI_TALEP_KALEMLERI_SQL)));
+        q.bindValue(":id", talepId);
+        if (!q.exec())
+        {
+            qWarning() << "talepSiparisOlustur okuma basarisiz:" << q.lastError().text();
+            sonuc["hata"] = "Teklifler okunamadı: " + q.lastError().text();
+            return sonuc;
+        }
+        while (q.next())
+        {
+            const int firmaId = q.value(0).toInt();
+            if (gruplar.isEmpty() || gruplar.last().teklifFirmaId != firmaId)
+            {
+                Grup g;
+                g.teklifFirmaId   = firmaId;
+                g.tedarikciId     = q.value(1).toInt();
+                g.firmaAdi        = q.value(2).toString();
+                g.kaynak          = q.value(3).toString();
+                g.link            = q.value(4).toString();
+                g.paraBirimi      = q.value(5).toString();
+                g.kur             = q.value(6).toDouble();
+                g.teslimSuresiGun = q.value(7).toInt();
+                gruplar.append(g);
+            }
+            Satir s;
+            s.talepKalemId = q.value(8).toInt();
+            s.kalemAdi     = q.value(9).toString();
+            s.neIcin       = q.value(10).toString();
+            s.birim        = q.value(11).toString();
+            s.miktar       = q.value(12).toDouble();
+            s.birimFiyat   = q.value(13).toDouble();
+            s.teklifSayisi = q.value(14).toInt();
+            // Urun sayfasi fiyata aittir; eski kayitlarda yalnizca firmada durur.
+            s.link         = q.value(15).toString().trimmed();
+            if (s.link.isEmpty())
+                s.link = gruplar.last().link.trimmed();
+            gruplar.last().satirlar.append(s);
+        }
+    }
+    if (gruplar.isEmpty())
+    {
+        sonuc["hata"] = "Siparişe dönüştürülecek kalem yok. Kalemlerde nereden alınacağını ve "
+                        "fiyatını yazın.";
+        return sonuc;
+    }
+
+    const double esik = satinalmaOnayEsigiGetir();
+
+    // Denetim: transaction acilmadan once, firma firma.
+    for (const Grup &g : std::as_const(gruplar))
+    {
+        if (g.paraBirimi != QStringLiteral("TL") && g.kur <= 0.0)
+        {
+            sonuc["hata"] = QString("\"%1\" teklifi %2 cinsinden; kur girilmemiş.")
+                                .arg(g.firmaAdi, g.paraBirimi);
+            return sonuc;
+        }
+        for (const Satir &s : g.satirlar)
+        {
+            if (g.kaynak == QStringLiteral("İnternet") && s.link.isEmpty())
+            {
+                // Linkin kayitsiz kalmasi eski duzenin en can sikici tarafiydi:
+                // ayni parca tekrar lazim oldugunda sifirdan aranmak zorunda kaliniyordu.
+                sonuc["hata"] = QString("\"%1\" %2 sitesinden alınıyor; ürün sayfasının linkini girin.")
+                                    .arg(s.kalemAdi, g.firmaAdi);
+                return sonuc;
+            }
+        }
+        const QVariantMap b = bilgiler.value(g.teklifFirmaId);
+        if (!gecerliTeslimatSekliMi(alan(b, "teslimatSekli")))
+        {
+            sonuc["hata"] = QString("\"%1\" siparişi için teslimat şeklini seçin.").arg(g.firmaAdi);
+            return sonuc;
+        }
+
+        // Tek teklif gerekcesi ZORUNLU DEGIL: mudur nereden alacagini zaten
+        // biliyor, her kalem icin fiyat karsilastirmasi istenmiyor (kullanici
+        // karari). Gerekce yazilmissa siparise kaydedilir.
+    }
+
+    if (!m_db.transaction())
+    {
+        sonuc["hata"] = "İşlem başlatılamadı: " + m_db.lastError().text();
+        return sonuc;
+    }
+    auto hataylaDon = [&](const QString &mesaj) {
+        m_db.rollback();
+        sonuc["hata"] = mesaj;
+        sonuc["siparisler"] = QVariantList();
+        return sonuc;
+    };
+
+    QSqlQuery baslik(m_db);
+    baslik.prepare(
+        "INSERT INTO dbo.satinalmalar "
+        "(TedarikciId, KullaniciId, SatinalmaTarihi, Durum, SiparisKaynagi, SiparisLinki, "
+        " IsteyenBirim, IsteyenKisi, IhtiyacTarihi, BeklenenTeslimTarihi, TeslimatSekli, "
+        " PatronOnayiGerekliMi, PatronOnayliMi, PatronOnayTarihi, OnayiIsaretleyenKullaniciId, "
+        " SiparisNo, TalepId, TeklifFirmaId, TekTeklifGerekcesi) "
+        "OUTPUT INSERTED.SatinalmaId "
+        "VALUES (:tedarikciId, :kullaniciId, :tarih, :durum, :kaynak, :link, "
+        "        :isteyenBirim, :isteyenKisi, :ihtiyacTarihi, :beklenen, :teslimatSekli, "
+        "        :onayGerekli, :onayli, :onayTarihi, :onaylayan, "
+        "        :siparisNo, :talepId, :teklifFirmaId, :gerekce)");
+    QSqlQuery kalemEkle(m_db);
+    kalemEkle.prepare(
+        "INSERT INTO dbo.satinalma_kalemleri "
+        "(SatinalmaId, KalemAdi, Birim, Adet, BirimFiyatDoviz, ParaBirimi, Kur, BirimFiyatTL, "
+        " ToplamTutarTL, UrunLinki, TalepKalemId, NeIcin) "
+        "VALUES (:satinalmaId, :kalemAdi, :birim, :adet, :birimFiyat, :pb, :kur, :birimFiyatTL, "
+        "        :toplamTL, :link, :talepKalemId, :neIcin)");
+
+    QVariantList olusan;
+    for (const Grup &g : std::as_const(gruplar))
+    {
+        const QVariantMap b = bilgiler.value(g.teklifFirmaId);
+        const double kur = g.paraBirimi == QStringLiteral("TL") ? 1.0 : g.kur;
+
+        double toplam = 0.0;
+        for (const Satir &s : g.satirlar)
+            toplam += kurusaYuvarla(kurusaYuvarla(s.birimFiyat * kur) * s.miktar);
+        toplam = kurusaYuvarla(toplam);
+
+        const bool onayGerekli = esik > 0.0 && toplam > esik;
+        const bool onayli = onayGerekli && b.value("patronOnayli", false).toBool();
+        const QString durum = (onayGerekli && !onayli) ? QStringLiteral("Patron Onayı Bekliyor")
+                                                       : QStringLiteral("Sipariş Verildi");
+
+        QString noHatasi;
+        const int siparisNo = satinalmaNoAl(QStringLiteral("dbo.satinalmalar"),
+                                            QStringLiteral("SiparisNo"), noHatasi);
+        if (siparisNo <= 0)
+            return hataylaDon(noHatasi);
+
+        const bool internet = g.kaynak == QStringLiteral("İnternet");
+        // Beklenen teslim girilmemisse teklifteki teslim suresinden hesaplanir.
+        QVariant beklenen = tarihParametresi(alan(b, "beklenenTeslimTarihi"));
+        if (beklenen.isNull() && g.teslimSuresiGun > 0)
+            beklenen = QDateTime(QDate::currentDate().addDays(g.teslimSuresiGun), QTime(0, 0));
+
+        baslik.bindValue(":tedarikciId", internet ? QVariant(QMetaType(QMetaType::Int))
+                                                  : intParametresi(g.tedarikciId));
+        baslik.bindValue(":kullaniciId", intParametresi(m_aktifKullaniciId));
+        baslik.bindValue(":tarih", QDate::currentDate());
+        baslik.bindValue(":durum", durum);
+        baslik.bindValue(":kaynak", internet ? QStringLiteral("İnternet") : QStringLiteral("Tedarikçi"));
+        baslik.bindValue(":link", metinParametresi(internet && g.link.trimmed().isEmpty()
+                                                   ? g.satirlar.first().link : g.link));
+        baslik.bindValue(":isteyenBirim", isteyenBirim);
+        baslik.bindValue(":isteyenKisi", isteyenKisi);
+        baslik.bindValue(":ihtiyacTarihi", ihtiyacTarihi);
+        baslik.bindValue(":beklenen", beklenen);
+        baslik.bindValue(":teslimatSekli", alan(b, "teslimatSekli"));
+        baslik.bindValue(":onayGerekli", onayGerekli);
+        baslik.bindValue(":onayli", onayli);
+        // Onayi PATRON degil mudur isaretler (patronun programda hesabi yok).
+        baslik.bindValue(":onayTarihi", onayli ? QVariant(QDateTime::currentDateTime())
+                                               : QVariant(QMetaType(QMetaType::QDateTime)));
+        baslik.bindValue(":onaylayan", onayli ? intParametresi(m_aktifKullaniciId)
+                                              : QVariant(QMetaType(QMetaType::Int)));
+        baslik.bindValue(":siparisNo", siparisNo);
+        baslik.bindValue(":talepId", talepId);
+        baslik.bindValue(":teklifFirmaId", g.teklifFirmaId);
+        baslik.bindValue(":gerekce", metinParametresi(tekTeklifGerekcesi));
+        if (!baslik.exec() || !baslik.next())
+        {
+            qWarning() << "siparis olusturulamadi:" << baslik.lastError().text();
+            return hataylaDon("Sipariş oluşturulamadı: " + baslik.lastError().text());
+        }
+        const int satinalmaId = baslik.value(0).toInt();
+        baslik.finish();
+
+        for (const Satir &s : g.satirlar)
+        {
+            const double birimFiyatTL = kurusaYuvarla(s.birimFiyat * kur);
+            kalemEkle.bindValue(":satinalmaId", satinalmaId);
+            kalemEkle.bindValue(":kalemAdi", s.kalemAdi);
+            kalemEkle.bindValue(":birim", metinParametresi(s.birim));
+            kalemEkle.bindValue(":adet", s.miktar);
+            kalemEkle.bindValue(":birimFiyat", s.birimFiyat);
+            kalemEkle.bindValue(":pb", g.paraBirimi);
+            kalemEkle.bindValue(":kur", kur);
+            kalemEkle.bindValue(":birimFiyatTL", birimFiyatTL);
+            kalemEkle.bindValue(":toplamTL", kurusaYuvarla(birimFiyatTL * s.miktar));
+            kalemEkle.bindValue(":link", metinParametresi(s.link));
+            kalemEkle.bindValue(":talepKalemId", s.talepKalemId);
+            kalemEkle.bindValue(":neIcin", metinParametresi(s.neIcin));
+            if (!kalemEkle.exec())
+                return hataylaDon("Sipariş kalemi yazılamadı: " + kalemEkle.lastError().text());
+        }
+
+        QVariantMap siparis;
+        siparis["satinalmaId"]   = satinalmaId;
+        siparis["siparisNo"]     = siparisNo;
+        siparis["firmaAdi"]      = g.firmaAdi;
+        siparis["durum"]         = durum;
+        siparis["toplamTutarTL"] = toplam;
+        olusan.append(siparis);
+    }
+
+    if (!m_db.commit())
+        return hataylaDon("Siparişler oluşturulamadı: " + m_db.lastError().text());
+
+    sonuc["basarili"]   = true;
+    sonuc["siparisler"] = olusan;
+    return sonuc;
+}
+
+// ---------------------------------------------------------------------------
+// SIPARIS
+// ---------------------------------------------------------------------------
+
+QVariantList Database::siparisListesiGetir(const QString &filtre, const QString &arama)
+{
+    ERP_IZ("siparisListesiGetir");
+    QVariantList liste;
+    if (!baglantiHazir() || !satinalmaSemasiHazirMi())
+        return liste;
+
+    QString kosul;
+    if (filtre == QStringLiteral("acik"))
+        kosul = QStringLiteral("Durum NOT IN (N'Teslim Alındı', N'İptal', N'Reddedildi')");
+    else if (filtre == QStringLiteral("onay"))
+        kosul = QStringLiteral("Durum = N'Patron Onayı Bekliyor'");
+    else if (filtre == QStringLiteral("geciken"))
+        kosul = QStringLiteral("Durum NOT IN (N'Teslim Alındı', N'İptal', N'Reddedildi') "
+                               "AND BeklenenTeslimTarihi IS NOT NULL AND GecikmeGunu > 0");
+    else if (filtre == QStringLiteral("kismi"))
+        kosul = QStringLiteral("Durum = N'Kısmi Teslim'");
+    else if (filtre == QStringLiteral("fatura"))
+        kosul = QStringLiteral("Durum IN (N'Teslim Alındı', N'Kısmi Teslim') AND FaturaNo IS NULL");
+    else if (filtre == QStringLiteral("tamam"))
+        kosul = QStringLiteral("Durum = N'Teslim Alındı'");
+    else if (filtre == QStringLiteral("iptal"))
+        kosul = QStringLiteral("Durum IN (N'İptal', N'Reddedildi')");
+    else
+        kosul = QStringLiteral("1 = 1");
+
+    const QString desen = likeDeseni(arama);
+    bool numaraMi = false;
+    const int aramaNo = arama.trimmed().toInt(&numaraMi);
+    if (!desen.isEmpty())
+    {
+        kosul += QStringLiteral(
+            " AND (SiparisNo = :aramaNo OR TalepNo = :aramaNo2 OR FirmaAdi LIKE :desen1 ESCAPE '\\' "
+            // "Kargom nerede?": takip ya da site siparis numarasiyla da bulunur.
+            "      OR KargoTakipNo LIKE :desen4 ESCAPE '\\' OR SiteSiparisNo LIKE :desen5 ESCAPE '\\' "
+            "      OR EXISTS (SELECT 1 FROM dbo.satinalma_kalemleri a WHERE a.SatinalmaId = x.SatinalmaId "
+            "                 AND (a.KalemAdi LIKE :desen2 ESCAPE '\\' OR a.NeIcin LIKE :desen3 ESCAPE '\\')))");
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral(
+        "WITH x AS ( "
+        "  SELECT s.SatinalmaId, s.SiparisNo, tl.TalepNo, "
+        "         COALESCE(t.FirmaAdi, f.FirmaAdi, "
+        "                  CASE WHEN s.SiparisKaynagi = N'İnternet' THEN N'İnternet' ELSE N'' END) AS FirmaAdi, "
+        "         s.Durum, s.TeslimatSekli, s.SatinalmaTarihi, s.BeklenenTeslimTarihi, "
+        "         %1 AS GecikmeGunu, ISNULL(k.KalemSayisi, 0) AS KalemSayisi, ISNULL(k.Tutar, 0) AS Tutar, "
+        "         s.KargoFirmasi, s.KargoTakipNo, s.FaturaNo, s.IsteyenBirim, s.IsteyenKisi, "
+        "         s.SiteSiparisNo, "
+        "         ISNULL(STUFF((SELECT TOP 4 N', ' + a.KalemAdi FROM dbo.satinalma_kalemleri a "
+        "                       WHERE a.SatinalmaId = s.SatinalmaId ORDER BY a.SatinalmaKalemId "
+        "                       FOR XML PATH(N''), TYPE).value(N'.', N'nvarchar(max)'), 1, 2, N''), N'') "
+        "           AS KalemOzeti, "
+        "         ISNULL(STUFF((SELECT DISTINCT N', ' + a.NeIcin FROM dbo.satinalma_kalemleri a "
+        "                       WHERE a.SatinalmaId = s.SatinalmaId AND NULLIF(a.NeIcin, N'') IS NOT NULL "
+        "                       FOR XML PATH(N''), TYPE).value(N'.', N'nvarchar(max)'), 1, 2, N''), N'') "
+        "           AS NeIcinOzeti "
+        "  FROM dbo.satinalmalar s "
+        "  LEFT JOIN dbo.tedarikciler t ON t.TedarikciId = s.TedarikciId "
+        "  LEFT JOIN dbo.satinalma_teklif_firmalari f ON f.TeklifFirmaId = s.TeklifFirmaId "
+        "  LEFT JOIN dbo.satinalma_talepleri tl ON tl.TalepId = s.TalepId "
+        "  OUTER APPLY (SELECT COUNT(*) AS KalemSayisi, SUM(ToplamTutarTL) AS Tutar "
+        "               FROM dbo.satinalma_kalemleri WHERE SatinalmaId = s.SatinalmaId) k "
+        ") "
+        "SELECT TOP 500 SatinalmaId, SiparisNo, TalepNo, FirmaAdi, Durum, TeslimatSekli, SatinalmaTarihi, "
+        "       BeklenenTeslimTarihi, GecikmeGunu, KalemSayisi, Tutar, KargoFirmasi, KargoTakipNo, "
+        "       FaturaNo, IsteyenBirim, IsteyenKisi, KalemOzeti, NeIcinOzeti, SiteSiparisNo "
+        "FROM x WHERE %2 "
+        // Acik ve geciken siparisler uste; sonra en yeni.
+        "ORDER BY CASE WHEN Durum NOT IN (N'Teslim Alındı', N'İptal', N'Reddedildi') "
+        "               AND BeklenenTeslimTarihi IS NOT NULL AND GecikmeGunu > 0 THEN 0 ELSE 1 END, "
+        "         SiparisNo DESC")
+        .arg(QString::fromUtf8(GECIKME_GUNU_SQL), kosul));
+    if (!desen.isEmpty())
+    {
+        query.bindValue(":aramaNo", numaraMi ? aramaNo : -1);
+        query.bindValue(":aramaNo2", numaraMi ? aramaNo : -1);
+        query.bindValue(":desen1", desen);
+        query.bindValue(":desen2", desen);
+        query.bindValue(":desen3", desen);
+        query.bindValue(":desen4", desen);
+        query.bindValue(":desen5", desen);
+    }
+
+    if (!query.exec())
+    {
+        qWarning() << "siparisListesiGetir basarisiz:" << query.lastError().text();
+        return liste;
+    }
+
+    while (query.next())
+    {
+        QVariantMap satir;
+        satir["satinalmaId"]          = query.value(0).toInt();
+        satir["siparisNo"]            = query.value(1).toInt();
+        satir["talepNo"]              = query.value(2).toInt();
+        satir["tedarikciAdi"]         = query.value(3).toString();
+        satir["durum"]                = query.value(4).toString();
+        satir["teslimatSekli"]        = query.value(5).toString();
+        satir["satinalmaTarihi"]      = query.value(6).toDate();
+        satir["beklenenTeslimTarihi"] = query.value(7).toDate();
+        satir["gecikmeGunu"]          = query.value(8).toInt();
+        satir["kalemSayisi"]          = query.value(9).toInt();
+        satir["toplamTutarTL"]        = query.value(10).toDouble();
+        satir["kargoFirmasi"]         = query.value(11).toString();
+        satir["kargoTakipNo"]         = query.value(12).toString();
+        satir["faturaNo"]             = query.value(13).toString();
+        satir["isteyenBirim"]         = query.value(14).toString();
+        satir["isteyenKisi"]          = query.value(15).toString();
+        satir["kalemOzeti"]           = query.value(16).toString();
+        satir["neIcinOzeti"]          = query.value(17).toString();
+        satir["siteSiparisNo"]        = query.value(18).toString();
+        liste.append(satir);
+    }
+    return liste;
+}
+
+QVariantMap Database::satinalmaGetir(int satinalmaId)
+{
+    ERP_IZ("satinalmaGetir");
+    QVariantMap sonuc;
+    if (!baglantiHazir() || !satinalmaSemasiHazirMi())
+        return sonuc;
+
+    QSqlQuery query(m_db);
+    query.prepare(
+        "SELECT s.SatinalmaId, s.SiparisNo, s.TalepId, tl.TalepNo, "
+        "       COALESCE(t.FirmaAdi, f.FirmaAdi, CASE WHEN s.SiparisKaynagi = N'İnternet' "
+        "                THEN N'İnternet' ELSE N'' END), "
+        "       s.SatinalmaTarihi, s.Aciklama, s.Durum, s.SiparisKaynagi, s.SiparisLinki, "
+        "       s.IsteyenBirim, s.IsteyenKisi, s.IhtiyacTarihi, s.BeklenenTeslimTarihi, "
+        "       s.TeslimAlmaTarihi, s.TeslimatSekli, s.KargoFirmasi, s.KargoTakipNo, "
+        "       s.PatronOnayiGerekliMi, s.PatronOnayliMi, s.PatronOnayTarihi, ok.AdSoyad, "
+        "       s.FaturaNo, s.FaturaTarihi, s.FaturaTutariTL, s.MuhasebeyeIletildiMi, s.RedSebebi, "
+        "       s.TekTeklifGerekcesi, kk.AdSoyad, t.Telefon, t.IlgiliKisi, f.TeslimSuresiGun, "
+        "       s.SiteSiparisNo "
+        "FROM dbo.satinalmalar s "
+        "LEFT JOIN dbo.tedarikciler t ON t.TedarikciId = s.TedarikciId "
+        "LEFT JOIN dbo.satinalma_teklif_firmalari f ON f.TeklifFirmaId = s.TeklifFirmaId "
+        "LEFT JOIN dbo.satinalma_talepleri tl ON tl.TalepId = s.TalepId "
+        "LEFT JOIN dbo.kullanicilar ok ON ok.KullaniciId = s.OnayiIsaretleyenKullaniciId "
+        "LEFT JOIN dbo.kullanicilar kk ON kk.KullaniciId = s.KullaniciId "
+        "WHERE s.SatinalmaId = :id");
+    query.bindValue(":id", satinalmaId);
+    if (!query.exec() || !query.next())
+    {
+        if (query.lastError().isValid())
+            qWarning() << "satinalmaGetir basarisiz:" << query.lastError().text();
+        return sonuc;
+    }
+
+    auto tarihMetni = [&](int i) {
+        return query.value(i).isNull() ? QString()
+                                       : query.value(i).toDate().toString("yyyy-MM-dd");
+    };
+
+    sonuc["satinalmaId"]          = query.value(0).toInt();
+    sonuc["siparisNo"]            = query.value(1).toInt();
+    sonuc["talepId"]              = query.value(2).toInt();
+    sonuc["talepNo"]              = query.value(3).toInt();
+    sonuc["tedarikciAdi"]         = query.value(4).toString();
+    sonuc["satinalmaTarihi"]      = tarihMetni(5);
+    sonuc["aciklama"]             = query.value(6).toString();
+    sonuc["durum"]                = query.value(7).toString();
+    sonuc["siparisKaynagi"]       = query.value(8).toString();
+    sonuc["siparisLinki"]         = query.value(9).toString();
+    sonuc["isteyenBirim"]         = query.value(10).toString();
+    sonuc["isteyenKisi"]          = query.value(11).toString();
+    sonuc["ihtiyacTarihi"]        = tarihMetni(12);
+    sonuc["beklenenTeslimTarihi"] = tarihMetni(13);
+    sonuc["teslimAlmaTarihi"]     = tarihMetni(14);
+    sonuc["teslimatSekli"]        = query.value(15).toString();
+    sonuc["kargoFirmasi"]         = query.value(16).toString();
+    sonuc["kargoTakipNo"]         = query.value(17).toString();
+    sonuc["patronOnayiGerekli"]   = query.value(18).toBool();
+    sonuc["patronOnayli"]         = query.value(19).toBool();
+    sonuc["patronOnayTarihi"]     = query.value(20).isNull()
+                                        ? QString()
+                                        : query.value(20).toDateTime().toString("dd.MM.yyyy HH:mm");
+    sonuc["onayiIsaretleyen"]     = query.value(21).toString();
+    sonuc["faturaNo"]             = query.value(22).toString();
+    sonuc["faturaTarihi"]         = tarihMetni(23);
+    sonuc["faturaTutariTL"]       = query.value(24).isNull() ? QVariant() : query.value(24).toDouble();
+    sonuc["muhasebeyeIletildi"]   = query.value(25).toBool();
+    sonuc["redSebebi"]            = query.value(26).toString();
+    sonuc["tekTeklifGerekcesi"]   = query.value(27).toString();
+    sonuc["olusturan"]            = query.value(28).toString();
+    sonuc["tedarikciTelefon"]     = query.value(29).toString();
+    sonuc["tedarikciIlgiliKisi"]  = query.value(30).toString();
+    sonuc["teslimSuresiGun"]      = query.value(31).toInt();
+    sonuc["siteSiparisNo"]        = query.value(32).toString();
+    const int talepId = query.value(2).toInt();
+
+    // Dayandigi teklif karsilastirmasi: kalem basina tum firmalarin fiyati.
+    QHash<int, QVariantList> karsilastirma;
+    if (talepId > 0)
+    {
+        QSqlQuery q(m_db);
+        q.prepare(
+            "SELECT fy.TalepKalemId, f.FirmaAdi, fy.BirimFiyat, f.ParaBirimi, f.Kur, fy.SecildiMi "
+            "FROM dbo.satinalma_teklif_fiyatlari fy "
+            "JOIN dbo.satinalma_teklif_firmalari f ON f.TeklifFirmaId = fy.TeklifFirmaId "
+            "WHERE f.TalepId = :id "
+            "ORDER BY fy.TalepKalemId, fy.BirimFiyat * CASE WHEN f.ParaBirimi = N'TL' THEN 1 ELSE f.Kur END");
+        q.bindValue(":id", talepId);
+        if (q.exec())
+        {
+            while (q.next())
+            {
+                const double kur = q.value(3).toString() == QStringLiteral("TL") ? 1.0 : q.value(4).toDouble();
+                QVariantMap teklif;
+                teklif["firmaAdi"]     = q.value(1).toString();
+                teklif["birimFiyat"]   = q.value(2).toDouble();
+                teklif["paraBirimi"]   = q.value(3).toString();
+                teklif["birimFiyatTL"] = kurusaYuvarla(q.value(2).toDouble() * kur);
+                teklif["secildi"]      = q.value(5).toBool();
+                karsilastirma[q.value(0).toInt()].append(teklif);
+            }
+        }
+        else
+        {
+            qWarning() << "siparis karsilastirmasi okunamadi:" << q.lastError().text();
+        }
+    }
+
+    QVariantList kalemler;
+    double toplamTL = 0.0;
+    QSqlQuery kalemQuery(m_db);
+    kalemQuery.prepare(
+        "SELECT SatinalmaKalemId, KalemAdi, Birim, Adet, GelenAdet, BirimFiyatDoviz, ParaBirimi, "
+        "       Kur, BirimFiyatTL, ToplamTutarTL, UrunLinki, NeIcin, TalepKalemId "
+        "FROM dbo.satinalma_kalemleri WHERE SatinalmaId = :id ORDER BY SatinalmaKalemId");
+    kalemQuery.bindValue(":id", satinalmaId);
+    if (kalemQuery.exec())
+    {
+        while (kalemQuery.next())
+        {
+            QVariantMap kalem;
+            kalem["satinalmaKalemId"] = kalemQuery.value(0).toInt();
+            kalem["kalemAdi"]      = kalemQuery.value(1).toString();
+            kalem["birim"]         = kalemQuery.value(2).toString();
+            kalem["adet"]          = kalemQuery.value(3).toDouble();
+            kalem["gelenAdet"]     = kalemQuery.value(4).toDouble();
+            kalem["birimFiyat"]    = kalemQuery.value(5).toDouble();
+            kalem["paraBirimi"]    = kalemQuery.value(6).toString();
+            kalem["kur"]           = kalemQuery.value(7).toDouble();
+            kalem["birimFiyatTL"]  = kalemQuery.value(8).toDouble();
+            kalem["toplamTutarTL"] = kalemQuery.value(9).toDouble();
+            kalem["urunLinki"]     = kalemQuery.value(10).toString();
+            kalem["neIcin"]        = kalemQuery.value(11).toString();
+            kalem["teklifler"]     = karsilastirma.value(kalemQuery.value(12).toInt());
+            toplamTL += kalemQuery.value(9).toDouble();
+            kalemler.append(kalem);
+        }
+    }
+    else
+    {
+        qWarning() << "satinalma kalemleri okunamadi:" << kalemQuery.lastError().text();
+    }
+
+    sonuc["kalemler"]      = kalemler;
+    sonuc["toplamTutarTL"] = kurusaYuvarla(toplamTL);
+    return sonuc;
+}
+
+QVariantMap Database::satinalmaSevkiyatGuncelle(int satinalmaId, const QVariantMap &bilgi)
+{
+    ERP_IZ("satinalmaSevkiyatGuncelle");
+    QVariantMap sonuc = basarisizSonuc();
+    if (!baglantiHazir())
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATINALMA")))
+    {
+        sonuc["hata"] = QString::fromUtf8(TEDARIKCI_YETKI_YOK);
+        return sonuc;
+    }
+    if (!satinalmaSemasiHazirMi())
+    {
+        sonuc["hata"] = QString::fromUtf8(SATINALMA_SEMA_YOK);
+        return sonuc;
+    }
+
+    const QString sekil = alan(bilgi, "teslimatSekli");
+    if (!gecerliTeslimatSekliMi(sekil))
+    {
+        sonuc["hata"] = "Teslimat şeklini seçin.";
+        return sonuc;
+    }
+    const bool kargolu = kargoluTeslimatMi(sekil);
+    const bool yolaCikti = bilgi.value("yolaCikti", false).toBool();
+
+    if (!m_db.transaction())
+    {
+        sonuc["hata"] = "İşlem başlatılamadı: " + m_db.lastError().text();
+        return sonuc;
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare(
+        "UPDATE dbo.satinalmalar SET TeslimatSekli = :sekil, KargoFirmasi = :firma, "
+        "KargoTakipNo = :takip, SiteSiparisNo = :siteNo, BeklenenTeslimTarihi = :beklenen, "
+        "GuncellemeTarihi = SYSDATETIME() "
+        "OUTPUT DELETED.Durum "
+        "WHERE SatinalmaId = :id AND Durum NOT IN (N'İptal', N'Reddedildi')");
+    query.bindValue(":sekil", sekil);
+    // Kargo ile gelmeyen sipariste kargo alanlari anlamsizdir; bos yazilir.
+    query.bindValue(":firma", kargolu ? metinParametresi(alan(bilgi, "kargoFirmasi"))
+                                      : QVariant(QMetaType(QMetaType::QString)));
+    query.bindValue(":takip", kargolu ? metinParametresi(alan(bilgi, "kargoTakipNo"))
+                                      : QVariant(QMetaType(QMetaType::QString)));
+    query.bindValue(":siteNo", metinParametresi(alan(bilgi, "siteSiparisNo")));
+    query.bindValue(":beklenen", tarihParametresi(alan(bilgi, "beklenenTeslimTarihi")));
+    query.bindValue(":id", satinalmaId);
+    if (!query.exec())
+    {
+        qWarning() << "satinalmaSevkiyatGuncelle basarisiz:" << query.lastError().text();
+        m_db.rollback();
+        sonuc["hata"] = "Sevkiyat bilgisi kaydedilemedi: " + query.lastError().text();
+        return sonuc;
+    }
+    if (!query.next())
+    {
+        m_db.rollback();
+        sonuc["hata"] = "Sipariş bulunamadı ya da iptal edilmiş. Listeyi yenileyin.";
+        return sonuc;
+    }
+    const QString mevcutDurum = query.value(0).toString();
+    query.finish();
+
+    if (yolaCikti)
+    {
+        if (mevcutDurum == QStringLiteral("Patron Onayı Bekliyor"))
+        {
+            m_db.rollback();
+            sonuc["hata"] = "Patron onayı işaretlenmeden sipariş yola çıkmış sayılamaz.";
+            return sonuc;
+        }
+        if (mevcutDurum == QStringLiteral("Sipariş Verildi"))
+        {
+            QSqlQuery durum(m_db);
+            durum.prepare("UPDATE dbo.satinalmalar SET Durum = N'Kargoda' WHERE SatinalmaId = :id");
+            durum.bindValue(":id", satinalmaId);
+            if (!durum.exec())
+            {
+                m_db.rollback();
+                sonuc["hata"] = "Sipariş durumu değiştirilemedi: " + durum.lastError().text();
+                return sonuc;
+            }
+        }
+    }
+
+    if (!m_db.commit())
+    {
+        m_db.rollback();
+        sonuc["hata"] = "Sevkiyat bilgisi kaydedilemedi: " + m_db.lastError().text();
+        return sonuc;
+    }
+    sonuc["basarili"] = true;
+    return sonuc;
+}
+
+QVariantMap Database::satinalmaFaturaGuncelle(int satinalmaId, const QVariantMap &bilgi)
+{
+    ERP_IZ("satinalmaFaturaGuncelle");
+    QVariantMap sonuc = basarisizSonuc();
+    if (!baglantiHazir())
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATINALMA")))
+    {
+        sonuc["hata"] = QString::fromUtf8(TEDARIKCI_YETKI_YOK);
+        return sonuc;
+    }
+    if (!satinalmaSemasiHazirMi())
+    {
+        sonuc["hata"] = QString::fromUtf8(SATINALMA_SEMA_YOK);
+        return sonuc;
+    }
+
+    const QString faturaNo = alan(bilgi, "faturaNo");
+    const bool muhasebe = bilgi.value("muhasebeyeIletildi", false).toBool();
+    if (muhasebe && faturaNo.isEmpty())
+    {
+        sonuc["hata"] = "Muhasebeye iletmeden önce fatura numarasını girin.";
+        return sonuc;
+    }
+    const double tutar = bilgi.value("faturaTutariTL", 0).toDouble();
+    if (tutar < 0.0)
+    {
+        sonuc["hata"] = "Fatura tutarı eksi olamaz.";
+        return sonuc;
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare(
+        "UPDATE dbo.satinalmalar SET FaturaNo = :no, FaturaTarihi = :tarih, FaturaTutariTL = :tutar, "
+        "MuhasebeyeIletildiMi = :muhasebe, GuncellemeTarihi = SYSDATETIME() WHERE SatinalmaId = :id");
+    query.bindValue(":no", metinParametresi(faturaNo));
+    query.bindValue(":tarih", tarihParametresi(alan(bilgi, "faturaTarihi")));
+    query.bindValue(":tutar", tutar > 0.0 ? QVariant(kurusaYuvarla(tutar))
+                                          : QVariant(QMetaType(QMetaType::Double)));
+    query.bindValue(":muhasebe", muhasebe);
+    query.bindValue(":id", satinalmaId);
+    if (!query.exec())
+    {
+        qWarning() << "satinalmaFaturaGuncelle basarisiz:" << query.lastError().text();
+        sonuc["hata"] = "Fatura bilgisi kaydedilemedi: " + query.lastError().text();
+        return sonuc;
+    }
+    if (query.numRowsAffected() == 0)
+    {
+        sonuc["hata"] = "Sipariş bulunamadı; kayıt silinmiş olabilir.";
+        return sonuc;
+    }
+    sonuc["basarili"] = true;
+    return sonuc;
+}
+
+QVariantMap Database::satinalmaOzetiGetir()
+{
+    QVariantMap ozet;
+    ozet["acikTalep"]     = 0;
+    ozet["onayBekleyen"]  = 0;
+    ozet["acikSiparis"]   = 0;
+    ozet["yolda"]         = 0;
+    ozet["geciken"]       = 0;
+    ozet["buAyTutarTL"]   = 0.0;
+    ozet["faturasiEksik"] = 0;
+    if (!baglantiHazir() || !satinalmaSemasiHazirMi())
+        return ozet;
+
+    QSqlQuery query(m_db);
+    const QString sql = QStringLiteral(
+        "SELECT "
+        "  SUM(CASE WHEN %1 THEN 1 ELSE 0 END), "
+        "  SUM(CASE WHEN s.Durum = N'Patron Onayı Bekliyor' THEN 1 ELSE 0 END), "
+        "  SUM(CASE WHEN s.Durum = N'Kargoda' THEN 1 ELSE 0 END), "
+        "  SUM(CASE WHEN %1 AND s.BeklenenTeslimTarihi < CAST(SYSDATETIME() AS DATE) THEN 1 ELSE 0 END), "
+        "  SUM(CASE WHEN s.Durum IN (N'Teslim Alındı', N'Kısmi Teslim') AND s.FaturaNo IS NULL "
+        "           THEN 1 ELSE 0 END), "
+        "  SUM(CASE WHEN %2 AND s.SatinalmaTarihi >= DATEFROMPARTS(YEAR(SYSDATETIME()), MONTH(SYSDATETIME()), 1) "
+        "           THEN ISNULL(k.Tutar, 0) ELSE 0 END), "
+        "  (SELECT COUNT(*) FROM dbo.satinalma_talepleri t WHERE t.IptalMi = 0 AND EXISTS ( "
+        "      SELECT 1 FROM dbo.satinalma_talep_kalemleri tk WHERE tk.TalepId = t.TalepId "
+        "        AND tk.TalepKalemId NOT IN (%3))) "
+        "FROM dbo.satinalmalar s "
+        "OUTER APPLY (SELECT SUM(ToplamTutarTL) AS Tutar FROM dbo.satinalma_kalemleri "
+        "             WHERE SatinalmaId = s.SatinalmaId) k")
+        .arg(QString::fromUtf8(ACIK_SIPARIS_KOSULU), QString::fromUtf8(AKTIF_SIPARIS_KOSULU),
+             QString::fromUtf8(SIPARISLI_TALEP_KALEMLERI_SQL));
+
+    if (!query.exec(sql) || !query.next())
+    {
+        qWarning() << "satinalmaOzetiGetir basarisiz:" << query.lastError().text();
+        return ozet;
+    }
+
+    ozet["acikSiparis"]   = query.value(0).toInt();
+    ozet["onayBekleyen"]  = query.value(1).toInt();
+    ozet["yolda"]         = query.value(2).toInt();
+    ozet["geciken"]       = query.value(3).toInt();
+    ozet["faturasiEksik"] = query.value(4).toInt();
+    ozet["buAyTutarTL"]   = query.value(5).toDouble();
+    ozet["acikTalep"]     = query.value(6).toInt();
+    return ozet;
+}
+
+QVariantMap Database::satinalmaDurumGuncelle(int satinalmaId, const QString &yeniDurum,
+                                              const QString &redSebebi)
+{
+    ERP_IZ("satinalmaDurumGuncelle");
+    QVariantMap sonuc = basarisizSonuc();
+
+    if (!baglantiHazir())
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATINALMA")))
+    {
+        sonuc["hata"] = QString::fromUtf8(TEDARIKCI_YETKI_YOK);
+        return sonuc;
+    }
+    if (!semaKolonuVarMi(m_db, QStringLiteral("dbo.satinalmalar"), QStringLiteral("Durum")))
+    {
+        sonuc["hata"] = QString::fromUtf8(SATINALMA_SEMA_YOK);
+        return sonuc;
+    }
+    if (!elleAyarlanabilirDurumMu(yeniDurum))
+    {
+        // 'Teslim Alındı' / 'Kısmi Teslim' buraya DUSMEZ: ikisi de gelen
+        // adetlerden hesaplandigi icin yalnizca satinalmaTeslimAl uretir.
+        sonuc["hata"] = "Bu durum buradan verilemez.";
+        return sonuc;
+    }
+    if (yeniDurum == QStringLiteral("Reddedildi") && redSebebi.trimmed().isEmpty())
+    {
+        // Sebepsiz red, "neden alinmadi?" sorusunu yine cevapsiz birakirdi.
+        sonuc["hata"] = "Reddetme sebebini yazın.";
+        return sonuc;
+    }
+
+    // 'Sipariş Verildi'ye donus = teslimi geri alma. Gelen adetler ve teslim
+    // tarihi de temizlenmezse yarim teslim edilmis gibi gorunen bir kayit
+    // kalir; bu yuzden ikisi tek transaction icinde yapilir.
+    const bool teslimiGeriAl = yeniDurum == QStringLiteral("Sipariş Verildi");
+    if (!m_db.transaction())
+    {
+        sonuc["hata"] = "İşlem başlatılamadı: " + m_db.lastError().text();
+        return sonuc;
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral(
+        "UPDATE dbo.satinalmalar SET Durum = :durum, RedSebebi = :redSebebi%1, "
+        "GuncellemeTarihi = SYSDATETIME() WHERE SatinalmaId = :id")
+        .arg(teslimiGeriAl ? QStringLiteral(", TeslimAlmaTarihi = NULL") : QString()));
+    query.bindValue(":durum", yeniDurum);
+    query.bindValue(":redSebebi", metinParametresi(redSebebi));
+    query.bindValue(":id", satinalmaId);
+
+    if (!query.exec())
+    {
+        qWarning() << "satinalmaDurumGuncelle basarisiz:" << query.lastError().text();
+        m_db.rollback();
+        sonuc["hata"] = "Sipariş durumu değiştirilemedi: " + query.lastError().text();
+        return sonuc;
+    }
+    if (query.numRowsAffected() == 0)
+    {
+        m_db.rollback();
+        sonuc["hata"] = "Sipariş bulunamadı; kayıt silinmiş olabilir. Listeyi yenileyin.";
+        return sonuc;
+    }
+
+    if (teslimiGeriAl)
+    {
+        QSqlQuery sifirla(m_db);
+        sifirla.prepare("UPDATE dbo.satinalma_kalemleri SET GelenAdet = 0 WHERE SatinalmaId = :id");
+        sifirla.bindValue(":id", satinalmaId);
+        if (!sifirla.exec())
+        {
+            qWarning() << "gelen adetler sifirlanamadi:" << sifirla.lastError().text();
+            m_db.rollback();
+            sonuc["hata"] = "Teslim bilgisi geri alınamadı: " + sifirla.lastError().text();
+            return sonuc;
+        }
+    }
+
+    if (!m_db.commit())
+    {
+        m_db.rollback();
+        sonuc["hata"] = "Sipariş durumu değiştirilemedi: " + m_db.lastError().text();
+        return sonuc;
+    }
+
+    sonuc["basarili"] = true;
+    return sonuc;
+}
+
+QVariantMap Database::satinalmaOnayiIsaretle(int satinalmaId)
+{
+    ERP_IZ("satinalmaOnayiIsaretle");
+    QVariantMap sonuc = basarisizSonuc();
+
+    if (!baglantiHazir())
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATINALMA")))
+    {
+        sonuc["hata"] = QString::fromUtf8(TEDARIKCI_YETKI_YOK);
+        return sonuc;
+    }
+    if (!semaKolonuVarMi(m_db, QStringLiteral("dbo.satinalmalar"), QStringLiteral("Durum")))
+    {
+        sonuc["hata"] = QString::fromUtf8(SATINALMA_SEMA_YOK);
+        return sonuc;
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare(
+        "UPDATE dbo.satinalmalar SET PatronOnayliMi = 1, PatronOnayTarihi = SYSDATETIME(), "
+        "OnayiIsaretleyenKullaniciId = :kullaniciId, Durum = N'Sipariş Verildi', "
+        "GuncellemeTarihi = SYSDATETIME() "
+        // Yalnizca onayda BEKLEYEN siparis isaretlenebilir: iptal edilmis ya
+        // da zaten teslim alinmis bir siparis onaya donusturulmesin.
+        "WHERE SatinalmaId = :id AND Durum = N'Patron Onayı Bekliyor'");
+    query.bindValue(":kullaniciId", intParametresi(m_aktifKullaniciId));
+    query.bindValue(":id", satinalmaId);
+
+    if (!query.exec())
+    {
+        qWarning() << "satinalmaOnayiIsaretle basarisiz:" << query.lastError().text();
+        sonuc["hata"] = "Onay işaretlenemedi: " + query.lastError().text();
+        return sonuc;
+    }
+    if (query.numRowsAffected() == 0)
+    {
+        sonuc["hata"] = "Sipariş onay bekleyen durumda değil. Listeyi yenileyin.";
+        return sonuc;
+    }
+
+    sonuc["basarili"] = true;
+    return sonuc;
+}
+
+QVariantMap Database::satinalmaTeslimAl(int satinalmaId, const QVariantList &gelenAdetler)
+{
+    ERP_IZ("satinalmaTeslimAl");
+    QVariantMap sonuc = basarisizSonuc();
+    sonuc["durum"] = QString();
+
+    if (!baglantiHazir())
+    {
+        sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATINALMA")))
+    {
+        sonuc["hata"] = QString::fromUtf8(TEDARIKCI_YETKI_YOK);
+        return sonuc;
+    }
+    if (!semaKolonuVarMi(m_db, QStringLiteral("dbo.satinalma_kalemleri"), QStringLiteral("GelenAdet")))
+    {
+        sonuc["hata"] = QString::fromUtf8(SATINALMA_SEMA_YOK);
+        return sonuc;
+    }
+    if (gelenAdetler.isEmpty())
+    {
+        sonuc["hata"] = "Teslim alınacak kalem yok.";
+        return sonuc;
+    }
+
+    if (!m_db.transaction())
+    {
+        sonuc["hata"] = "İşlem başlatılamadı: " + m_db.lastError().text();
+        return sonuc;
+    }
+
+    // Onay bekleyen / iptal edilmis siparis teslim alinamaz.
+    {
+        QSqlQuery durumQuery(m_db);
+        durumQuery.prepare("SELECT Durum FROM dbo.satinalmalar WHERE SatinalmaId = :id");
+        durumQuery.bindValue(":id", satinalmaId);
+        if (!durumQuery.exec() || !durumQuery.next())
+        {
+            m_db.rollback();
+            sonuc["hata"] = "Sipariş bulunamadı; kayıt silinmiş olabilir. Listeyi yenileyin.";
+            return sonuc;
+        }
+        const QString durum = durumQuery.value(0).toString();
+        if (durum == QStringLiteral("Patron Onayı Bekliyor"))
+        {
+            m_db.rollback();
+            sonuc["hata"] = "Patron onayı işaretlenmeden sipariş teslim alınamaz.";
+            return sonuc;
+        }
+        if (durum == QStringLiteral("İptal") || durum == QStringLiteral("Reddedildi"))
+        {
+            m_db.rollback();
+            sonuc["hata"] = "İptal edilmiş sipariş teslim alınamaz.";
+            return sonuc;
+        }
+    }
+
+    // Siparis edilen adetler veritabanindan okunur; ekrandan gelen sayiya
+    // guvenilmez (arada kalem degismis olabilir) ve "fazla geldi" girisi
+    // engellenir.
+    QHash<int, double> siparisAdetleri;
+    {
+        QSqlQuery kalemQuery(m_db);
+        kalemQuery.prepare("SELECT SatinalmaKalemId, Adet FROM dbo.satinalma_kalemleri "
+                           "WHERE SatinalmaId = :id");
+        kalemQuery.bindValue(":id", satinalmaId);
+        if (!kalemQuery.exec())
+        {
+            m_db.rollback();
+            sonuc["hata"] = "Sipariş kalemleri okunamadı: " + kalemQuery.lastError().text();
+            return sonuc;
+        }
+        while (kalemQuery.next())
+            siparisAdetleri.insert(kalemQuery.value(0).toInt(), kalemQuery.value(1).toDouble());
+    }
+    if (siparisAdetleri.isEmpty())
+    {
+        m_db.rollback();
+        sonuc["hata"] = "Sipariş bulunamadı; kayıt silinmiş olabilir. Listeyi yenileyin.";
+        return sonuc;
+    }
+
+    QSqlQuery guncelle(m_db);
+    guncelle.prepare("UPDATE dbo.satinalma_kalemleri SET GelenAdet = :gelen "
+                     "WHERE SatinalmaKalemId = :kalemId AND SatinalmaId = :id");
+
+    double toplamSiparis = 0.0;
+    double toplamGelen = 0.0;
+    QHash<int, double> girilen;
+
+    for (const QVariant &ham : gelenAdetler)
+    {
+        const QVariantMap satir = ham.toMap();
+        const int kalemId = satir.value("satinalmaKalemId").toInt();
+        if (!siparisAdetleri.contains(kalemId))
+            continue;   // araya baska bir kullanici girmis olabilir: yok say
+
+        const double siparis = siparisAdetleri.value(kalemId);
+        double gelen = satir.value("gelenAdet", 0).toDouble();
+        if (gelen < 0.0)
+            gelen = 0.0;
+        if (gelen > siparis)
+            gelen = siparis;   // siparis edilenden fazlasi kaydedilmez
+
+        guncelle.bindValue(":gelen", gelen);
+        guncelle.bindValue(":kalemId", kalemId);
+        guncelle.bindValue(":id", satinalmaId);
+        if (!guncelle.exec())
+        {
+            qWarning() << "gelen adet yazilamadi:" << guncelle.lastError().text();
+            m_db.rollback();
+            sonuc["hata"] = "Teslim bilgisi kaydedilemedi: " + guncelle.lastError().text();
+            return sonuc;
+        }
+        girilen.insert(kalemId, gelen);
+    }
+
+    // Ekranda gorunmeyen / gonderilmeyen kalemler de toplama katilir, yoksa
+    // tek kalem teslim alindiginda siparis "tamamen geldi" sanilabilir.
+    for (auto it = siparisAdetleri.constBegin(); it != siparisAdetleri.constEnd(); ++it)
+    {
+        toplamSiparis += it.value();
+        toplamGelen += girilen.value(it.key(), 0.0);
+    }
+
+    if (toplamGelen <= 0.0)
+    {
+        m_db.rollback();
+        sonuc["hata"] = "Gelen miktar girilmedi. Hiçbir şey gelmediyse siparişi açık bırakın.";
+        return sonuc;
+    }
+
+    // Kurus/gram farklarinin "eksik geldi" sayilmamasi icin kucuk bir tolerans.
+    const bool tamami = toplamGelen >= toplamSiparis - 0.0005;
+    const QString durum = tamami ? QStringLiteral("Teslim Alındı")
+                                 : QStringLiteral("Kısmi Teslim");
+
+    QSqlQuery baslik(m_db);
+    baslik.prepare("UPDATE dbo.satinalmalar SET Durum = :durum, TeslimAlmaTarihi = :tarih, "
+                   "GuncellemeTarihi = SYSDATETIME() WHERE SatinalmaId = :id");
+    baslik.bindValue(":durum", durum);
+    // Kismi teslimde de tarih yazilir: ilk malin ne zaman geldigi bilgisidir.
+    baslik.bindValue(":tarih", QDate::currentDate());
+    baslik.bindValue(":id", satinalmaId);
+    if (!baslik.exec())
+    {
+        qWarning() << "teslim durumu yazilamadi:" << baslik.lastError().text();
+        m_db.rollback();
+        sonuc["hata"] = "Teslim bilgisi kaydedilemedi: " + baslik.lastError().text();
+        return sonuc;
+    }
+
+    if (!m_db.commit())
+    {
+        m_db.rollback();
+        sonuc["hata"] = "Teslim bilgisi kaydedilemedi: " + m_db.lastError().text();
+        return sonuc;
+    }
+
+    sonuc["basarili"] = true;
+    sonuc["durum"]    = durum;
     return sonuc;
 }

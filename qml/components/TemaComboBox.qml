@@ -41,7 +41,13 @@ ComboBox {
         highlighted: kok.highlightedIndex === index
 
         contentItem: KisalanMetin {
-            text: secenek.modelData
+            // Model nesne listesiyse (textRole dolu) gosterilecek alan odur;
+            // yoksa modelData'nin kendisi metindir. Bu ayrim yapilmazsa nesne
+            // listelerinde secenekler "[object Object]" gorunur.
+            text: kok.textRole.length > 0
+                      ? (secenek.modelData[kok.textRole] !== undefined
+                             ? secenek.modelData[kok.textRole] : "")
+                      : secenek.modelData
             color: kok.currentIndex === secenek.index ? Theme.vurguAcik : Theme.metinIkincil
             font.family: Theme.fontAilesi
             font.pixelSize: Theme.fontBoyutNormal

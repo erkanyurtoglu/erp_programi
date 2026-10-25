@@ -17,6 +17,8 @@ ColumnLayout {
 
     // Enter'a basilinca.
     signal kabulEdildi()
+    // Kullanici yazinca (programdan text atanmasinda yayilmaz).
+    signal duzenlendi(string metin)
 
     Layout.fillWidth: true
     spacing: 4
@@ -43,6 +45,7 @@ ColumnLayout {
         verticalAlignment: TextInput.AlignVCenter
         selectByMouse: true
         onAccepted: kok.kabulEdildi()
+        onTextEdited: kok.duzenlendi(girdi.text)
         background: Rectangle {
             color: Theme.arkaplan
             radius: Theme.radiusKucuk

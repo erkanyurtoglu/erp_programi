@@ -4,69 +4,35 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import erp_programi
 
-// Teklif Ver ekrani: WPF'teki TeklifVerViewModel + TeklifVer.xaml ikilisinin
-// Qt/QML karsiligi. Musteri secimi, urun sepeti, indirim/KDV/paketleme/tasima
-// hesabi, TCMB kuru ve teklifKaydet()/teklifDuzelt() ile kaydetme burada; PDF
-// onizlemesi kayittan sonra PdfOnizleme ile acilir.
 Item {
     id: root
 
     property int kullaniciId: 0
 
-    // Kullanicinin Satis modulunde DUZENLEME yetkisi var mi (rol_yetkileri.
-    // Duzenleyebilir). Yoksa ekran tamamen salt goruntulemedir: kaydetme,
-    // yerinde not/tarih/uretim yazma ve sepet duzenleme kapalidir.
     property bool yetkiVar: true
 
-    // Acik teklif revizyon zincirinin en guncel uyesi mi? Yerine yeni bir
-    // revizyon gecmisse (false) teklif yalnizca goruntulenir: ne revize edilir
-    // ne de uretim bilgisi yazilir (ayni kural C++ tarafinda da uygulanir).
     property bool guncelSurum: true
     property string guncelTeklifNo: ""
 
-    // Revizyon modunda (bkz. duzenlemeyeBasla) ust soldaki geri butonunda
-    // gosterilen kaynak liste adi: "Giden Tekliflerim" vb.
     property string geriDonusEtiketi: "Giden Tekliflerim"
 
-    // Detay ekraninda acik teklifin durumu (yeni teklifte bos).
     property string teklifDurumu: ""
 
-    // Kabul edilmis / tamamlanmis bir teklif KILITLIDIR: musteri, sepet, ticari
-    // sartlar, teslimat, dil/para birimi, teklif notu ve sozlesme metni
-    // degistirilemez, revize edilemez (bkz. Database::teklifKilitliMi -- ayni kural
-    // C++ tarafinda da uygulanir). Normal "Teklif Ver" ekraninda hep false.
     readonly property bool teklifKilitli: root.duzenlenenKaynakTeklifId > 0
                                           && (root.teklifDurumu === "Kabul Edildi" || root.teklifDurumu === "Tamamlandı"
                                               || !root.guncelSurum)
 
-    // Planlanan teslim tarihi ve uretim notu uretim planlamasidir; kabulden sonra
-    // da yazilabilir, yalnizca tamamlanmis (veya yerine yeni revizyon gecmis)
-    // teklifte kilitlenir.
     readonly property bool uretimBilgisiKilitli: root.teklifDurumu === "Tamamlandı" || !root.guncelSurum
 
-    // Giden Tekliflerim'den acilan detayda (bkz. SatisModuluPage) kilitli teklif de
-    // REVIZE edilebilir: form duzenlenir, "Teklifi Kaydet" orijinale dokunmadan yeni
-    // bir revizyon olusturur. Kilitli teklifin KENDISINE yerinde yazma (teklif notu,
-    // sozlesme; tamamlanmissa teslim tarihi/uretim notu) yine yapilmaz -- bu
-    // degisiklikler yalnizca kaydedilecek revizyona gider.
     property bool revizyonIzinli: false
 
-    // TAMAMLANMIS teklif hic revize edilemez: is bitmistir, detay her yerden salt
-    // goruntulemedir. Yanlislikla tamamlandiysa once "Beklemede"ye geri alinir
-    // (ayni kural C++ tarafinda Database::teklifKaydet'te de uygulanir).
-    // Revizyon yalnizca zincirin GUNCEL surumunden alinir (bkz. guncelSurum).
     readonly property bool revizyonAcik: root.yetkiVar && root.revizyonIzinli
                                          && root.teklifDurumu !== "Tamamlandı" && root.guncelSurum
 
-    // Ekrandaki alanlarin salt okunur olup olmadigi.
     readonly property bool formKilitli: !root.yetkiVar || (root.teklifKilitli && !root.revizyonAcik)
 
-    // Kilitli teklifin detayi (Alınan/Biten Tekliflerim) salt goruntulemedir:
-    // sepete urun eklenemeyecegi icin soldaki "Ürün Ara" paneli hic gosterilmez,
-    // sepet tum genisligi kullanir. Revize moduna gecilirse panel geri gelir.
     readonly property bool urunAramaGorunur: !root.formKilitli
 
-    // Urun arama sorgusu: panel gizliyken bosuna SQL Server'a gidilmesin.
     function urunAramaTazele() {
         if (!root.urunAramaGorunur)
             return
@@ -74,8 +40,6 @@ Item {
     }
     readonly property bool uretimAlaniKilitli: !root.yetkiVar || (root.uretimBilgisiKilitli && !root.revizyonAcik)
 
-    // Revizyon modunda geri butonuna basilinca; SatisModuluPage bunu dinleyip
-    // gelinen listeye geri doner.
     signal geriDonuldu()
 
     // Revizyon basariyla kaydedilince yayinlanir; SatisModuluPage listeye donup
