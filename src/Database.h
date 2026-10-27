@@ -25,12 +25,15 @@ class Database : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool baglantiHazir READ baglantiHazirMi CONSTANT)
+    // Baglanilan SQL Server ornegi (baglanti.ini ya da varsayilan); hata seridi icin.
+    Q_PROPERTY(QString sunucuAdi READ sunucuAdi CONSTANT)
 
 public:
     explicit Database(QObject *parent = nullptr);
     ~Database() override;
 
     bool baglantiHazirMi() const { return m_baglantiHazir; }
+    QString sunucuAdi() const;
     // Q_INVOKABLE: false donen islemlerin (ornegin revize edilmis teklifin durumunu
     // degistirmeye calismak) sebebini QML kullaniciya aynen gosterebilsin diye.
     Q_INVOKABLE QString sonHataMesaji() const { return m_sonHataMesaji; }
@@ -414,9 +417,11 @@ public:
                                               int sayfaBoyutu = 50, bool arsivliDahil = false);
 
     // "urun" anahtarlari: urunKodu, kategori, urunAciklamasi, urunAciklamasiEn,
-    // birimFiyat (TL), maliyet (TL). ParaBirimi her zaman 'TL' olarak kaydedilir
-    // (goc kararinda alindigi gibi -- fiyatlar tek para biriminde tutulur,
-    // USD/EUR gosterimi ekran tarafinda kur ile hesaplanir).
+    // birimFiyat (TL liste fiyati), fiyatUSD, fiyatEUR, maliyet (TL).
+    // TL / USD / EUR fiyatlari BIRBIRINDEN BAGIMSIZDIR (1.000 TL'lik urun 60 $'a
+    // satilabilir); teklifte secilen para biriminin fiyati dogrudan kullanilir,
+    // kura bolunerek bulunmaz. fiyatUSD / fiyatEUR 0 ya da bos ise NULL
+    // kaydedilir ("girilmemis"). db/26 calistirilmamissa yalnizca TL yazilir.
     //
     // URUN KODU: opsiyoneldir, ancak girildiyse (a) "MANUEL" onekiyle
     // baslayamaz -- o onek teklife ozel gecici satirlara ayrilmistir ve bu
@@ -498,6 +503,116 @@ public:
     // basarisizligin sebebini kullaniciya hic gosteremiyordu.
     Q_INVOKABLE QVariantMap personelAktifDurumDegistir(int kullaniciId, bool aktif);
 
+    // ------------------------------------------------------------------
+    // Yonetim / Roller ve Yetkiler. Hepsi YONETIM modulunde duzenleme
+    // yetkisi ister (sunucuda denetlenir).
+    // ------------------------------------------------------------------
+    // Roller + modul bazinda yetkileri ASENKRON gelir (rolYetkiListesiHazir).
+    // Sonucun sekli icin bkz. rolYetkiListesiSorgusu (AramaSorgulari.h);
+    // baglanti yoksa bos harita gelir.
+    Q_INVOKABLE void rolYetkiListesiGetirBaslat();
+    Q_SIGNAL void rolYetkiListesiHazir(const QVariantMap &sonuc);
+
+    // rolId <= 0 ise yeni rol eklenir. "rol" anahtarlari: rolAdi,
+    // yetkiler (QVariantList<{modulId, gorebilir, duzenleyebilir}>).
+    // Duzenleyebilir isaretli modul gorebilir de sayilir. En az bir modulde
+    // gorme yetkisi zorunludur (yoksa bu roldeki personel bos program gorur).
+    // Sistem rolleri (bkz. sistemRoluMu) degistirilemez.
+    // Donen: {basarili, rolId, hata}.
+    Q_INVOKABLE QVariantMap rolKaydet(int rolId, const QVariantMap &rol);
+
+    // Yalnizca HICBIR personele (pasifler dahil) atanmamis rol silinebilir:
+    // aksi halde kullanici_rolleri satirlari CASCADE ile sessizce gider ve
+    // personel rolsuz kalabilir. "Yönetici" hic silinemez.
+    // Donen: {basarili, hata}.
+    Q_INVOKABLE QVariantMap rolSil(int rolId);
+
+    // ------------------------------------------------------------------
+    // Yonetim / Sistem Ayarlari (dbo.ayarlar). Duzenlenebilen anahtarlar ve
+    // sinirlari SqlYardimcilari.h'deki ayarTanimlari() listesindedir.
+    // ------------------------------------------------------------------
+    // ASENKRON; sonucun sekli icin bkz. ayarListesiSorgusu (AramaSorgulari.h).
+    Q_INVOKABLE void ayarListesiGetirBaslat();
+    Q_SIGNAL void ayarListesiHazir(const QVariantMap &sonuc);
+
+    // Tanimli bir ayarin sayisal degeri. Tablo/satir yoksa, deger bozuksa
+    // ya da baglanti yoksa tanimdaki varsayilan doner (tanimsiz anahtar: 0).
+    Q_INVOKABLE double ayarSayiGetir(const QString &anahtar);
+
+    // Tanimli bir METIN ayarinin degeri; kayitli metin yoksa (veya baglanti
+    // yoksa) tanimdaki fabrika metni doner.
+    Q_INVOKABLE QString ayarMetniGetir(const QString &anahtar);
+
+    // {anahtar: deger} haritasindaki ayarlari TEK islemde yazar; biri bile
+    // gecersizse hicbiri yazilmaz. YONETIM duzenleme yetkisi ister.
+    // Metin ayarinda deger string'dir; bos ya da fabrika metniyle ayni metin
+    // NULL yazilir (= fabrika metni). 500 karakteri asan metin icin
+    // db/23_ayar_degeri_uzun_metin.sql gerekir.
+    // Donen: {basarili, hata}.
+    Q_INVOKABLE QVariantMap ayarlariKaydet(const QVariantMap &degerler);
+
+    // ------------------------------------------------------------------
+    // Yonetim / Ozet (pano). Teklif tarafi ASENKRON (sonucun sekli ve sayim
+    // kurallari: panoOzetiSorgusu, AramaSorgulari.h); satinalma tarafi icin
+    // ekran satinalmaOzetiGetir'i kullanir. Donen istek numarasi sinyalde
+    // geri gelir; ekran yalnizca en son istegin sonucunu basar.
+    // ------------------------------------------------------------------
+    Q_INVOKABLE int panoOzetiGetirBaslat(const QString &donem,
+                                         const QString &ozelBaslangic = QString(),
+                                         const QString &ozelBitis = QString());
+    Q_SIGNAL void panoOzetiHazir(int istekNo, const QVariantMap &sonuc);
+
+    // Yonetim / Islem Gecmisi: tum tekliflerin olaylari, sayfali ve ASENKRON.
+    // "suzgec" ve sonucun sekli icin bkz. islemGecmisiSorgusu (AramaSorgulari.h).
+    Q_INVOKABLE int islemGecmisiGetirBaslat(const QVariantMap &suzgec, int sayfaNo,
+                                            int sayfaBoyutu = 50);
+    Q_SIGNAL void islemGecmisiHazir(int istekNo, const QVariantMap &sonuc);
+
+    // ------------------------------------------------------------------
+    // Cihaz Maliyetleri (Yonetim + Satinalma). Excel'deki cihaz maliyet
+    // sayfalarinin karsiligi: cihaz basina recete, kar orani, satis fiyati
+    // ve kendiliginden dolan maliyet gecmisi (db/17, urun eslesmesi db/24).
+    // Yetki kademeleri icin bkz. Database.cpp "CIHAZ MALIYETLERI".
+    // ------------------------------------------------------------------
+    // {fiyatGorebilir, tamYetki, kalemDuzenleyebilir, semaHazir, urunEslesmesiVar}
+    Q_INVOKABLE QVariantMap cihazYetkisi();
+
+    // ASENKRON; liste sekli: cihazListesiSorgusu (AramaSorgulari.h). Fiyat
+    // gorme yetkisi olmayana karOrani / satisFiyatiTL / katalog alanlari gitmez.
+    Q_INVOKABLE int cihazListesiGetirBaslat(const QString &arama, bool arsivDahil);
+    Q_SIGNAL void cihazListesiHazir(int istekNo, const QVariantList &liste);
+
+    // {basarili, hata, cihaz: {cihazId, cihazAdi, aciklama, karOrani, toplamMaliyetTL,
+    //   satisFiyatiTL, aktifMi, guncellemeTarihi, urunId, urunKodu, urunAciklamasi,
+    //   katalogFiyat, katalogParaBirimi},
+    //  kalemler: [{receteKalemId, grup, kalemTuru, kalemAdi, adet, birim, birimFiyat,
+    //   paraBirimi, kur, birimFiyatTL, toplamTutarTL, tedarikciAdi, sonSatinalmaId,
+    //   fiyatTarihi (yyyy-MM-dd), aciklama,
+    //   oneri: null | {satinalmaId, birimFiyat, paraBirimi, kur, tarih, tedarikciAdi}}],
+    //  gecmis: [{tarih, degisenKalemAdi, eskiBirimFiyatTL, yeniBirimFiyatTL,
+    //   eskiToplamTL, yeniToplamTL, karOrani, yeniSatisFiyatiTL, tedarikciAdi,
+    //   personel, aciklama}]}
+    // "oneri": ayni adla, kalemin fiyat tarihinden SONRA yapilmis en son aktif
+    // alim (fiyati farkliysa). Kabul edilirse istemci kalemi o alimin fiyati,
+    // sonSatinalmaId'si ve tarihiyle gonderir.
+    Q_INVOKABLE QVariantMap cihazGetir(int cihazId);
+
+    // cihazId <= 0 ise yeni cihaz (yalnizca YONETIM duzenleyebilir). "veri":
+    // cihazAdi, aciklama, karOrani, urunId, kalemler [cihazGetir'deki alanlar].
+    // Recete TAMAMEN gonderilir: listede olmayan kalem silinir. TL karsiliklari,
+    // toplam maliyet ve satis fiyati SUNUCUDA hesaplanir. Toplam maliyet ya da
+    // kar orani degistiyse cihaz_maliyet_gecmisi'ne bir satir yazilir.
+    // Yalnizca SATINALMA yetkisi olan kullanicida cihaz bilgileri (ad, kar,
+    // urun) istemciden gelse de kayitli halleriyle korunur.
+    // Donen: {basarili, cihazId, hata}.
+    Q_INVOKABLE QVariantMap cihazKaydet(int cihazId, const QVariantMap &veri);
+
+    // Arsivleme / geri alma (kalici silme yok). Yalnizca YONETIM duzenleyebilir.
+    Q_INVOKABLE QVariantMap cihazAktifDurumDegistir(int cihazId, bool aktif);
+
+    // Urun eslestirme kutusu: [{urunId, urunKodu, urunAciklamasi, birimFiyat, paraBirimi}], en fazla 20.
+    Q_INVOKABLE QVariantList cihazUrunAra(const QString &arama);
+
     // Teklif Ver + Giden Tekliflerim ekranlarindan PDF uretimi. SQL sorgularini burada
     // calistirir, sonucu TeklifPdfOlusturucu'ya devreder (HTML/PDF uretiminin tamami
     // orada). PDF ONIZLEME klasorune basilir; kullanicinin klasorune ancak
@@ -528,20 +643,23 @@ public:
     // ------------------------------------------------------------------
     // Satis sozlesmesi metni (teklif PDF'inin son sayfasindaki maddeler).
     //
-    // Metin artik teklif.html icine GOMULU DEGIL: varsayilani C++ tarafinda
-    // (TeklifPdfOlusturucu::varsayilanSozlesmeMetni) duruyor, kullanicinin
-    // "Satış Sözleşmesi" penceresinde yaptigi degisiklik ise TEKLIF BASINA
-    // dbo.teklifler.SatisSozlesmesiMetni sutununda saklaniyor. Boylece eski
-    // tekliflerin sozlesmesi, varsayilan metin ileride degistirilse bile
-    // kaydedildigi haliyle kalir.
+    // Varsayilan metin Yonetim / Sistem Ayarlari'ndan (SATIS_SOZLESME_METNI_TR
+    // / _EN) gelir; ayar bossa koddaki FABRIKA metni
+    // (TeklifPdfOlusturucu::varsayilanSozlesmeMetni) kullanilir.
+    //
+    // Her yeni teklif kaydedilirken metin dbo.teklifler.SatisSozlesmesiMetni
+    // sutununa YAZILIR (bkz. teklifKaydet); boylece varsayilan sonradan
+    // degisse de kayitli teklifler kaydedildikleri metinle basilir. Sutunu
+    // NULL olan teklifler bu kuraldan onceki kayitlardir ve hep fabrika
+    // metniyle basilir -- bu yuzden fabrika metni kodda DEGISTIRILMEMELIDIR.
     //
     // "dil": "TR" veya "EN" -- varsayilan metnin dilini secer.
     // ------------------------------------------------------------------
-    Q_INVOKABLE QString varsayilanSozlesmeMetni(const QString &dil) const;
+    Q_INVOKABLE QString varsayilanSozlesmeMetni(const QString &dil);
 
-    // Teklife kayitli metni doner; yoksa (veya teklif henuz kaydedilmemisse,
-    // yani teklifId <= 0 ise) dilin varsayilan metnini doner -- pencere her
-    // durumda dolu acilir.
+    // Teklife kayitli metni doner. Kayitli teklifin metni bossa (eski kayit)
+    // fabrika metnini, teklif henuz kaydedilmemisse (teklifId <= 0) dilin
+    // o anki varsayilan metnini doner -- pencere her durumda dolu acilir.
     // NOT: Kayitli bir teklifin sozlesme metni YERINDE guncellenmez. Sozlesme
     // ticari icerigin parcasidir; degisikligi teklifin geri kalaniyla birlikte
     // ya duzeltme (iz birakarak, bkz. teklifDuzelt) ya da revizyon olarak
@@ -810,6 +928,12 @@ private:
     QVariantList kullaniciModulleriniGetir(int kullaniciId);
     // Aktif oturumdaki kullanici bu modulde "duzenleyebilir" yetkisine sahip mi?
     bool modulDuzenleyebilirMi(const QString &modulKodu);
+    // Aktif oturumdaki kullanici bu modulu gorebiliyor mu?
+    bool modulGorebilirMi(const QString &modulKodu);
+    // Worker'dan gelen cihaz listesini yetkiye gore ayiklayip yayinlar.
+    void cihazListesiAyikla(int istekNo, const QVariantList &liste);
+    // cihazListesiGetirBaslat aninda okunan yetki (ayiklama icin).
+    bool m_cihazFiyatGorebilir = false;
 
     // Sistemde kac AKTIF yonetici var? (yoneticiSifresiDogrula ile ayni rol
     // kumesi: "Yönetici" ve goc donemindeki "Göç - Geçici Tam Yetkili".)

@@ -226,6 +226,12 @@ QString TeklifPdfOlusturucu::kalemSatirlariUret(const QVariantList &kalemler, bo
 
 QString TeklifPdfOlusturucu::varsayilanSozlesmeMetni(bool ingilizce)
 {
+    // BU METNI DEGISTIRMEYIN: sozlesme metni teklife yazilmadan once
+    // kaydedilmis teklifler (SatisSozlesmesiMetni = NULL) her basimda bu
+    // metinle basilir; degisirse musteriye gitmis tekliflerin sozlesmesi de
+    // degisir. Yeni teklifler icin varsayilan metin Yonetim / Sistem
+    // Ayarlari'ndan degistirilir (bkz. Database::varsayilanSozlesmeMetni).
+    //
     // ONEMLI: Bu maddeler eskiden teklif.html/teklif_en.html icine GOMULU idi ve
     // degistirilebilmesi icin sablonun elle duzenlenmesi gerekiyordu. Artik
     // sablonda sadece {{SOZLESME_MADDELERI}} yer tutucusu var; varsayilan metin
@@ -344,13 +350,16 @@ QString TeklifPdfOlusturucu::sozlesmeDegiskenleriniUygula(const QString &metin, 
 
     // {{GECERLILIK_TARIHI}} = teklif tarihi + varsayilan gun; {{GECERLILIK_TARIHI+N}} = teklif tarihi + N gun.
     static const QRegularExpression gecerlilikDeseni(QStringLiteral("\\{\\{GECERLILIK_TARIHI(?:\\s*\\+\\s*(\\d{1,4}))?\\}\\}"));
+    // Teklifin kendi gunu (db/25); saklanmamissa eski sabit.
+    const int teklifGunu = veri.value("gecerlilikGunu").toInt();
+    const int varsayilanGun = teklifGunu > 0 ? teklifGunu : kVarsayilanGecerlilikGunu;
     QString doldurulmus;
     qsizetype son = 0;
     auto it = gecerlilikDeseni.globalMatch(sonuc);
     while (it.hasNext())
     {
         const QRegularExpressionMatch m = it.next();
-        const int gun = m.captured(1).isEmpty() ? kVarsayilanGecerlilikGunu : m.captured(1).toInt();
+        const int gun = m.captured(1).isEmpty() ? varsayilanGun : m.captured(1).toInt();
         doldurulmus += sonuc.mid(son, m.capturedStart() - son);
         doldurulmus += teklifTarihi.addDays(gun).toString(tarihBicimi);
         son = m.capturedEnd();

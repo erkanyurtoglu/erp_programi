@@ -60,7 +60,7 @@ ApplicationWindow {
             color: "white"
             font.family: Theme.fontAilesi
             font.bold: true
-            text: "Veritabanına bağlanılamadı. EXCALIBUR\\SQLEXPRESS sunucusunun ve ODBC sürücüsünün çalıştığından emin olun."
+            text: "Veritabanına bağlanılamadı. " + database.sunucuAdi + " sunucusunun ve ODBC sürücüsünün çalıştığından emin olun."
         }
     }
 

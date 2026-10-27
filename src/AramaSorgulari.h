@@ -45,6 +45,52 @@ QVariantMap tedarikciListesiSorgusu(QSqlDatabase &db, const QString &arama,
 // 27 saniye bekletebiliyordu (bkz. gunlukteki [YAVAS] rolListesiGetir kaydi).
 QVariantList rolListesiSorgusu(QSqlDatabase &db);
 
+// Yonetim / Roller ve Yetkiler ekrani. Donen harita:
+//   "moduller": [{modulId, modulKodu, modulAdi}]
+//   "roller":   [{rolId, rolAdi, sistemRolu (bool), toplamKisi (int, pasifler dahil),
+//                 aktifPersonel (QStringList, ad soyad),
+//                 yetkiler: {"<modulId>": {gorebilir, duzenleyebilir}}}]
+// Sorgu calismazsa BOS harita doner.
+QVariantMap rolYetkiListesiSorgusu(QSqlDatabase &db);
+
+// Yonetim / Sistem Ayarlari ekrani. Donen harita:
+//   "tabloVar": dbo.ayarlar var mi (db/17),
+//   "ayarlar":  [{anahtar, tur ("sayi"/"metin"), grup, baslik, notMetni,
+//                 guncellemeTarihi (string, bos olabilir), ve
+//                 sayi icin:  birim, deger (double), enAz, enFazla, ondalik;
+//                 metin icin: metin (kayitli metin; bos = fabrika metni), varsayilanMetin}]
+//               -- ayarTanimlari() sirasiyla.
+// Sorgu calismazsa BOS harita doner.
+QVariantMap ayarListesiSorgusu(QSqlDatabase &db);
+
+// Yonetim / Ozet (pano): secilen donemin teklif sayilari ve kabul edilen
+// tutarlar. "donem": "buAy" | "gecenAy" | "buYil" | "tumu" | "ozel"; "ozel"de
+// ozelBaslangic / ozelBitis ("yyyy-MM-dd", iki gun de dahil). Donen harita:
+//   donem, baslangic, bitis (dd.MM.yyyy; "tumu"de bos), verilen, kabul, red, bekleyen (int),
+//   kabulOrani (double, %, kabul / verilen; donemde teklif yoksa -1),
+//   kabulTutarlari: [{paraBirimi, adet, tutar}]  (KDV haric, kura cevrilmez),
+//   personeller:    [{kullaniciId, adSoyad, verilen, kabul, red, bekleyen,
+//                     tutarlar: [{paraBirimi, tutar}]}]
+// Sayim kurallari sorgunun ustunde (AramaSorgulari.cpp). Hata: bos harita.
+QVariantMap panoOzetiSorgusu(QSqlDatabase &db, const QString &donem,
+                              const QString &ozelBaslangic, const QString &ozelBitis);
+
+// Yonetim / Islem Gecmisi: tum tekliflerin olaylari (olusturma / revizyon,
+// durum degisikligi, duzeltme), yeniden eskiye, sayfali.
+// "suzgec": kullaniciId (int, 0 = hepsi), tur ("" | "olusturma" | "durum" |
+//   "duzeltme"), baslangic / bitis ("yyyy-MM-dd", iki gun de dahil, bos olabilir),
+//   arama (Teklif No ya da firma adi).
+// Donen: kayitlar [{tur, teklifId, teklifNo, firmaAdi, personel, tarih
+//   (dd.MM.yyyy HH:mm), baslik, aciklama}], toplamKayit, toplamSayfa,
+//   mevcutSayfa, personeller [{kullaniciId, adSoyad, aktifMi}].
+// Hata: bos harita.
+QVariantMap islemGecmisiSorgusu(QSqlDatabase &db, const QVariantMap &suzgec, int sayfaNo, int sayfaBoyutu);
+
+// Cihaz Maliyetleri listesi: [{cihazId, cihazAdi, karOrani, toplamMaliyetTL,
+// satisFiyatiTL, aktifMi, kalemSayisi, guncellemeTarihi (dd.MM.yyyy),
+// katalogFiyat (double veya null), katalogParaBirimi}]. db/17 yoksa bos.
+QVariantList cihazListesiSorgusu(QSqlDatabase &db, const QString &arama, bool arsivDahil);
+
 // ---- Gecmis Teklifler (Giden / Alinan / Biten Tekliflerim) ----
 // Donen haritanin sekli ve kayit anahtarlari icin bkz. Database::gecmisTekliflerGetir.
 // Bu sorgu da ayni dosyaya tasindi cunku UI thread'inde calistiginda

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QList>
 #include <QString>
 
 class QSqlDatabase;
@@ -34,3 +35,44 @@ bool manuelKoduMu(const QString &urunKodu);
 // ayni davranis). Onbellek thread-guvenlidir -- ana baglanti ile arama
 // worker'inin baglantisi ayni onbellegi paylasir.
 bool semaKolonuVarMi(QSqlDatabase &db, const QString &tablo, const QString &kolon);
+
+// "Yönetici" ve goc donemindeki "Göç - Geçici Tam Yetkili" rolleri SISTEM
+// rolleridir: yonetici sifresi dogrulamasi ve "son yonetici" korumalari
+// (Database::yoneticiSifresiDogrula / aktifYoneticiSayisi) bu rolleri ADIYLA
+// tanir. Bu yuzden Roller ve Yetkiler ekraninda adlari ve yetkileri
+// degistirilemez; "Yönetici" silinemez, goc rolu ise kimseye atanmamissa
+// silinebilir.
+bool sistemRoluMu(const QString &rolAdi);
+
+// Yonetim / Sistem Ayarlari ekraninda duzenlenebilen dbo.ayarlar anahtarlari.
+// Ekran bu listeye gore kurulur; kaydetmede deger buradaki sinirlarla
+// denetlenir. Yeni bir ayar icin listeye satir eklemek yeterlidir (degeri
+// okuyan yer Database::ayarSayiGetir / ayarMetniGetir'i kullanir). Tabloda
+// satiri olmayan ayar varsayilan degeriyle gosterilir ve calisir.
+//
+// Iki tur var:
+//   "sayi"  -> varsayilan / enAz / enFazla / ondalik / birim kullanilir.
+//   "metin" -> uzun duz metin (ör. varsayilan satis sozlesmesi). Bos ya da
+//              varsayilanMetin ile ayni deger kaydedilmez (NULL yazilir):
+//              boylece koddaki fabrika metni guncellenirse ayar onu izler.
+struct AyarTanimi
+{
+    QString anahtar;
+    QString tur;        // "sayi" | "metin"
+    QString grup;       // ekrandaki bolum basligi
+    QString baslik;
+    QString notMetni;   // bos olabilir
+    QString birim;      // "%", "TL", "gün" (yalnizca sayi)
+    double varsayilan;
+    double enAz;
+    double enFazla;
+    int ondalik;
+    QString varsayilanMetin;    // yalnizca metin
+};
+
+// Varsayilan satis sozlesmesi ayar anahtari (dil: "TR" / "EN").
+QString sozlesmeAyarAnahtari(const QString &dil);
+
+const QList<AyarTanimi> &ayarTanimlari();
+// Bulunamazsa nullptr.
+const AyarTanimi *ayarTanimiBul(const QString &anahtar);

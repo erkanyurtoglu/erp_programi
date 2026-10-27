@@ -38,6 +38,30 @@ Dialog {
     // Bu teklife uymadigi icin gizlenen (PDF'e basilmayacak) madde sayisi.
     property int gizliMaddeSayisi: 0
 
+    // Yonetim / Sistem Ayarlari'nda VARSAYILAN metin duzenlenirken true:
+    // teklif yoktur, hicbir madde gizlenmez; kosullu maddelerin yaninda hangi
+    // tekliflerde basilacaklari yazar ve degiskenler ornek bir teklifle
+    // doldurulur (bkz. Database::sozlesmeSatirlari). Acan ekran ayrica
+    // teklifVerisi'ne { dil, varsayilanModu: true } verir.
+    property bool varsayilanModu: false
+    property string baslik: "Satış Sözleşmesi"
+    property string varsayilanButonMetni: "Varsayılana Dön"
+
+    // "[DOVIZ] [NAKLIYE_HARIC] " -> "Döviz teklifinde · Nakliye hariçse"
+    function kosulAciklamasi(etiketler) {
+        const adlar = {
+            "DOVIZ": "Döviz teklifinde", "TL": "TL teklifinde",
+            "KDV_DAHIL": "KDV dahilse", "KDV_HARIC": "KDV hariçse",
+            "NAKLIYE_DAHIL": "Nakliye dahilse", "NAKLIYE_HARIC": "Nakliye hariçse"
+        }
+        const parcalar = []
+        const desen = /\[([A-Z_]+)\]/g
+        let m
+        while ((m = desen.exec(etiketler)) !== null)
+            parcalar.push(adlar[m[1]] || m[1])
+        return parcalar.join(" · ")
+    }
+
     // Kullanici "Kaydet"e bastiginda, duzenlenmis metinle yayinlanir.
     signal kaydedildi(string yeniMetin)
 
@@ -241,7 +265,7 @@ Dialog {
         Label {
             Layout.topMargin: 18
             Layout.fillWidth: true
-            text: "Satış Sözleşmesi"
+            text: kok.baslik
             color: Theme.metinBirincil
             font.family: Theme.fontAilesi
             font.bold: true
@@ -283,9 +307,13 @@ Dialog {
                             required property bool gorunur
                             required property bool altGorunum
                             required property int numara
+                            required property string etiketler
                             property alias alan: satirAlani
 
                             readonly property int girinti: altGorunum ? 28 : 0
+                            readonly property string kosul: kok.varsayilanModu
+                                                            ? kok.kosulAciklamasi(satirOgesi.etiketler) : ""
+                            readonly property int kosulGenisligi: kosul.length > 0 ? kosulRozeti.width + 10 : 0
 
                             width: satirSutunu.width
                             visible: gorunur
@@ -303,10 +331,32 @@ Dialog {
                                 font.pixelSize: satirOgesi.altGorunum ? Theme.fontBoyutKucuk : Theme.fontBoyutNormal
                             }
 
+                            // Varsayilan modda: bu madde yalnizca hangi tekliflerde basilir.
+                            Rectangle {
+                                id: kosulRozeti
+                                visible: satirOgesi.kosul.length > 0
+                                anchors.right: parent.right
+                                y: satirAlani.topPadding
+                                width: kosulYazisi.implicitWidth + 14
+                                height: 20
+                                radius: 4
+                                color: Theme.vurguZeminSoluk
+                                border.width: 1
+                                border.color: Theme.kenarlikVurguSoluk
+                                Text {
+                                    id: kosulYazisi
+                                    anchors.centerIn: parent
+                                    text: satirOgesi.kosul
+                                    color: Theme.vurguAcik
+                                    font.family: Theme.fontAilesi
+                                    font.pixelSize: 10
+                                }
+                            }
+
                             TextArea {
                                 id: satirAlani
                                 x: satirOgesi.girinti + 32
-                                width: parent.width - x
+                                width: parent.width - x - satirOgesi.kosulGenisligi
                                 text: satirOgesi.gorunen
                                 readOnly: kok.saltOkunur
                                 background: null
@@ -344,6 +394,9 @@ Dialog {
             font.family: Theme.fontAilesi
             font.pixelSize: Theme.fontBoyutKucuk
             text: "Enter: yeni madde  ·  Tab: alt madde  ·  Shift+Tab: ana madde  ·  Boş maddede Backspace: sil"
+                  + (kok.varsayilanModu
+                     ? "\nPara birimi, KDV, tarih ve teslimat bilgileri örnektir; her teklifte o teklifin bilgileriyle dolar."
+                     : "")
                   + (kok.gizliMaddeSayisi > 0
                      ? "\nBu teklifin para birimi / nakliye / KDV seçimine uymayan "
                        + kok.gizliMaddeSayisi + " alternatif madde gizli; seçim değişirse PDF'te onlar çıkar."
@@ -360,7 +413,7 @@ Dialog {
                 visible: !kok.saltOkunur
                 Layout.preferredWidth: 150
                 Layout.preferredHeight: Theme.girdiYuksekligi
-                text: "Varsayılana Dön"
+                text: kok.varsayilanButonMetni
                 // Metni geri almak icin bir sonraki adim yok: kullanici yanlislikla
                 // basarsa "İptal" ile pencereyi kapatip degisiklikleri atabilir.
                 onClicked: kok.modeliDoldur(kok.varsayilanMetin)
@@ -409,7 +462,7 @@ Dialog {
                 visible: !kok.saltOkunur
                 Layout.preferredWidth: 150
                 Layout.preferredHeight: Theme.girdiYuksekligi
-                text: "Sözleşmeyi Kaydet"
+                text: kok.varsayilanModu ? "Tamam" : "Sözleşmeyi Kaydet"
                 onClicked: {
                     kok.kaydedildi(kok.metniTopla())
                     kok.close()

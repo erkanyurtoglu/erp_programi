@@ -90,6 +90,11 @@ qt_add_qml_module(erp_programi
         qml/pages/TalepDuzenlePage.qml
         qml/pages/SatinalmaSiparislerPage.qml
         qml/pages/YonetimModuluPage.qml
+        qml/pages/RollerYetkilerPage.qml
+        qml/pages/SistemAyarlariPage.qml
+        qml/pages/YonetimOzetPage.qml
+        qml/pages/IslemGecmisiPage.qml
+        qml/pages/CihazMaliyetleriPage.qml
         qml/components/ModulIkonu.qml
         qml/components/TarihTakvimi.qml
         qml/components/SozlesmeDuzenleDialog.qml
@@ -129,7 +134,10 @@ target_link_libraries(erp_programi PRIVATE
 )
 
 set_target_properties(erp_programi PROPERTIES
-    WIN32_EXECUTABLE OFF   # Konsol penceresi acik kalsin; hata mesajlarini gormek icin.
+    # Debug'da konsol penceresi acik kalsin (hata mesajlarini gormek icin);
+    # Release'de kullaniciya yalnizca program penceresi acilsin. Release'de de
+    # tum cikti gunluk dosyasina yazilmaya devam eder (bkz. Tanilama.cpp).
+    WIN32_EXECUTABLE $<NOT:$<CONFIG:Debug>>
 )
 
 # Windows'ta Qt DLL'leri PATH'te olmadigi icin exe calismiyor (STATUS_DLL_NOT_FOUND).

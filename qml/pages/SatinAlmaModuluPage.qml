@@ -14,6 +14,8 @@ import erp_programi
 //                           cikmadan acilir (bkz. SiparisPencereleri).
 //   Siparişler           -> talepten bagimsiz arama ve toplu takip (gelen koli,
 //                           gecikenler, patron onayi, fatura bekleyenler).
+//   Cihaz Maliyetleri    -> recete kalemlerinin fiyatlari (kar orani / satis
+//                           fiyati yalnizca Yonetim'i gorene acik).
 //
 // Talep ekrani (TalepDuzenlePage) menude kendi maddesi olmayan bir ALT
 // SAYFADIR: yeni talepte "Talep Oluştur", mevcut talepte "Talepler" secili
@@ -48,6 +50,7 @@ Item {
     readonly property int sayfaTalep: 1
     readonly property int sayfaSiparisler: 2
     readonly property int sayfaTedarikciler: 3
+    readonly property int sayfaCihazlar: 4
 
     readonly property bool yeniTalepAcik: icerik.currentIndex === root.sayfaTalep && talepPage.talepId === 0
 
@@ -77,6 +80,10 @@ Item {
                             "Açık talepte kaydedilmemiş değişiklikler var. Kaydetmeden çıkılsın mı?",
                             "Kaydetmeden Çık", true,
                             function() { talepPage.degisti = false; islem() })
+            return
+        }
+        if (icerik.currentIndex === root.sayfaCihazlar && cihazlarPage.degisti) {
+            cihazlarPage.gecisYap(function() { cihazlarPage.formuKapat(); islem() })
             return
         }
         islem()
@@ -239,6 +246,15 @@ Item {
                     })
                 }
 
+                YanMenuButonu {
+                    metin: "Cihaz Maliyetleri"
+                    secili: icerik.currentIndex === root.sayfaCihazlar
+                    onTiklandi: root.menudenGit(function() {
+                        icerik.currentIndex = root.sayfaCihazlar
+                        cihazlarPage.sayfayiYukle()
+                    })
+                }
+
                 Item { Layout.fillHeight: true }
             }
         }
@@ -276,6 +292,11 @@ Item {
                 id: tedarikcilerimPage
                 otomatikYukle: false
                 duzenleyebilir: root.satinalmaDuzenleyebilir
+            }
+
+            CihazMaliyetleriPage {
+                id: cihazlarPage
+                otomatikYukle: false
             }
         }
     }

@@ -87,7 +87,11 @@ public:
     // HTML'e cevirme isi sozlesmeMetniniHtmleCevir'de yapilir.
     static QString varsayilanSozlesmeMetni(bool ingilizce);
 
-    // {{GECERLILIK_TARIHI}} gun sayisi verilmeden yazildiginda teklif tarihine eklenen gun.
+    // {{GECERLILIK_TARIHI}} icin teklifin kendi gunu ("gecerlilikGunu", db/25)
+    // yoksa kullanilan gun: gunu saklanmamis ESKI teklifler bu sureyle
+    // verilmisti. DEGISTIRMEYIN -- degisirse eski tekliflerin PDF'indeki
+    // gecerlilik tarihi de kayar. Yeni tekliflerin suresi Yonetim / Sistem
+    // Ayarlari'ndan (TEKLIF_GECERLILIK_GUNU) gelir.
     static constexpr int kVarsayilanGecerlilikGunu = 3;
 
     // Sozlesme metnindeki teklife bagli isaretleri doldurur (metin kullanici
@@ -101,7 +105,8 @@ public:
     //     {{PARA_BIRIMI}} (ör. "Amerikan Doları (USD)"), {{PARA_KODU}} (USD/EUR/TL),
     //     {{KDV_DURUMU}} ("%20 KDV dahildir" / "KDV hariçtir"), {{KDV_ORANI}},
     //     {{TARIH}} (teklif tarihi), {{GECERLILIK_TARIHI}} (teklif tarihi +
-    //     kVarsayilanGecerlilikGunu), {{GECERLILIK_TARIHI+N}} (teklif tarihi + N gun),
+    //     veri["gecerlilikGunu"]; yoksa kVarsayilanGecerlilikGunu),
+    //     {{GECERLILIK_TARIHI+N}} (teklif tarihi + N gun),
     //     {{TESLIMAT_SEKLI}}, {{TESLIMAT_YERI}}.
     // "teklifTarihi": kayitli teklifte OlusturmaTarihi, henuz kaydedilmemis
     // formda bugun. Tarihler TR'de dd.MM.yyyy, EN'de dd/MM/yyyy yazilir.

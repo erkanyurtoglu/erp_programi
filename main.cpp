@@ -32,7 +32,7 @@ int main(int argc, char *argv[])
     PdfOnizleyici pdfOnizleyici;
     qInfo() << "[olcum] acilis: PdfOnizleyici" << acilis.restart() << "ms";
 
-    // Kurlar arka planda cekilir; gelmezse ekranlar elle girise duser.
+
     KurServisi kurServisi;
     kurServisi.yenile();
 

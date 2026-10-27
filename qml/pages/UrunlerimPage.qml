@@ -209,7 +209,9 @@ Item {
                 Label { text: "ÜRÜN KODU"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 110 }
                 Label { text: "KATEGORİ"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 130 }
                 Label { text: "AÇIKLAMA"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.fillWidth: true }
-                Label { text: "BİRİM FİYAT"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 110 }
+                Label { text: "FİYAT (TL)"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 110 }
+                Label { text: "USD"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 90 }
+                Label { text: "EUR"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 90 }
                 Label { text: "MALİYET"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 100 }
                 Label { text: "İŞLEMLER"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 196 }
             }
@@ -319,6 +321,25 @@ Item {
                             font.family: Theme.fontAilesi
                             font.pixelSize: Theme.fontBoyutNormal
                             Layout.preferredWidth: 110
+                            Layout.fillHeight: true
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        // USD / EUR liste fiyatlari TL'den bagimsizdir; girilmemisse "—".
+                        Text {
+                            text: satir.modelData.fiyatUSD > 0 ? root.paraFormat(satir.modelData.fiyatUSD) + " $" : "—"
+                            color: satir.modelData.fiyatUSD > 0 ? Theme.metinIkincil : Theme.metinCokSoluk
+                            font.family: Theme.fontAilesi
+                            font.pixelSize: Theme.fontBoyutNormal
+                            Layout.preferredWidth: 90
+                            Layout.fillHeight: true
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        Text {
+                            text: satir.modelData.fiyatEUR > 0 ? root.paraFormat(satir.modelData.fiyatEUR) + " €" : "—"
+                            color: satir.modelData.fiyatEUR > 0 ? Theme.metinIkincil : Theme.metinCokSoluk
+                            font.family: Theme.fontAilesi
+                            font.pixelSize: Theme.fontBoyutNormal
+                            Layout.preferredWidth: 90
                             Layout.fillHeight: true
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -468,6 +489,9 @@ Item {
             aciklamaAlani.text = kayit ? kayit.urunAciklamasi : ""
             aciklamaEnAlani.text = kayit ? kayit.urunAciklamasiEn : ""
             birimFiyatBicimi.ayarla(kayit ? kayit.birimFiyat : 0)
+            // Girilmemis doviz fiyati "0,00" degil bos gorunur ("Girilmedi").
+            if (kayit && kayit.fiyatUSD > 0) fiyatUsdBicimi.ayarla(kayit.fiyatUSD); else fiyatUsdBicimi.temizle()
+            if (kayit && kayit.fiyatEUR > 0) fiyatEurBicimi.ayarla(kayit.fiyatEUR); else fiyatEurBicimi.temizle()
             maliyetBicimi.ayarla(kayit ? kayit.maliyet : 0)
             duzenlemeDialogu.acilisAnlikGoruntusu = JSON.stringify(duzenlemeDialogu.formAlani())
             duzenlemeDialogu.open()
@@ -480,6 +504,8 @@ Item {
                 urunAciklamasi: aciklamaAlani.text.trim(),
                 urunAciklamasiEn: aciklamaEnAlani.text.trim(),
                 birimFiyat: birimFiyatBicimi.deger,
+                fiyatUSD: fiyatUsdBicimi.deger,
+                fiyatEUR: fiyatEurBicimi.deger,
                 maliyet: maliyetBicimi.deger
             }
         }
@@ -556,7 +582,7 @@ Item {
                 spacing: 10
                 EtiketliAlan {
                     id: birimFiyatAlani
-                    etiket: "BİRİM SATIŞ FİYATI (TL)"
+                    etiket: "SATIŞ FİYATI (TL)"
                     placeholderText: "0,00"
                     SayiBicimlendirici { id: birimFiyatBicimi; hedef: birimFiyatAlani.alan }
                 }
@@ -565,6 +591,24 @@ Item {
                     etiket: "MALİYET (TL)"
                     placeholderText: "0,00"
                     SayiBicimlendirici { id: maliyetBicimi; hedef: maliyetAlani.alan }
+                }
+            }
+            // USD / EUR fiyatlari TL fiyatindan bagimsizdir; teklifte o para
+            // birimi secilince dogrudan bunlar kullanilir. Bos = fiyat yok.
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                EtiketliAlan {
+                    id: fiyatUsdAlani
+                    etiket: "SATIŞ FİYATI (USD)"
+                    placeholderText: "Girilmedi"
+                    SayiBicimlendirici { id: fiyatUsdBicimi; hedef: fiyatUsdAlani.alan }
+                }
+                EtiketliAlan {
+                    id: fiyatEurAlani
+                    etiket: "SATIŞ FİYATI (EUR)"
+                    placeholderText: "Girilmedi"
+                    SayiBicimlendirici { id: fiyatEurBicimi; hedef: fiyatEurAlani.alan }
                 }
             }
 

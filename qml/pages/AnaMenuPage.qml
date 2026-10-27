@@ -4,14 +4,10 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import erp_programi
 
-// Giris yapan kullanicinin yetkili oldugu modulleri gosteren ana menu.
-// modulKodu degerleri Database::kullaniciModulleriniGetir()'den (dolayisiyla
-// dbo.moduller.ModulKodu'dan) geliyor: SATIS, SATINALMA, STOK, MUHASEBE, YONETIM.
 Rectangle {
     id: kok
     color: Theme.arkaplan
 
-    // AnaMenuPage.qml disaridan set edilir (Main.qml, girisYap() sonucundan).
     property string adSoyad: ""
     property var moduller: []
 
@@ -19,14 +15,9 @@ Rectangle {
     signal teklifVerSecildi()
     signal cikisYapildi()
 
-    // Her modul icin baslik/aciklama/ikon/vurgu rengi. Renkler Sliper referansindaki
-    // gibi her modulu kendi kimligiyle ayirt etmek icin farklilastirildi; marka
-    // vurgusu (Theme.vurgu) yine de en sik kullanilan modul olan Satis'ta.
     readonly property var modulGorunumleri: ({
         "SATIS":      { baslik: "Satış / Teklif", aciklama: "Teklif oluştur, ürün ekle, PDF indir", ikon: "belge",  renk: Theme.vurgu,  aktif: true },
-        "STOK":       { baslik: "Stok",           aciklama: "Envanter ve stok hareketleri",         ikon: "kutu",   renk: "#f59e0b",    aktif: false },
         "SATINALMA":  { baslik: "Satınalma",      aciklama: "Tedarikçi ve sipariş yönetimi",        ikon: "sepet",  renk: "#14b8a6",    aktif: true },
-        "MUHASEBE":   { baslik: "Muhasebe",       aciklama: "Fatura ve muhasebe kayıtları",         ikon: "cuzdan", renk: "#22c55e",    aktif: false },
         "YONETIM":    { baslik: "Yönetim",        aciklama: "Personel, rol ve sistem ayarları",     ikon: "disli",  renk: "#8b5cf6",    aktif: true }
     })
 
@@ -85,8 +76,7 @@ Rectangle {
             }
         }
 
-        // Hizli eylem: yeni teklif olusturma. Ayri, vurgulu bir sekilde en usttte
-        // cunku is akisinin en sik kullanilan eylemi bu.
+
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 80
@@ -182,41 +172,45 @@ Rectangle {
         }
 
         GridLayout {
-            columns: 5
-            rowSpacing: 18
-            columnSpacing: 18
-            Layout.fillWidth: true
+            columns: 4
+            rowSpacing: 24
+            columnSpacing: 24
+            Layout.alignment: Qt.AlignHCenter
 
             Repeater {
                 model: kok.moduller
 
                 delegate: Rectangle {
                     id: kart
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 210
+                    Layout.preferredWidth: 250
+                    Layout.preferredHeight: 340
                     radius: Theme.radiusBuyuk
-                    color: kart.gorunum.aktif && kartAlani.containsMouse ? Theme.panelHover : Theme.panel
-                    border.width: kart.gorunum.aktif && kartAlani.containsMouse ? 1.5 : 1
-                    border.color: kart.gorunum.aktif && kartAlani.containsMouse ? Theme.kenarlikVurgu : Theme.kenarlik
+                    color: kart.vurgulu ? Theme.panelHover : Theme.panel
+                    border.width: kart.vurgulu ? 1.5 : 1
+                    border.color: kart.vurgulu ? kart.gorunum.renk : Theme.kenarlik
+                    scale: kart.vurgulu ? 1.04 : 1.0
+                    z: kart.vurgulu ? 1 : 0
 
                     readonly property var gorunum: kok.modulGorunumleri[modelData.modulKodu]
                         ?? { baslik: modelData.modulAdi, aciklama: "", ikon: "disli", renk: Theme.metinSoluk, aktif: false }
+                    readonly property bool vurgulu: kart.gorunum.aktif && kartAlani.containsMouse
 
-                    // Secili/aktif durumda kart cevresine hafif bir mavi parlama halkasi.
                     Rectangle {
                         anchors.fill: parent
-                        anchors.margins: -3
-                        radius: parent.radius + 3
+                        anchors.margins: -4
+                        radius: parent.radius + 4
                         color: "transparent"
-                        border.width: 1
-                        border.color: Theme.kenarlikVurgu
-                        opacity: kart.gorunum.aktif && kartAlani.containsMouse ? 0.35 : 0
+                        border.width: 2
+                        border.color: kart.gorunum.renk
+                        opacity: kart.vurgulu ? 0.25 : 0
                         z: -1
 
-                        Behavior on opacity { NumberAnimation { duration: 120 } }
+                        Behavior on opacity { NumberAnimation { duration: 180 } }
                     }
 
-                    Behavior on border.color { ColorAnimation { duration: 120 } }
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on color { ColorAnimation { duration: 180 } }
+                    Behavior on border.color { ColorAnimation { duration: 180 } }
 
                     MouseArea {
                         id: kartAlani
@@ -231,16 +225,22 @@ Rectangle {
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: 20
-                        spacing: 10
+                        anchors.margins: 24
+                        spacing: 22
+
+                        Item { Layout.fillHeight: true }
 
                         Rectangle {
-                            Layout.preferredWidth: 56
-                            Layout.preferredHeight: 56
+                            Layout.preferredWidth: 96
+                            Layout.preferredHeight: 96
                             Layout.alignment: Qt.AlignHCenter
-                            radius: 28
+                            radius: 48
                             color: kart.gorunum.renk
-                            opacity: kart.gorunum.aktif ? 0.14 : 0.07
+                            opacity: kart.vurgulu ? 0.22 : (kart.gorunum.aktif ? 0.14 : 0.07)
+                            scale: kart.vurgulu ? 1.08 : 1.0
+
+                            Behavior on opacity { NumberAnimation { duration: 180 } }
+                            Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
                             Rectangle {
                                 anchors.fill: parent
@@ -253,8 +253,8 @@ Rectangle {
 
                             ModulIkonu {
                                 anchors.centerIn: parent
-                                width: 26
-                                height: 26
+                                width: 44
+                                height: 44
                                 tur: kart.gorunum.ikon
                                 renk: kart.gorunum.aktif ? kart.gorunum.renk : Theme.metinSoluk
                             }
@@ -262,13 +262,12 @@ Rectangle {
 
                         ColumnLayout {
                             Layout.fillWidth: true
-                            Layout.topMargin: 2
-                            spacing: 3
+                            spacing: 8
 
                             Label {
                                 text: kart.gorunum.baslik
                                 font.family: Theme.fontAilesi
-                                font.pixelSize: Theme.fontBoyutOrta
+                                font.pixelSize: Theme.fontBoyutBaslik
                                 font.bold: true
                                 color: kart.gorunum.aktif ? Theme.metinBirincil : Theme.metinSoluk
                                 Layout.alignment: Qt.AlignHCenter
@@ -289,27 +288,7 @@ Rectangle {
                         }
 
                         Item { Layout.fillHeight: true }
-
-                        Rectangle {
-                            Layout.alignment: Qt.AlignHCenter
-                            Layout.preferredHeight: 24
-                            Layout.preferredWidth: durumEtiketi.implicitWidth + 20
-                            radius: 12
-                            color: kart.gorunum.aktif ? "#14532d" : Theme.panelVurgu
-                            border.width: 1
-                            border.color: kart.gorunum.aktif ? Theme.basari : Theme.kenarlik
-
-                            Label {
-                                id: durumEtiketi
-                                anchors.centerIn: parent
-                                text: kart.gorunum.aktif ? "✓ Aktif" : "Yakında"
-                                font.family: Theme.fontAilesi
-                                font.pixelSize: 10
-                                font.bold: true
-                                font.letterSpacing: 0.3
-                                color: kart.gorunum.aktif ? Theme.basariAcik : Theme.metinCokSoluk
-                            }
-                        }
+                        Item { Layout.fillHeight: true }
                     }
                 }
             }

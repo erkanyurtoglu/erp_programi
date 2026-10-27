@@ -122,6 +122,57 @@ void AramaWorker::rolListesiCalistir()
     emit rolListesiHazir(rolListesiSorgusu(m_db));
 }
 
+void AramaWorker::rolYetkiListesiCalistir()
+{
+    if (!baglantiHazir())
+    {
+        emit rolYetkiListesiHazir(QVariantMap());
+        return;
+    }
+    emit rolYetkiListesiHazir(rolYetkiListesiSorgusu(m_db));
+}
+
+void AramaWorker::ayarListesiCalistir()
+{
+    if (!baglantiHazir())
+    {
+        emit ayarListesiHazir(QVariantMap());
+        return;
+    }
+    emit ayarListesiHazir(ayarListesiSorgusu(m_db));
+}
+
+void AramaWorker::panoOzetiCalistir(int istekNo, const QString &donem,
+                                    const QString &ozelBaslangic, const QString &ozelBitis)
+{
+    if (!baglantiHazir())
+    {
+        emit panoOzetiHazir(istekNo, QVariantMap());
+        return;
+    }
+    emit panoOzetiHazir(istekNo, panoOzetiSorgusu(m_db, donem, ozelBaslangic, ozelBitis));
+}
+
+void AramaWorker::islemGecmisiCalistir(int istekNo, const QVariantMap &suzgec, int sayfaNo, int sayfaBoyutu)
+{
+    if (!baglantiHazir())
+    {
+        emit islemGecmisiHazir(istekNo, QVariantMap());
+        return;
+    }
+    emit islemGecmisiHazir(istekNo, islemGecmisiSorgusu(m_db, suzgec, sayfaNo, sayfaBoyutu));
+}
+
+void AramaWorker::cihazListesiCalistir(int istekNo, const QString &arama, bool arsivDahil)
+{
+    if (!baglantiHazir())
+    {
+        emit cihazListesiHazir(istekNo, QVariantList());
+        return;
+    }
+    emit cihazListesiHazir(istekNo, cihazListesiSorgusu(m_db, arama, arsivDahil));
+}
+
 void AramaWorker::teklifListesiCalistir(int istekNo, const QString &arama,
                                         const QString &tarihFiltresi,
                                         const QString &baslangicTarihi,

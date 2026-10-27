@@ -49,6 +49,12 @@ public slots:
     // varken her teklif icin teklif_kalemleri + urunler uzerinde EXISTS + LIKE
     // calisiyor, 3000+ kayitli veritabaninda pencere saniyelerce donuyordu.
     void rolListesiCalistir();
+    void rolYetkiListesiCalistir();
+    void ayarListesiCalistir();
+    void panoOzetiCalistir(int istekNo, const QString &donem,
+                           const QString &ozelBaslangic, const QString &ozelBitis);
+    void islemGecmisiCalistir(int istekNo, const QVariantMap &suzgec, int sayfaNo, int sayfaBoyutu);
+    void cihazListesiCalistir(int istekNo, const QString &arama, bool arsivDahil);
 
     void teklifListesiCalistir(int istekNo, const QString &arama,
                                const QString &tarihFiltresi, const QString &baslangicTarihi,
@@ -72,6 +78,11 @@ signals:
     void tedarikciListesiHazir(int istekNo, const QVariantMap &sonuc);
     void teklifListesiHazir(int istekNo, const QVariantMap &sonuc);
     void rolListesiHazir(const QVariantList &roller);
+    void rolYetkiListesiHazir(const QVariantMap &sonuc);
+    void ayarListesiHazir(const QVariantMap &sonuc);
+    void panoOzetiHazir(int istekNo, const QVariantMap &sonuc);
+    void islemGecmisiHazir(int istekNo, const QVariantMap &sonuc);
+    void cihazListesiHazir(int istekNo, const QVariantList &liste);
 
 private:
     // Kopmus baglantiyi gerekirse yeniden acar (bkz. Database::baglantiyiHazirla).

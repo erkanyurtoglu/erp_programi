@@ -327,6 +327,10 @@ Item {
     property int secilenMusteriId: 0
     property string secilenFirmaAdi: ""
 
+    // Yeni teklifin KDV kutusundaki ilk deger (Yonetim / Sistem Ayarlari).
+    // Ekran acilirken bir kez okunur; kayitli teklif acilinca onun orani yazilir.
+    readonly property real varsayilanKdvOrani: database.ayarSayiGetir("TEKLIF_VARSAYILAN_KDV_ORANI")
+
     // --- Sepet ---
     property var sepet: []
 
@@ -344,6 +348,10 @@ Item {
     // Acik kayitli teklifin tarihi (yyyy-MM-dd). Duzeltmede teklif tarihi
     // degismez; sozlesme onizlemesi PDF gibi gecerlilik tarihini bundan hesaplar.
     property string duzenlenenTeklifTarihi: ""
+    // Acik kayitli teklifin geçerlilik gunu (sozlesme onizlemesi icin). Yeni
+    // teklifte / kopyada 0'dir ve Sistem Ayarlari'ndaki sure kullanilir.
+    property int duzenlenenGecerlilikGunu: 0
+    readonly property int varsayilanGecerlilikGunu: database.ayarSayiGetir("TEKLIF_GECERLILIK_GUNU")
 
     // --- Kopyala akisi (Giden/Alınan/Biten Tekliflerim'deki "Kopya" butonu) ---
     // Satis personeli ayni icerikli teklifi farkli firmalara verebiliyor. Kopya,
@@ -538,6 +546,7 @@ Item {
         root.duzenlenenKaynakTeklifId = veri.teklifId
         root.duzenlenenTeklifNo = veri.teklifNo
         root.duzenlenenTeklifTarihi = veri.olusturmaTarihi || ""
+        root.duzenlenenGecerlilikGunu = veri.gecerlilikGunu || 0
         root.kopyaKaynakTeklifId = 0
         root.kopyaKaynakTeklifNo = ""
 
@@ -584,6 +593,7 @@ Item {
         root.duzenlenenKaynakTeklifId = 0
         root.duzenlenenTeklifNo = ""
         root.duzenlenenTeklifTarihi = ""
+        root.duzenlenenGecerlilikGunu = 0
         root.kopyaKaynakTeklifId = veri.teklifId
         root.kopyaKaynakTeklifNo = veri.teklifNo
 
@@ -737,8 +747,9 @@ Item {
             return Math.abs(t.kdvTutari - eskiKdv) <= 0.011 && Math.abs(t.kdvTutari - yeniKdv) > 0.011
         })()
 
-        // Bu teklife ozel bir sozlesme metni kaydedilmisse onu tasi; yoksa bos
-        // kalir ve "Satış Sözleşmesi" penceresi varsayilan metinle acilir.
+        // Teklife kayitli sozlesme metnini tasi. Bos ise eski (metni teklife
+        // yazilmamis) bir kayittir; pencere fabrika metniyle acilir
+        // (bkz. Database::teklifSozlesmeMetniGetir).
         root.sozlesmeMetni = veri.sozlesmeMetni !== undefined ? veri.sozlesmeMetni : ""
 
         // Hangi teklifte oldugumuz zaten basliktan ("Teklif 1203/Rev.2 Bilgileri") ve
@@ -757,6 +768,7 @@ Item {
         root.duzenlenenKaynakTeklifId = 0
         root.duzenlenenTeklifNo = ""
         root.duzenlenenTeklifTarihi = ""
+        root.duzenlenenGecerlilikGunu = 0
         root.kopyaKaynakTeklifId = 0
         root.kopyaKaynakTeklifNo = ""
         root.sozlesmeMetni = ""
@@ -788,7 +800,7 @@ Item {
 
         // Ticari sartlar da ekranin acilistaki varsayilanlarina doner.
         indirimAlaniWrap.ayarla(0)
-        kdvAlaniWrap.ayarla(20)
+        kdvAlaniWrap.ayarla(root.varsayilanKdvOrani)
         paketlemeAlaniWrap.ayarla(0)
         tasimaAlaniWrap.ayarla(0)
         dilCombo.currentIndex = 0
@@ -904,6 +916,82 @@ Item {
         root.sabitDovizPb = ""
         root.sabitDovizUygulandi = false
         root.sabitUcretler = null
+    }
+
+    // --- Urun LISTE fiyatlari (TL / USD / EUR) ---
+    // Bir urunun uc para birimindeki fiyati BIRBIRINDEN BAGIMSIZDIR: 1.000 TL'lik
+    // urun yurt disina 60 $'a satilabilir (dbo.urunler.BirimFiyat / FiyatUSD /
+    // FiyatEUR, bkz. db/26). Bu yuzden katalogdan eklenen kalemde secili para
+    // biriminin liste fiyati DOGRUDAN kullanilir; TL fiyati kura bolunmez.
+    // Doviz fiyati "sabit doviz" mekanizmasiyla tutulur (sabitBirimDoviz): TL
+    // karsiligi kur her kesinlestiginde yeniden hesaplanir.
+    // O para biriminde fiyat girilmemisse kalem 0 gelir ve elle girilir.
+    // Kalemin "listeFiyatlari" alani, kullanici birim fiyati elle degistirince
+    // silinir (bkz. sepetTutarGuncelle): elle verilen fiyat para birimi
+    // degisince ezilmez. Kayitli tekliften yuklenen kalemlerde bu alan yoktur.
+    function urunListeFiyatlari(urun) {
+        return { TL: urun.birimFiyat || 0, USD: urun.fiyatUSD || 0, EUR: urun.fiyatEUR || 0 }
+    }
+
+    function listeFiyati(listeFiyatlari, pb) {
+        return listeFiyatlari ? (listeFiyatlari[pb] || 0) : 0
+    }
+
+    // Kalemi secili para biriminin liste fiyatina getirir (yeni nesne doner).
+    function kalemeListeFiyatiUygula(kalem, pb) {
+        if (!kalem.listeFiyatlari)
+            return kalem
+        const yeni = Object.assign({}, kalem)
+        const fiyat = root.listeFiyati(kalem.listeFiyatlari, pb)
+        if (pb === "TL") {
+            delete yeni.sabitBirimDoviz
+            yeni.birimFiyatTl = fiyat
+        } else {
+            const kur = root.kurDegeri(pb)
+            yeni.sabitBirimDoviz = fiyat
+            // Kur henuz yoksa birimFiyatTl doviz tutarini tasir (yuklemedeki
+            // kural); kur gelince sabitDovizFiyatlariniUygula TL'ye cevirir.
+            yeni.birimFiyatTl = kur > 0 ? fiyat * kur : fiyat
+        }
+        return yeni
+    }
+
+    // Para birimi degisince katalog kalemlerini yeni para biriminin liste
+    // fiyatina getirir. Fiyati girilmemis urunler kullaniciya bildirilir.
+    function listeFiyatlariniUygula() {
+        const pb = paraBirimiCombo.currentText
+        let katalogKalemi = false
+        const eksikler = []
+        const yeniSepet = root.sepet.map(k => {
+            if (!k.listeFiyatlari)
+                return k
+            katalogKalemi = true
+            if (!(root.listeFiyati(k.listeFiyatlari, pb) > 0))
+                eksikler.push(k.urunKodu || k.aciklama)
+            return root.kalemeListeFiyatiUygula(k, pb)
+        })
+        if (!katalogKalemi)
+            return
+        root.sepetiDegistir(yeniSepet)
+        if (pb !== "TL") {
+            root.sabitDovizPb = pb
+            root.sabitDovizUygulandi = root.kurDegeri(pb) > 0
+        } else if (!yeniSepet.some(k => k.sabitBirimDoviz !== undefined)) {
+            // TL'ye donuldu ve doviz fiyati sabit kalem kalmadi: kur beklenmez.
+            root.sabitDovizPb = ""
+            root.sabitDovizUygulandi = false
+        }
+        root.eksikListeFiyatiBildir(eksikler, pb)
+    }
+
+    function eksikListeFiyatiBildir(eksikler, pb) {
+        if (eksikler.length === 0)
+            return
+        bilgiMesaji.color = Theme.uyariAcik
+        bilgiMesaji.text = (eksikler.length === 1 ? eksikler[0] + " ürününün " : eksikler.length + " ürünün ")
+                           + pb + " fiyatı girilmemiş; fiyatı sepette elle girin."
+                           + (eksikler.length > 1 ? " (" + eksikler.slice(0, 5).join(", ")
+                                                    + (eksikler.length > 5 ? ", …" : "") + ")" : "")
     }
 
     function paraBirimiSembol(pb) {
@@ -1056,9 +1144,12 @@ Item {
         const yeniSepet = root.sepet.slice()
         const kalem = Object.assign({}, yeniSepet[dizinIndex])
         kalem[alanAdi] = yeniTl
-        if (alanAdi === "birimFiyatTl")
+        if (alanAdi === "birimFiyatTl") {
             delete kalem.sabitBirimDoviz
-        else if (alanAdi === "maliyet")
+            // Elle verilen fiyat artik esastir: para birimi degisince liste
+            // fiyatiyla ezilmesin (bkz. listeFiyatlariniUygula).
+            delete kalem.listeFiyatlari
+        } else if (alanAdi === "maliyet")
             delete kalem.sabitMaliyetDoviz
         yeniSepet[dizinIndex] = kalem
         root.sepetiDegistir(yeniSepet)
@@ -1161,14 +1252,18 @@ Item {
             teslimatSekli: teslimatSekliAlani.text,
             teslimatYeri: teslimatYeriAlani.text,
             teslimatTarihi: root.teslimatTarihi,
+            // Yalnizca sozlesme onizlemesindeki {{GECERLILIK_TARIHI}} icin;
+            // kayitta sunucu yeni teklife Sistem Ayarlari'ndaki sureyi yazar.
+            gecerlilikGunu: root.duzenlenenKaynakTeklifId > 0 && root.duzenlenenGecerlilikGunu > 0
+                            ? root.duzenlenenGecerlilikGunu : root.varsayilanGecerlilikGunu,
             musteriNotu: root.musteriNotu.trim(),
             uretimNotu: root.uretimNotu.trim(),
             indirimliToplam: h.indirimliToplam,
             kdvTutari: h.kdvTutari,
             genelToplam: h.genelToplam,
             kalemler: kalemler,
-            // Bos ise teklifKaydet() SatisSozlesmesiMetni'ni NULL birakir ve
-            // PDF, dilin varsayilan sozlesme metnini kullanir.
+            // Bos ise teklifKaydet() dilin varsayilan metnini teklife yazar;
+            // teklifDuzelt() ise kayitli metne dokunmaz.
             sozlesmeMetni: root.sozlesmeMetni,
             // 0 ise (normal "yeni teklif" akisi) teklifKaydet() bunu tamamen
             // yok sayar -- davranis degismez. >0 ise (Detay -> Revize Et akisi)
@@ -1235,6 +1330,17 @@ Item {
     }
 
     function sepeteEkle(kalem) {
+        // Katalogdan gelen kalem secili para biriminin liste fiyatiyla girer.
+        const pb = paraBirimiCombo.currentText
+        if (kalem.listeFiyatlari) {
+            kalem = root.kalemeListeFiyatiUygula(kalem, pb)
+            if (pb !== "TL" && root.sabitDovizPb !== pb) {
+                root.sabitDovizPb = pb
+                root.sabitDovizUygulandi = root.kurDegeri(pb) > 0
+            }
+            if (!(root.listeFiyati(kalem.listeFiyatlari, pb) > 0))
+                root.eksikListeFiyatiBildir([kalem.urunKodu || kalem.aciklama], pb)
+        }
         const yeniSepet = root.sepet.slice()
         // Ayni urun zaten sepette varsa yeni bir satir eklemek yerine
         // mevcut satirin adedini artir (manuel eklenen kalemler haric).
@@ -1865,7 +1971,7 @@ Item {
                                 Layout.maximumWidth: 100
                                 spacing: 4
                                 Label { text: "KDV %"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
-                                UcretAlani { id: kdvAlaniWrap; baslangicDegeri: 20; birim: "%"; enFazla: 100 }
+                                UcretAlani { id: kdvAlaniWrap; baslangicDegeri: root.varsayilanKdvOrani; birim: "%"; enFazla: 100 }
                             }
                         }
                         RowLayout {
@@ -2085,8 +2191,14 @@ Item {
                                     model: ["TL", "USD", "EUR"]
                                     // Yalnizca KULLANICI secimi (programdan yapilan
                                     // currentIndex atamasi activated yaymaz).
-                                    onActivated: if (paraBirimiCombo.currentText !== root.sabitDovizPb)
-                                                     root.sabitDovizBaglariniKaldir()
+                                    // Katalog kalemleri yeni para biriminin LISTE fiyatina
+                                    // gecer; elle fiyatlanmis / kayitli kalemlerin TL
+                                    // karsiligi korunur (bkz. listeFiyatlariniUygula).
+                                    onActivated: {
+                                        if (paraBirimiCombo.currentText !== root.sabitDovizPb)
+                                            root.sabitDovizBaglariniKaldir()
+                                        root.listeFiyatlariniUygula()
+                                    }
                                     // TL disi bir para birimine gecildiginde, kur henuz
                                     // girilmemisse (0) otomatik olarak internetten cekmeyi
                                     // dene -- kullanicinin ayrica "Kuru Güncelle"ye
@@ -2252,9 +2364,13 @@ Item {
                                     }
                                 }
 
+                                // Secili para biriminin LISTE fiyati (kura cevrilmez).
                                 Label {
-                                    text: root.paraFormat(urunSatiri.modelData.birimFiyat) + " ₺"
-                                    color: Theme.vurguAcik
+                                    readonly property real fiyat: root.listeFiyati(
+                                        root.urunListeFiyatlari(urunSatiri.modelData), paraBirimiCombo.currentText)
+                                    text: fiyat > 0 ? root.paraFormat(fiyat) + " " + root.paraBirimiSembol(paraBirimiCombo.currentText)
+                                                    : paraBirimiCombo.currentText + " fiyatı yok"
+                                    color: fiyat > 0 ? Theme.vurguAcik : Theme.uyariAcik
                                     font.family: "Consolas"
                                     font.pixelSize: Theme.fontBoyutKucuk
                                     Layout.rightMargin: 8
@@ -2274,7 +2390,8 @@ Item {
                                         aciklamaEn: urunSatiri.modelData.urunAciklamasiEn,
                                         adet: 1,
                                         birimFiyatTl: urunSatiri.modelData.birimFiyat,
-                                        maliyet: urunSatiri.modelData.maliyet
+                                        maliyet: urunSatiri.modelData.maliyet,
+                                        listeFiyatlari: root.urunListeFiyatlari(urunSatiri.modelData)
                                     })
                                     background: Rectangle {
                                         radius: 5
@@ -3547,11 +3664,14 @@ Item {
         onKaydedildi: function(yeniMetin) {
             if (root.formKilitli)
                 return
-            // Varsayilanla ayni metni "ozel metin" olarak saklamanin anlami yok:
-            // bos birakirsak teklif, varsayilan metne bagli kalir (varsayilan
-            // ileride degisirse bu teklif de guncel metni alir).
+            // Yeni teklifte varsayilanla ayni metin bos birakilir: kayitta
+            // teklifin SON secilen dilinin varsayilani yazilir (pencere TR'de
+            // acilip sonra dil EN'e cevrilirse EN metni gelsin diye). Kayitli
+            // teklifte (Detay) metin her zaman aynen tasinir -- bos gondermek
+            // orada "sozlesmeye dokunulmadi" demektir (bkz. Database::teklifDuzelt).
             const temiz = yeniMetin.trim()
-            root.sozlesmeMetni = (temiz === sozlesmeDialogu.varsayilanMetin.trim()) ? "" : temiz
+            root.sozlesmeMetni = (root.duzenlenenKaynakTeklifId <= 0
+                                  && temiz === sozlesmeDialogu.varsayilanMetin.trim()) ? "" : temiz
 
             // Metin YALNIZCA formda bekler ve "Teklifi Kaydet" ile kaydedilir.
             // Kayitli bir teklifte (Detay) eskiden aninda o teklife yaziliyordu:
