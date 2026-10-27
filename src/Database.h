@@ -128,6 +128,8 @@ public:
     // Silinen kayit zincirin EN SON revizyonuysa, yeniden zincirin sonu olan
     // onceki surum "Revize Edildi"den "Beklemede"ye alinir (yine gecerli olur).
     // Teklife ozel "MANUEL-<teklifId>" urun satirlari da temizlenir.
+    // Silmeden once teklifin tam hali, kim/ne zaman bilgisiyle
+    // dbo.teklif_silme_gecmisi'ne yazilir (db/28); iz yazilamazsa silinmez.
     Q_INVOKABLE bool teklifSil(int teklifId);
 
     // Teklif Ver ekrani: musteri/urun arama (canli, kucuk sonuc kumesi -- LIKE ile
@@ -637,7 +639,9 @@ public:
     Q_INVOKABLE void pdfOnizlemesiniSil(const QString &onizlemeYolu);
 
     // PDF motorunu (Chromium) simdiden ayaga kaldirir; bkz.
-    // TeklifPdfOlusturucu::motoruHazirla. main.cpp'de pencere acilmadan cagrilir.
+    // TeklifPdfOlusturucu::motoruHazirla. SU AN CAGRILMIYOR: motor ilk PDF
+    // istendiginde hazirlanir (htmlyiPdfeBas). Erken hazirlamak UI thread'ini
+    // birkac saniye dondurdugu icin acilisa/giris ekranina tasinmadi.
     void pdfMotorunuHazirla() { m_pdfOlusturucu.motoruHazirla(); }
 
     // ------------------------------------------------------------------
@@ -1017,8 +1021,9 @@ private:
     int yeniTeklifNoAl(QString &hataOut);
 
     // Bu teklifin YERINE GECEN (ayni revizyon zincirinde daha yeni) teklifin
-    // TeklifId'si; zincirin en son uyesi buysa 0. Revize edilmis bir teklif
-    // uzerinde islem yapilip yapilamayacagi buna gore belirlenir.
+    // TeklifId'si; zincirin en son uyesi buysa 0, sorgu calismazsa -1
+    // (bilinmiyor). Revize edilmis bir teklif uzerinde islem yapilip
+    // yapilamayacagi buna gore belirlenir: yazma islemleri "!= 0" ise reddeder.
     int teklifYerineGecenIdGetir(int teklifId);
 
     // Satinalma tablolari (db/20) kurulu mu? Kurulu degilse satinalma

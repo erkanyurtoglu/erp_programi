@@ -1003,54 +1003,48 @@ Item {
     property real usdAlis: 0
     property real eurAlis: 0
 
-    // TCMB'nin gunluk kur dosyasindan (today.xml) USD ve EUR alis/satis kurlarini
-    // ceker. Basarisiz olursa elle giris alanlari kullanilabilir.
+    // TCMB kurlarini ortak KurServisi'nden (src/KurServisi.cpp) ister; sonuc
+    // asagidaki Connections ile gelir. Basarisiz olursa elle giris alanlari
+    // kullanilabilir.
     function guncelKuruCek() {
         root.kurCekiliyor = true
         root.kurMesaji = ""
         root.kurMesajiHata = false
+        kurServisi.yenile(true)
+    }
 
-        function kurOku(xml, kod, etiket) {
-            const blok = new RegExp('CurrencyCode="' + kod + '"[\\s\\S]*?</Currency>').exec(xml)
-            if (!blok)
-                return NaN
-            const deger = new RegExp('<' + etiket + '>([^<]*)</' + etiket + '>').exec(blok[0])
-            return deger ? Number(deger[1]) : NaN
-        }
+    // Servisin sinyallerini YALNIZCA bu sayfa kur istediyse (kurCekiliyor)
+    // isler: baska bir ekranin (ör. Satinalma) yenilemesi buradaki elle
+    // girilmis ya da teklife kayitli kuru ezmesin.
+    Connections {
+        target: kurServisi
 
-        const istek = new XMLHttpRequest()
-        istek.timeout = 8000
-        istek.onreadystatechange = function() {
-            if (istek.readyState !== XMLHttpRequest.DONE)
+        function onKurlarDegisti() {
+            if (!root.kurCekiliyor)
                 return
-
             root.kurCekiliyor = false
-
-            const xml = istek.status === 200 ? istek.responseText : ""
-            const usdSatis = kurOku(xml, "USD", "ForexSelling")
-            const eurSatis = kurOku(xml, "EUR", "ForexSelling")
+            const usdSatis = kurServisi.usd
+            const eurSatis = kurServisi.eur
             if (!(usdSatis > 0) || !(eurSatis > 0)) {
                 root.kurMesaji = "Kur alınamadı, elle girin."
                 root.kurMesajiHata = true
                 return
             }
-
-            root.usdAlis = kurOku(xml, "USD", "ForexBuying") || 0
-            root.eurAlis = kurOku(xml, "EUR", "ForexBuying") || 0
+            root.usdAlis = kurServisi.usdAlis
+            root.eurAlis = kurServisi.eurAlis
             root.usdKur = usdSatis
             root.eurKur = eurSatis
             usdKurBicimi.ayarla(usdSatis)
             eurKurBicimi.ayarla(eurSatis)
-            root.kurMesaji = "TCMB kurları güncellendi."
+            root.kurMesaji = "TCMB kurları güncellendi (" + kurServisi.kurTarihi + ")."
             root.kurMesajiHata = false
             root.kurGuncel = true
             root.sabitDovizFiyatlariniUygula()
         }
 
-        try {
-            istek.open("GET", "https://www.tcmb.gov.tr/kurlar/today.xml")
-            istek.send()
-        } catch (e) {
+        function onDurumDegisti() {
+            if (!root.kurCekiliyor || kurServisi.yukleniyor || kurServisi.hata.length === 0)
+                return
             root.kurCekiliyor = false
             root.kurMesaji = "Kur alınamadı, elle girin."
             root.kurMesajiHata = true

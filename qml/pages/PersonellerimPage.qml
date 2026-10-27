@@ -24,6 +24,10 @@ Item {
 
     property bool otomatikYukle: true
 
+    // Yonetim modulunde duzenleme yetkisi (bkz. YonetimModuluPage.yonetimDuzenleyebilir).
+    // Yoksa liste ve Detay salt goruntulemedir; sunucu da yazmayi reddeder.
+    property bool duzenleyebilir: true
+
     function sayfayiYukle(sayfaNo) {
         islemHatasi.text = ""
         root.listeHatasi = ""
@@ -135,6 +139,7 @@ Item {
             Button {
                 id: ekleButonu
                 text: "+ Personel Ekle"
+                visible: root.duzenleyebilir
                 Layout.preferredHeight: 38
                 onClicked: duzenlemeDialogu.formuAc(null)
                 background: Rectangle { radius: Theme.radiusKucuk; color: ekleButonu.hovered ? Theme.vurguHover : Theme.vurgu }
@@ -336,6 +341,7 @@ Item {
 
 
                             Item {
+                                visible: root.duzenleyebilir
                                 Layout.preferredWidth: 78
                                 Layout.preferredHeight: 28
 
@@ -442,6 +448,8 @@ Item {
         // ile ayni yol. Eskiden Dialog'un "title" ozelligine yazilip
         // "baslik: title" ile dolayli baglaniyordu.
         onayMetni: "Kaydet"
+        onayGorunur: root.duzenleyebilir
+        iptalMetni: root.duzenleyebilir ? "İptal" : "Kapat"
         elleKapat: true
 
         // Tek giris noktasi: ekle ve duzenle ayni fonksiyonu kullanir

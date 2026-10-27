@@ -313,11 +313,13 @@ Item {
             MusterilerimPage {
                 id: musterilerimPage
                 otomatikYukle: false
+                duzenleyebilir: root.satisDuzenleyebilir
             }
 
             UrunlerimPage {
                 id: urunlerimPage
                 otomatikYukle: false
+                duzenleyebilir: root.satisDuzenleyebilir
             }
 
             // ---- Index 6: "Detay" (revizyon) alt sayfasi ----

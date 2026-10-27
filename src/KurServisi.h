@@ -24,6 +24,10 @@ class KurServisi : public QObject
     Q_OBJECT
     Q_PROPERTY(double usd       READ usd       NOTIFY kurlarDegisti)
     Q_PROPERTY(double eur       READ eur       NOTIFY kurlarDegisti)
+    // Doviz ALIS kurlari: yalnizca gosterim icindir (Teklif Ver ekrani);
+    // hesaplarda satis kuru (usd/eur, kur()) kullanilir.
+    Q_PROPERTY(double usdAlis   READ usdAlis   NOTIFY kurlarDegisti)
+    Q_PROPERTY(double eurAlis   READ eurAlis   NOTIFY kurlarDegisti)
     Q_PROPERTY(QString kurTarihi READ kurTarihi NOTIFY kurlarDegisti)
     Q_PROPERTY(bool yukleniyor  READ yukleniyor NOTIFY durumDegisti)
     Q_PROPERTY(QString hata     READ hata       NOTIFY durumDegisti)
@@ -33,6 +37,8 @@ public:
 
     double usd() const { return m_kurlar.value(QStringLiteral("USD"), 0.0); }
     double eur() const { return m_kurlar.value(QStringLiteral("EUR"), 0.0); }
+    double usdAlis() const { return m_alisKurlari.value(QStringLiteral("USD"), 0.0); }
+    double eurAlis() const { return m_alisKurlari.value(QStringLiteral("EUR"), 0.0); }
     QString kurTarihi() const { return m_kurTarihi; }
     bool yukleniyor() const { return m_yukleniyor; }
     QString hata() const { return m_hata; }
@@ -59,7 +65,8 @@ private:
     void durumuYaz(bool yukleniyor, const QString &hata);
 
     QNetworkAccessManager *m_ag = nullptr;
-    QHash<QString, double> m_kurlar;
+    QHash<QString, double> m_kurlar;          // ForexSelling
+    QHash<QString, double> m_alisKurlari;     // ForexBuying
     QString m_kurTarihi;       // "gg.aa.yyyy" -- kurun ait oldugu gun
     QDate m_cekilenGun;        // kurlarin hangi takvim gununde alindigi
     QStringList m_sira;        // denenecek adresler

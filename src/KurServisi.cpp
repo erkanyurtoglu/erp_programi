@@ -114,6 +114,7 @@ void KurServisi::cevabiIsle(QNetworkReply *cevap)
 bool KurServisi::xmliAyristir(const QByteArray &xml)
 {
     QHash<QString, double> bulunan;
+    QHash<QString, double> bulunanAlis;
     QString tarih;
     QString aktifKod;
 
@@ -141,12 +142,19 @@ bool KurServisi::xmliAyristir(const QByteArray &xml)
             if (deger > 0.0)
                 bulunan.insert(aktifKod, deger);
         }
+        else if (okuyucu.name() == QStringLiteral("ForexBuying") && !aktifKod.isEmpty())
+        {
+            const double deger = sayiyaCevir(okuyucu.readElementText());
+            if (deger > 0.0)
+                bulunanAlis.insert(aktifKod, deger);
+        }
     }
 
     if (okuyucu.hasError() || bulunan.isEmpty())
         return false;
 
     m_kurlar = bulunan;
+    m_alisKurlari = bulunanAlis;
     m_kurTarihi = tarih;
     return true;
 }

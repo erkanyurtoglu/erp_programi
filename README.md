@@ -70,7 +70,8 @@ ve önkoşulu yazar. Çoğu birden fazla kez çalıştırılabilir.
 
 - `01` — yeni veritabanı ve şema
 - `02` — eski WPF veritabanından veri göçü
-- `03`–`27` — sonradan eklenen alanlar, tablolar ve veri düzeltmeleri
+- `03`–`28` — sonradan eklenen alanlar, tablolar ve veri düzeltmeleri
+  (`28`: silinen tekliflerin izi; çalıştırılmadan teklif silinemez)
 
 Program, bir betik henüz çalıştırılmamışsa ilgili alanı atlayarak çalışmaya devam
 eder. Eksik betik gereken bir işlemde hangi betiğin çalıştırılması gerektiğini söyler.

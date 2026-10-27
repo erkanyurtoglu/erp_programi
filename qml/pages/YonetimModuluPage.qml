@@ -212,6 +212,7 @@ Item {
                 // butonunu kapatmak icin (sunucu da reddeder, bkz.
                 // Database::personelAktifDurumDegistir).
                 aktifKullaniciId: root.kullaniciId
+                duzenleyebilir: root.yonetimDuzenleyebilir
             }
 
             RollerYetkilerPage {

@@ -230,6 +230,22 @@ namespace
             QCryptographicHash::hash(girdi, QCryptographicHash::Sha256).toHex());
     }
 
+    // Saklanan deger bir SHA-256 hex ozeti mi (64 hex karakter)? Duz metin
+    // geri donus yolu (gocten gelen hashlenmemis sifreler) YALNIZCA hash'e
+    // benzemeyen kayitlarda denenir; aksi halde veritabanindaki hash'i goren
+    // biri o hash'i sifre kutusuna yazarak giris yapabilirdi.
+    bool sha256OzetiMi(const QString &deger)
+    {
+        static const QRegularExpression ozet(QStringLiteral("^[0-9a-fA-F]{64}$"));
+        return ozet.match(deger).hasMatch();
+    }
+
+    // Duz metin (hashlenmemis, gocten gelen) kayitla eslesme.
+    bool duzMetinSifreEslesir(const QString &depolanan, const QString &sifre)
+    {
+        return !sha256OzetiMi(depolanan) && depolanan == sifre;
+    }
+
     QString yeniTuzUret()
     {
         return QString::fromLatin1(QUuid::createUuid().toRfc4122().toHex());
@@ -237,6 +253,11 @@ namespace
 
     // Sifre politikasi: eskiden tek karakterlik sifre bile kabul ediliyordu.
     const int SIFRE_ASGARI_UZUNLUK = 6;
+
+    // Yazma islemlerinin sunucu tarafi yetki denetimi (bkz. modulDuzenleyebilirMi).
+    // Arayuz butonlari gizlemekle yetinmez; Satinalma tarafindaki kuralin aynisi.
+    const char *const SATIS_YETKI_YOK = "Bu işlem için Satış modülünde düzenleme yetkiniz yok.";
+    const char *const YONETIM_YETKI_YOK = "Bu işlem için Yönetim modülünde düzenleme yetkiniz yok.";
 
     // ------------------------------------------------------------------
     // Form alanlari: ortak temizleme / dogrulama yardimcilari
@@ -627,7 +648,7 @@ QVariantMap Database::girisYap(const QString &kullaniciAdi, const QString &sifre
         sifreDogruMu = true;
         yukseltmeGerekli = true;
     }
-    else if (depolananSifre == sifre)
+    else if (duzMetinSifreEslesir(depolananSifre, sifre))
     {
         sifreDogruMu = true;
         yukseltmeGerekli = true;
@@ -703,7 +724,7 @@ bool Database::yoneticiSifresiDogrula(const QString &sifre)
             if (depolanan == sifreyiHashle(sifre, tuz))
                 return true;
         }
-        else if (depolanan == sifreyiHashle(sifre) || depolanan == sifre)
+        else if (depolanan == sifreyiHashle(sifre) || duzMetinSifreEslesir(depolanan, sifre))
         {
             return true;
         }
@@ -804,6 +825,11 @@ bool Database::teklifSil(int teklifId)
         m_sonHataMesaji = QStringLiteral("Veritabanına bağlanılamadı.");
         return false;
     }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        m_sonHataMesaji = QString::fromUtf8(SATIS_YETKI_YOK);
+        return false;
+    }
 
     // Kabul edilmis / tamamlanmis teklif silinemez (bkz. teklifKilitliMi).
     const QString durum = teklifDurumuGetir(teklifId);
@@ -829,7 +855,13 @@ bool Database::teklifSil(int teklifId)
 
     // Zincirin bilgisi SILMEDEN ONCE okunur: silinen kayit zincirin en son
     // uyesiyse, yeniden zincirin sonu olacak onceki surum asagida onarilir.
-    const bool sonSurumMu = teklifYerineGecenIdGetir(teklifId) == 0;
+    const int yerineGecen = teklifYerineGecenIdGetir(teklifId);
+    if (yerineGecen < 0)
+    {
+        m_sonHataMesaji = QStringLiteral("Teklifin revizyon zinciri okunamadı; lütfen tekrar deneyin.");
+        return false;
+    }
+    const bool sonSurumMu = yerineGecen == 0;
     int kokId = teklifId;
     {
         QSqlQuery kokQuery(m_db);
@@ -839,10 +871,68 @@ bool Database::teklifSil(int teklifId)
             kokId = kokQuery.value(0).toInt();
     }
 
+    // SILME IZI ZORUNLUDUR (db/28): kalemler, toplamlar, sevk ve gecmis
+    // tablolari CASCADE ile gittigi icin iz yazilamazsa silme yapilmaz.
+    if (!semaKolonuVarMi(m_db, QStringLiteral("dbo.teklif_silme_gecmisi"), QStringLiteral("SilinenVeri")))
+    {
+        m_sonHataMesaji = QStringLiteral("Teklif silme izi tutulamadığı için silme yapılmadı. "
+                                         "db/28_teklif_silme_gecmisi.sql betiği çalıştırılmalı.");
+        return false;
+    }
+    // Transaction'dan ONCE: teklifNoGetir baglantiyi yoklayabilir.
+    const QString silinenTeklifNo = teklifNoGetir(teklifId);
+    // Gecmis tablolari (05, 09) kurulu degilse JSON'a eklenmez.
+    const bool durumGecmisiVar = semaKolonuVarMi(m_db, QStringLiteral("dbo.teklif_durum_gecmisi"),
+                                                 QStringLiteral("YeniDurum"));
+    const bool duzeltmeGecmisiVar = semaKolonuVarMi(m_db, QStringLiteral("dbo.teklif_duzeltme_gecmisi"),
+                                                    QStringLiteral("OncekiVeri"));
+
     if (!m_db.transaction())
     {
         m_sonHataMesaji = "İşlem başlatılamadı: " + m_db.lastError().text();
         return false;
+    }
+
+    {
+        QSqlQuery iz(m_db);
+        iz.prepare(QString(
+            "INSERT INTO dbo.teklif_silme_gecmisi (TeklifId, TeklifNo, FirmaAdi, Durum, SilinenVeri, KullaniciId) "
+            "SELECT t.TeklifId, :teklifNo, m.FirmaAdi, t.Durum, "
+            "  (SELECT t2.*, "
+            "          JSON_QUERY((SELECT tk.* FROM dbo.teklif_kalemleri tk "
+            "                      WHERE tk.TeklifId = t2.TeklifId ORDER BY tk.TeklifKalemId "
+            "                      FOR JSON PATH)) AS Kalemler, "
+            "          JSON_QUERY((SELECT tt.* FROM dbo.teklif_toplamlari tt "
+            "                      WHERE tt.TeklifId = t2.TeklifId "
+            "                      FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Toplamlar, "
+            "          JSON_QUERY((SELECT sb.* FROM dbo.sevk_bilgileri sb "
+            "                      WHERE sb.TeklifId = t2.TeklifId "
+            "                      FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS SevkBilgileri%1%2 "
+            "   FROM dbo.teklifler t2 WHERE t2.TeklifId = t.TeklifId "
+            "   FOR JSON PATH, WITHOUT_ARRAY_WRAPPER), "
+            "  :kullaniciId "
+            "FROM dbo.teklifler t "
+            "LEFT JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
+            "WHERE t.TeklifId = :teklifId")
+            .arg(durumGecmisiVar
+                     ? QStringLiteral(", JSON_QUERY((SELECT dg.* FROM dbo.teklif_durum_gecmisi dg "
+                                      "WHERE dg.TeklifId = t2.TeklifId FOR JSON PATH)) AS DurumGecmisi")
+                     : QString(),
+                 duzeltmeGecmisiVar
+                     ? QStringLiteral(", JSON_QUERY((SELECT zg.* FROM dbo.teklif_duzeltme_gecmisi zg "
+                                      "WHERE zg.TeklifId = t2.TeklifId FOR JSON PATH)) AS DuzeltmeGecmisi")
+                     : QString()));
+        iz.bindValue(":teklifNo", silinenTeklifNo.left(30));
+        iz.bindValue(":kullaniciId", m_aktifKullaniciId > 0 ? QVariant(m_aktifKullaniciId)
+                                                            : QVariant(QMetaType(QMetaType::Int)));
+        iz.bindValue(":teklifId", teklifId);
+        if (!iz.exec() || iz.numRowsAffected() != 1)
+        {
+            qWarning() << "teklifSil (silme izi) basarisiz:" << iz.lastError().text();
+            m_db.rollback();
+            m_sonHataMesaji = "Silme izi yazılamadığı için teklif silinmedi: " + iz.lastError().text();
+            return false;
+        }
     }
 
     QSqlQuery query(m_db);
@@ -933,6 +1023,12 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
         return sonuc;
     }
 
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        sonuc["hata"] = QString::fromUtf8(SATIS_YETKI_YOK);
+        return sonuc;
+    }
+
     const int musteriId = teklif.value("musteriId").toInt();
     const QVariantList kalemler = teklif.value("kalemler").toList();
 
@@ -1007,11 +1103,13 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
         // bir tekliften revizyon alinirsa, guncel surum ESKI icerikten uretilmis
         // bir kayitla sessizce gecersiz kilinirdi.
         const int yerineGecen = teklifYerineGecenIdGetir(talepEdilenAnaTeklifId);
-        if (yerineGecen > 0)
+        if (yerineGecen != 0)
         {
             m_db.rollback();
-            sonuc["hata"] = QString("Teklif %1'in yerine Teklif %2 geçti; revizyon güncel sürümden yapılmalı.")
-                                .arg(teklifNoGetir(talepEdilenAnaTeklifId), teklifNoGetir(yerineGecen));
+            sonuc["hata"] = yerineGecen < 0
+                ? QString("Teklifin revizyon zinciri okunamadı; lütfen tekrar deneyin.")
+                : QString("Teklif %1'in yerine Teklif %2 geçti; revizyon güncel sürümden yapılmalı.")
+                      .arg(teklifNoGetir(talepEdilenAnaTeklifId), teklifNoGetir(yerineGecen));
             return sonuc;
         }
 
@@ -1103,7 +1201,9 @@ QVariantMap Database::teklifKaydet(const QVariantMap &teklif)
     else
         teklifEkle.bindValue(":anaTeklifId", QVariant(QMetaType(QMetaType::Int)));
     teklifEkle.bindValue(":revizyonNo", revizyonNo);
-    const int kullaniciId = teklif.value("kullaniciId").toInt();
+    // Kaydi yapan kisi oturumdan alinir; QML'in gonderdigi "kullaniciId"
+    // yok sayilir (bkz. aktifKullaniciId).
+    const int kullaniciId = m_aktifKullaniciId;
     if (kullaniciId > 0)
         teklifEkle.bindValue(":kullaniciId", kullaniciId);
     else
@@ -1392,10 +1492,12 @@ bool Database::duzeltmeKuraliniDenetle(int teklifId, QString &hataOut)
         return false;
     }
     const int yerineGecen = teklifYerineGecenIdGetir(teklifId);
-    if (yerineGecen > 0)
+    if (yerineGecen != 0)
     {
-        hataOut = QString("Bu teklifin yerine Teklif %1 geçti; düzeltme güncel revizyon üzerinde yapılmalı.")
-                      .arg(teklifNoGetir(yerineGecen));
+        hataOut = yerineGecen < 0
+            ? QString("Teklifin revizyon zinciri okunamadı; lütfen tekrar deneyin.")
+            : QString("Bu teklifin yerine Teklif %1 geçti; düzeltme güncel revizyon üzerinde yapılmalı.")
+                  .arg(teklifNoGetir(yerineGecen));
         return false;
     }
     return true;
@@ -1424,6 +1526,11 @@ QVariantMap Database::teklifDuzelt(int teklifId, const QVariantMap &teklif, cons
     if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        sonuc["hata"] = QString::fromUtf8(SATIS_YETKI_YOK);
         return sonuc;
     }
 
@@ -1500,7 +1607,7 @@ QVariantMap Database::teklifDuzelt(int teklifId, const QVariantMap &teklif, cons
         "  :kullaniciId "
         "FROM dbo.teklifler t WHERE t.TeklifId = :teklifId");
     iz.bindValue(":sebep", temizSebep.left(500));
-    const int kullaniciId = teklif.value("kullaniciId").toInt();
+    const int kullaniciId = m_aktifKullaniciId;
     iz.bindValue(":kullaniciId", kullaniciId > 0 ? QVariant(kullaniciId) : QVariant(QMetaType(QMetaType::Int)));
     iz.bindValue(":teklifId", teklifId);
     if (!iz.exec() || iz.numRowsAffected() != 1)
@@ -1968,8 +2075,11 @@ int Database::teklifYerineGecenIdGetir(int teklifId)
     query.bindValue(":id", teklifId);
     if (!query.exec())
     {
+        // -1 = bilinmiyor. Eskiden 0 ("guncel surum") donuyordu ve baglanti
+        // hatasinda revize edilmis teklif uzerinde islem yapilabiliyordu.
+        // Yazmayi koruyan cagiranlar "!= 0" ile denetler: hata = reddet.
         qWarning() << "teklifYerineGecenIdGetir basarisiz:" << teklifId << query.lastError().text();
-        return 0;
+        return -1;
     }
     return query.next() ? query.value(0).toInt() : 0;
 }
@@ -1990,11 +2100,16 @@ bool Database::teklifTeslimatTarihiGuncelle(int teklifId, const QString &teslima
     ERP_IZ("teklifTeslimatTarihiGuncelle");
     if (teklifId <= 0 || !baglantiHazir())
         return false;
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        m_sonHataMesaji = QString::fromUtf8(SATIS_YETKI_YOK);
+        return false;
+    }
 
     // Uretim planlamasi bilgisi: kabul edilmis teklifte de degisebilir, ama
     // tamamlanmis (teslim edilmis) teklifte artik degistirilemez.
     // Yerine yeni revizyon gecmis teklifin uretim planlamasi da yapilmaz.
-    if (teklifDurumuGetir(teklifId) == "Tamamlandı" || teklifYerineGecenIdGetir(teklifId) > 0)
+    if (teklifDurumuGetir(teklifId) == "Tamamlandı" || teklifYerineGecenIdGetir(teklifId) != 0)
     {
         qWarning() << "teklifTeslimatTarihiGuncelle: tamamlanmis/revize edilmis teklif degistirilemez:" << teklifId;
         return false;
@@ -2018,11 +2133,17 @@ bool Database::teklifMusteriNotuGuncelle(int teklifId, const QString &musteriNot
     ERP_IZ("teklifMusteriNotuGuncelle");
     if (teklifId <= 0 || !baglantiHazir())
         return false;
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        m_sonHataMesaji = QString::fromUtf8(SATIS_YETKI_YOK);
+        return false;
+    }
 
     // Teklif notu teklifin parcasidir: kabul edilmis teklifte degistirilemez.
-    if (teklifKilitliMi(teklifDurumuGetir(teklifId)))
+    // Yerine yeni revizyon gecmis (gecersiz) surumun notu da degismez.
+    if (teklifKilitliMi(teklifDurumuGetir(teklifId)) || teklifYerineGecenIdGetir(teklifId) != 0)
     {
-        qWarning() << "teklifMusteriNotuGuncelle: kilitli teklif degistirilemez:" << teklifId;
+        qWarning() << "teklifMusteriNotuGuncelle: kilitli/revize edilmis teklif degistirilemez:" << teklifId;
         return false;
     }
 
@@ -2045,10 +2166,15 @@ bool Database::teklifUretimNotuGuncelle(int teklifId, const QString &uretimNotu)
     ERP_IZ("teklifUretimNotuGuncelle");
     if (teklifId <= 0 || !baglantiHazir())
         return false;
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        m_sonHataMesaji = QString::fromUtf8(SATIS_YETKI_YOK);
+        return false;
+    }
 
     // Planlanan teslim tarihi gibi: kabul edilmis teklifte yazilabilir,
     // tamamlanmis teklifte degistirilemez.
-    if (teklifDurumuGetir(teklifId) == "Tamamlandı" || teklifYerineGecenIdGetir(teklifId) > 0)
+    if (teklifDurumuGetir(teklifId) == "Tamamlandı" || teklifYerineGecenIdGetir(teklifId) != 0)
     {
         qWarning() << "teklifUretimNotuGuncelle: tamamlanmis/revize edilmis teklif degistirilemez:" << teklifId;
         return false;
@@ -2095,7 +2221,7 @@ bool Database::teklifKalemiUretimeAcikMi(int teklifKalemId)
         return false;
     }
     // Yerine yeni revizyon gecmis teklifin kalemleri uretimde takip edilmez.
-    if (teklifYerineGecenIdGetir(teklifId) > 0)
+    if (teklifYerineGecenIdGetir(teklifId) != 0)
     {
         qWarning() << "teklif kalemi uretim bilgisi degistirilemez (teklif revize edildi):" << teklifKalemId;
         return false;
@@ -2108,6 +2234,11 @@ bool Database::teklifKalemTamamlandiGuncelle(int teklifKalemId, bool tamamlandi)
     ERP_IZ("teklifKalemTamamlandiGuncelle");
     if (teklifKalemId <= 0 || !baglantiHazir())
         return false;
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        m_sonHataMesaji = QString::fromUtf8(SATIS_YETKI_YOK);
+        return false;
+    }
 
     if (!teklifKalemiUretimeAcikMi(teklifKalemId))
         return false;
@@ -2130,6 +2261,11 @@ bool Database::teklifKalemUretimNotuGuncelle(int teklifKalemId, const QString &u
     ERP_IZ("teklifKalemUretimNotuGuncelle");
     if (teklifKalemId <= 0 || !baglantiHazir())
         return false;
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        m_sonHataMesaji = QString::fromUtf8(SATIS_YETKI_YOK);
+        return false;
+    }
 
     if (!teklifKalemiUretimeAcikMi(teklifKalemId))
         return false;
@@ -2164,11 +2300,19 @@ bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QSt
     // kalan mesaji yanlislikla bu cagriya ait sanmasin diye basta temizliyoruz.
     m_sonHataMesaji.clear();
 
-    // "Revize Edildi" menude yer almaz (kullanici elle secmez) ama gecerli bir
-    // durumdur: sistem revizyon kaydederken yazar.
-    if (!gecerliDurumlar().contains(durum) && durum != DURUM_REVIZE_EDILDI)
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        m_sonHataMesaji = QString::fromUtf8(SATIS_YETKI_YOK);
+        return false;
+    }
+
+    // "Revize Edildi" elle verilemez: yalnizca teklifKaydet bir revizyon
+    // olustururken (kendi UPDATE'iyle) yazar. Bu metot QML'e acik oldugu icin
+    // yalnizca menudeki durumlari kabul eder.
+    if (!gecerliDurumlar().contains(durum))
     {
         qWarning() << "teklifDurumGuncelle: gecersiz durum:" << durum;
+        m_sonHataMesaji = QString::fromUtf8("Geçersiz durum: \"%1\".").arg(durum);
         return false;
     }
 
@@ -2207,6 +2351,11 @@ bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QSt
     // eski surum programla kalmis "Kabul Edildi") bir surum hala kabul edilebiliyordu.
     {
         const int yerineGecen = teklifYerineGecenIdGetir(teklifId);
+        if (yerineGecen < 0)
+        {
+            m_sonHataMesaji = QString::fromUtf8("Teklifin revizyon zinciri okunamadı; lütfen tekrar deneyin.");
+            return false;
+        }
         if (yerineGecen > 0)
         {
             qWarning() << "teklifDurumGuncelle: revize edilmis teklifin durumu degistirilemez:"
@@ -2237,7 +2386,8 @@ bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QSt
     //
     // KabulTarihi'nin "Tamamlandı"da korunmasinin sebebi: tamamlanmis bir teklif
     // tanim geregi once kabul edilmistir; o tarih raporlamada anlamlidir. Zaten
-    // dolu degilse (dogrudan Beklemede -> Tamamlandı gibi bir gecis) simdiki zamanla doldurulur.
+    // dolu degilse (yalnizca goc verisinde olabilir; Tamamlandı'ya artik yalnizca
+    // Kabul Edildi'den gecilir, bkz. yukaridaki kural) simdiki zamanla doldurulur.
     // Ayni sebeple "Tamamlandı -> Kabul Edildi" geri alisinda da musterinin ASIL
     // kabul tarihi korunur (ISNULL); diger durumlardan gelindiginde (goc verisinde
     // eski bir deger kalmis olabilir) her zaman simdiki zaman yazilir.
@@ -2245,9 +2395,7 @@ bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QSt
     // UretimPdfTarihi hicbir gecişte silinmez: uretim PDF'inin teknik ekibe
     // verilmis olmasi, durum sonradan degisse de gecmiste yasanmis bir olaydir.
     QString sql = "UPDATE dbo.teklifler SET Durum = :durum";
-    // "Revize Edildi" de "Beklemede" gibi davranir: revize edilmis teklif ne kabul
-    // edilmis ne reddedilmistir, dolayisiyla tum durum tarihleri temizlenir.
-    if (durum == "Beklemede" || durum == DURUM_REVIZE_EDILDI)
+    if (durum == "Beklemede")
         sql += ", KabulTarihi = NULL, RedTarihi = NULL, RedSebebi = NULL, TeslimTarihi = NULL";
     else if (durum == "Kabul Edildi")
         sql += QString(", KabulTarihi = %1, RedTarihi = NULL, RedSebebi = NULL, TeslimTarihi = NULL")
@@ -2282,7 +2430,10 @@ bool Database::teklifDurumGuncelle(int teklifId, const QString &durum, const QSt
     // Artik kalemlere yazilmaz: tamamlanmis teklifte tum kalemler ekranda ve
     // uretim PDF'inde bitmis gosterilir (bkz. TeklifPdfOlusturucu::uretimPdfUret).
 
-    durumDegisiminiLogla(teklifId, eskiDurum, durum, temizRedSebebi, kullaniciId);
+    // Degisikligi yapan kisi oturumdan alinir; parametre yalnizca eski
+    // QML cagrilariyla uyum icin durur.
+    Q_UNUSED(kullaniciId);
+    durumDegisiminiLogla(teklifId, eskiDurum, durum, temizRedSebebi, m_aktifKullaniciId);
     return true;
 }
 
@@ -2636,6 +2787,11 @@ QVariantMap Database::musteriEkle(const QVariantMap &musteri)
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
     }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        sonuc["hata"] = QString::fromUtf8(SATIS_YETKI_YOK);
+        return sonuc;
+    }
 
     QString hata;
     if (!musteriAlanlariniDenetle(musteri, hata))
@@ -2699,6 +2855,11 @@ QVariantMap Database::musteriGuncelle(int musteriId, const QVariantMap &musteri)
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
     }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        sonuc["hata"] = QString::fromUtf8(SATIS_YETKI_YOK);
+        return sonuc;
+    }
 
     QString hata;
     if (!musteriAlanlariniDenetle(musteri, hata))
@@ -2750,6 +2911,11 @@ QVariantMap Database::musteriSil(int musteriId)
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
     }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        sonuc["hata"] = QString::fromUtf8(SATIS_YETKI_YOK);
+        return sonuc;
+    }
 
     QSqlQuery query(m_db);
     query.prepare("DELETE FROM dbo.musteriler WHERE MusteriId = :musteriId");
@@ -2796,6 +2962,11 @@ QVariantMap Database::musteriArsivDurumDegistir(int musteriId, bool aktif)
     if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        sonuc["hata"] = QString::fromUtf8(SATIS_YETKI_YOK);
         return sonuc;
     }
 
@@ -2942,6 +3113,11 @@ QVariantMap Database::urunEkle(const QVariantMap &urun)
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
     }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        sonuc["hata"] = QString::fromUtf8(SATIS_YETKI_YOK);
+        return sonuc;
+    }
 
     QString hata;
     if (!urunAlanlariniDenetle(urun, hata))
@@ -3003,6 +3179,11 @@ QVariantMap Database::urunGuncelle(int urunId, const QVariantMap &urun)
     if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        sonuc["hata"] = QString::fromUtf8(SATIS_YETKI_YOK);
         return sonuc;
     }
 
@@ -3070,6 +3251,11 @@ QVariantMap Database::urunSil(int urunId)
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
     }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        sonuc["hata"] = QString::fromUtf8(SATIS_YETKI_YOK);
+        return sonuc;
+    }
 
     QSqlQuery query(m_db);
     query.prepare("DELETE FROM dbo.urunler WHERE UrunId = :urunId");
@@ -3110,6 +3296,11 @@ QVariantMap Database::urunArsivDurumDegistir(int urunId, bool aktif)
     if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        sonuc["hata"] = QString::fromUtf8(SATIS_YETKI_YOK);
         return sonuc;
     }
 
@@ -3154,6 +3345,11 @@ bool Database::urunMaliyetiGuncelle(int urunId, double maliyetTl)
     if (!baglantiHazir())
     {
         m_sonHataMesaji = "Veritabanına bağlanılamadı.";
+        return false;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        m_sonHataMesaji = QString::fromUtf8(SATIS_YETKI_YOK);
         return false;
     }
 
@@ -3317,6 +3513,11 @@ QVariantMap Database::personelEkle(const QVariantMap &personel)
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
     }
+    if (!modulDuzenleyebilirMi(QStringLiteral("YONETIM")))
+    {
+        sonuc["hata"] = QString::fromUtf8(YONETIM_YETKI_YOK);
+        return sonuc;
+    }
 
     QString hata;
     if (!personelAlanlariniDenetle(personel, /*sifreZorunlu*/ true, hata))
@@ -3398,6 +3599,11 @@ QVariantMap Database::personelGuncelle(int kullaniciId, const QVariantMap &perso
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
         return sonuc;
     }
+    if (!modulDuzenleyebilirMi(QStringLiteral("YONETIM")))
+    {
+        sonuc["hata"] = QString::fromUtf8(YONETIM_YETKI_YOK);
+        return sonuc;
+    }
 
     QString hata;
     // Guncellemede sifre OPSIYONEL: bos birakilirsa mevcut sifre korunur.
@@ -3417,7 +3623,15 @@ QVariantMap Database::personelGuncelle(int kullaniciId, const QVariantMap &perso
         QSqlQuery yoneticiRolleri(m_db);
         yoneticiRolleri.prepare("SELECT RolId FROM dbo.roller "
                                 "WHERE RolAdi IN (N'Yönetici', N'Göç - Geçici Tam Yetkili')");
-        if (yoneticiRolleri.exec())
+        // Sorgu calismazsa koruma ATLANMAZ: aktifYoneticiSayisi'ndaki "bilinmiyor =
+        // riskli" kuraliyla ayni sekilde islem reddedilir.
+        if (!yoneticiRolleri.exec())
+        {
+            qWarning() << "personelGuncelle: yonetici rolleri okunamadi:" << yoneticiRolleri.lastError().text();
+            sonuc["hata"] = "Yönetici rolleri doğrulanamadı; işlem güvenli olmadığı için yapılmadı. "
+                            "Bağlantıyı kontrol edip tekrar deneyin.";
+            return sonuc;
+        }
         {
             QList<int> yoneticiRolIdleri;
             while (yoneticiRolleri.next())
@@ -3532,6 +3746,11 @@ QVariantMap Database::personelAktifDurumDegistir(int kullaniciId, bool aktif)
     if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("YONETIM")))
+    {
+        sonuc["hata"] = QString::fromUtf8(YONETIM_YETKI_YOK);
         return sonuc;
     }
 
@@ -4207,6 +4426,11 @@ QVariantMap Database::sevkBilgileriKaydet(int teklifId, const QVariantMap &sevk)
     if (!baglantiHazir())
     {
         sonuc["hata"] = "Veritabanına bağlanılamadı.";
+        return sonuc;
+    }
+    if (!modulDuzenleyebilirMi(QStringLiteral("SATIS")))
+    {
+        sonuc["hata"] = QString::fromUtf8(SATIS_YETKI_YOK);
         return sonuc;
     }
 

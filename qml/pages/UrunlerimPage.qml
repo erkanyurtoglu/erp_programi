@@ -37,6 +37,10 @@ Item {
     // ANINDA olusturur, otomatikYukle false ise burada sorgu atilmaz.
     property bool otomatikYukle: true
 
+    // Satis modulunde duzenleme yetkisi (bkz. SatisModuluPage.satisDuzenleyebilir).
+    // Yoksa liste ve Detay salt goruntulemedir; sunucu da yazmayi reddeder.
+    property bool duzenleyebilir: true
+
     function paraFormat(deger) {
         return deger.toLocaleString(Qt.locale("tr_TR"), 'f', 2)
     }
@@ -149,6 +153,7 @@ Item {
             Button {
                 id: ekleButonu
                 text: "+ Ürün Ekle"
+                visible: root.duzenleyebilir
                 Layout.preferredHeight: 38
                 onClicked: duzenlemeDialogu.formuAc(null)
                 background: Rectangle { radius: Theme.radiusKucuk; color: ekleButonu.hovered ? Theme.vurguHover : Theme.vurgu }
@@ -384,6 +389,7 @@ Item {
                             Button {
                                 id: arsivButonu
                                 text: satir.aktifMi ? "Arşivle" : "Geri Al"
+                                visible: root.duzenleyebilir
                                 Layout.preferredWidth: 64
                                 Layout.preferredHeight: 28
                                 onClicked: {
@@ -405,6 +411,7 @@ Item {
                             Button {
                                 id: silButonu
                                 text: "Sil"
+                                visible: root.duzenleyebilir
                                 Layout.preferredWidth: 50
                                 Layout.preferredHeight: 28
                                 onClicked: {
@@ -478,6 +485,8 @@ Item {
         property string acilisAnlikGoruntusu: ""
         width: 580
         onayMetni: "Kaydet"
+        onayGorunur: root.duzenleyebilir
+        iptalMetni: root.duzenleyebilir ? "İptal" : "Kapat"
         elleKapat: true
 
         function formuAc(kayit) {
