@@ -18,6 +18,7 @@ Rectangle {
     readonly property var modulGorunumleri: ({
         "SATIS":      { baslik: "Satış / Teklif", aciklama: "Teklif oluştur, ürün ekle, PDF indir", ikon: "belge",  renk: Theme.vurgu,  aktif: true },
         "SATINALMA":  { baslik: "Satınalma",      aciklama: "Tedarikçi ve sipariş yönetimi",        ikon: "sepet",  renk: "#14b8a6",    aktif: true },
+        "MUHASEBE":   { baslik: "Muhasebe",       aciklama: "Faturalanacak teklifler, fatura ve irsaliye no", ikon: "cuzdan", renk: "#f59e0b", aktif: true },
         "YONETIM":    { baslik: "Yönetim",        aciklama: "Personel, rol ve sistem ayarları",     ikon: "disli",  renk: "#8b5cf6",    aktif: true }
     })
 

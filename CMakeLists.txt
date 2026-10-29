@@ -95,6 +95,7 @@ qt_add_qml_module(erp_programi
         qml/pages/YonetimOzetPage.qml
         qml/pages/IslemGecmisiPage.qml
         qml/pages/CihazMaliyetleriPage.qml
+        qml/pages/MuhasebeModuluPage.qml
         qml/components/ModulIkonu.qml
         qml/components/TarihTakvimi.qml
         qml/components/SozlesmeDuzenleDialog.qml
@@ -132,6 +133,12 @@ target_link_libraries(erp_programi PRIVATE
     # PDF onizleme: sayfalari islemcide cizen Qt PDF (pdfium).
     Qt6::Pdf
 )
+
+# Donma aninda UI thread'inin cagri yiginini sembolleriyle yazmak icin
+# (bkz. Tanilama.cpp, uiYiginiYaz).
+if(WIN32)
+    target_link_libraries(erp_programi PRIVATE dbghelp)
+endif()
 
 set_target_properties(erp_programi PROPERTIES
     # Debug'da konsol penceresi acik kalsin (hata mesajlarini gormek icin);

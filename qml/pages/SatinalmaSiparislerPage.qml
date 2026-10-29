@@ -312,7 +312,8 @@ Item {
                                 Layout.fillHeight: true
                                 DurumRozeti {
                                     anchors.verticalCenter: parent.verticalCenter
-                                    metin: SatinalmaBicim.siparisDurumAdi(satir.modelData.durum, satir.modelData.teslimatSekli)
+                                    metin: SatinalmaBicim.siparisDurumAdi(satir.modelData.durum, satir.modelData.teslimatSekli,
+                                                                         satir.modelData.eksikKapatildi)
                                     renk: satir.gecikti ? Theme.tehlikeAcik : SatinalmaBicim.siparisDurumRengi(satir.modelData.durum)
                                     dolu: true
                                 }

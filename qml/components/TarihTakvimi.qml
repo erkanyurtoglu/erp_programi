@@ -13,6 +13,15 @@ Popup {
     signal tarihSecildi(string tarih)
 
     property date goruntulenenAy: new Date()
+    // Ileriye donuk tarihlerde (planlanan/beklenen teslim, ihtiyac tarihi)
+    // bugunden onceki gunler secilemez; filtrelerde kapali kalir.
+    property bool gecmisKapali: false
+
+    function gecmisMi(tarih) {
+        const bugun = new Date()
+        bugun.setHours(0, 0, 0, 0)
+        return takvim.gecmisKapali && tarih < bugun
+    }
 
     width: 260
     padding: 12
@@ -39,6 +48,10 @@ Popup {
                 text: "‹"
                 Layout.preferredWidth: 28
                 Layout.preferredHeight: 28
+                // Gecmis kapaliysa bu aydan geriye gidilmez.
+                enabled: !takvim.gecmisKapali
+                         || takvim.goruntulenenAy.getFullYear() * 12 + takvim.goruntulenenAy.getMonth()
+                            > new Date().getFullYear() * 12 + new Date().getMonth()
                 onClicked: {
                     const d = new Date(takvim.goruntulenenAy)
                     d.setMonth(d.getMonth() - 1)
@@ -47,7 +60,7 @@ Popup {
                 background: Rectangle { color: "transparent" }
                 contentItem: Text {
                     text: "‹"
-                    color: Theme.metinBirincil
+                    color: parent.enabled ? Theme.metinBirincil : Theme.metinCokSoluk
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -103,8 +116,10 @@ Popup {
             locale: Qt.locale("tr_TR")
 
             delegate: Text {
+                readonly property bool gecmis: takvim.gecmisMi(model.date)
                 text: model.day
-                color: model.month === ayIzgarasi.month ? Theme.metinBirincil : Theme.metinCokSoluk
+                color: model.month === ayIzgarasi.month && !gecmis ? Theme.metinBirincil : Theme.metinCokSoluk
+                opacity: gecmis ? 0.4 : 1
                 font.family: Theme.fontAilesi
                 font.pixelSize: Theme.fontBoyutNormal
                 horizontalAlignment: Text.AlignHCenter
@@ -121,6 +136,7 @@ Popup {
                 MouseArea {
                     id: gunAlani
                     anchors.fill: parent
+                    enabled: !parent.gecmis
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {

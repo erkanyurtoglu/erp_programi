@@ -511,6 +511,7 @@ Item {
                 }
 
                 ColumnLayout {
+                    id: kartSutunu
                     anchors.fill: parent
                     anchors.margins: 18
                     spacing: 12
@@ -675,16 +676,23 @@ Item {
                         visible: root.sekme === "recete"
                         spacing: 6
 
-                        // Sutun genislikleri (baslik ve satirlar ayni)
-                        readonly property int gGrup: 120
-                        readonly property int gTur: 110
-                        readonly property int gAdet: 70
-                        readonly property int gBirim: 70
-                        readonly property int gFiyat: 110
-                        readonly property int gPara: 72
-                        readonly property int gKur: 80
-                        readonly property int gTutar: 110
-                        readonly property int gTedarikci: 140
+                        // Sutun genislikleri (baslik ve satirlar ayni). Sabit sutunlarin
+                        // toplami (882) dar pencerede / %125 ekran olceginde karta
+                        // sigmiyordu; KALEM sutunu en az kalemEnAz kalacak sekilde
+                        // hepsi ayni oranda daraltilir. Genislik, kendi boyu sabit
+                        // (anchors) olan kartSutunu'ndan alinir ki baglanti dongusu olmasin.
+                        readonly property int kalemEnAz: 140
+                        readonly property real olcek: Math.max(0.6, Math.min(1,
+                            (kartSutunu.width - 8 - 10 * 6 - 28 - kalemEnAz) / 882))
+                        readonly property int gGrup: Math.round(120 * olcek)
+                        readonly property int gTur: Math.round(110 * olcek)
+                        readonly property int gAdet: Math.round(70 * olcek)
+                        readonly property int gBirim: Math.round(70 * olcek)
+                        readonly property int gFiyat: Math.round(110 * olcek)
+                        readonly property int gPara: Math.round(72 * olcek)
+                        readonly property int gKur: Math.round(80 * olcek)
+                        readonly property int gTutar: Math.round(110 * olcek)
+                        readonly property int gTedarikci: Math.round(140 * olcek)
 
                         RowLayout {
                             id: receteBasligi
@@ -695,7 +703,7 @@ Item {
                             component Baslik: Label { color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
                             Baslik { text: "GRUP"; Layout.preferredWidth: receteSutunu.gGrup }
                             Baslik { text: "TÜR"; Layout.preferredWidth: receteSutunu.gTur }
-                            Baslik { text: "KALEM"; Layout.fillWidth: true }
+                            Baslik { text: "KALEM"; Layout.fillWidth: true; Layout.minimumWidth: receteSutunu.kalemEnAz }
                             Baslik { text: "ADET"; Layout.preferredWidth: receteSutunu.gAdet }
                             Baslik { text: "BİRİM"; Layout.preferredWidth: receteSutunu.gBirim }
                             Baslik { text: "BİRİM FİYAT"; Layout.preferredWidth: receteSutunu.gFiyat }
@@ -781,6 +789,7 @@ Item {
                                         }
                                         OneriliMetinKutusu {
                                             Layout.fillWidth: true
+                                            Layout.minimumWidth: receteSutunu.kalemEnAz
                                             kompakt: true
                                             enabled: !kalemSatiri.kilitli
                                             placeholderText: "Parça / hizmet adı"

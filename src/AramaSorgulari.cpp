@@ -995,6 +995,12 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
     const QString kopyaJoin = kopyaKolonuVar
         ? QStringLiteral("LEFT JOIN dbo.teklifler kk ON kk.TeklifId = t.KopyaKaynakTeklifId ")
         : QString();
+    // Fatura takibi (db/30). Betik yoksa fatura no hep bos gelir; "eksik/hazir"
+    // ayrimi yine yapilir (yalnizca sevk kaydina bakar).
+    const QString faturaSutunlari =
+        semaKolonuVarMi(db, QStringLiteral("dbo.sevk_bilgileri"), QStringLiteral("FaturaNo"))
+            ? QStringLiteral("sbi.FaturaNo, sbi.IrsaliyeNo")
+            : QStringLiteral("CAST(NULL AS NVARCHAR(50)) AS FaturaNo, CAST(NULL AS NVARCHAR(50)) AS IrsaliyeNo");
     // ONCE SAYFALA, SONRA ZENGINLESTIR.
     //
     // Eskiden tek bir sorguda hem filtreleme hem de iki OUTER APPLY birlikte
@@ -1022,7 +1028,8 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
         "SELECT t.TeklifId, m.FirmaAdi, t.OlusturmaTarihi, t.KabulTarihi, "
         "       t.TeslimatTarihi, t.TeslimTarihi, t.UretimPdfTarihi, "
         "       p.KullaniciAdi AS PersonelKullaniciAdi, p.AdSoyad AS PersonelAdSoyad, "
-        "       t.Durum, t.RedSebebi, sb.Aciklamalar, "
+        "       t.Durum, t.RedSebebi, sb.Aciklamalar, sb.SevkBilgileriId, sb.FaturaBasligi, "
+        "       sb.FaturaVergiNo, sb.FaturaNo, sb.IrsaliyeNo, "
         // DIKKAT: yer tutucu numaralari asagidaki .arg() cagrisinin SIRASIYLA
         // eslesmelidir. QString'in cok argumanli arg()'i, en kucuk numarali
         // yer tutucudan baslayarak sirayla doldurur -- yani numaralari atlamak
@@ -1037,7 +1044,7 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
         "LEFT JOIN dbo.teklif_toplamlari tt ON tt.TeklifId = t.TeklifId "
         "%2"
         "OUTER APPLY ("
-        "    SELECT TOP 1 sbi.Aciklamalar "
+        "    SELECT TOP 1 sbi.Aciklamalar, sbi.SevkBilgileriId, sbi.FaturaBasligi, sbi.FaturaVergiNo, %4 "
         "    FROM dbo.sevk_bilgileri sbi "
         "    WHERE sbi.TeklifId = t.TeklifId "
         "    ORDER BY sbi.SevkBilgileriId DESC"
@@ -1053,9 +1060,10 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
         // Filtre (ve sayfalama) zaten "sayfa" icinde uygulandi; burada yalnizca
         // satirlarin sirasi korunur.
         "ORDER BY t.OlusturmaTarihi DESC")
-        // %1 = kopya sutunlari, %2 = kopya JOIN'i, %3 = Teklif No ifadesi.
+        // %1 = kopya sutunlari, %2 = kopya JOIN'i, %3 = Teklif No ifadesi,
+        // %4 = fatura sutunlari.
         // (Filtre artik burada degil, asagidaki "sayfa" CTE'sinin icinde.)
-        .arg(kopyaSutunu, kopyaJoin, teklifNoSqlIfadesi(db, QStringLiteral("t")));
+        .arg(kopyaSutunu, kopyaJoin, teklifNoSqlIfadesi(db, QStringLiteral("t")), faturaSutunlari);
 
     const QString veriSorgusu =
         QStringLiteral("WITH sayfa AS (") + sayfaIdleri + QStringLiteral(") ") + veriGovdesi;
@@ -1091,6 +1099,17 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
         kayit["durum"] = veriQuery.value("Durum").toString();
         kayit["redSebebi"] = veriQuery.value("RedSebebi").toString();
         kayit["aciklamalar"] = veriQuery.value("Aciklamalar").toString();
+        // Fatura durumu: "faturalandi" (fatura no var), "hazir" (irsaliye
+        // kaydedilmis, fatura basligi ve vergi no dolu) ya da "eksik".
+        // Teklifin durumundan bagimsizdir; yalnizca Alınan/Biten'de gosterilir.
+        kayit["faturaNo"] = veriQuery.value("FaturaNo").toString();
+        kayit["irsaliyeNo"] = veriQuery.value("IrsaliyeNo").toString();
+        kayit["faturaDurumu"] =
+            !veriQuery.value("FaturaNo").toString().trimmed().isEmpty() ? QStringLiteral("faturalandi")
+            : (!veriQuery.value("SevkBilgileriId").isNull()
+               && !veriQuery.value("FaturaBasligi").toString().trimmed().isEmpty()
+               && !veriQuery.value("FaturaVergiNo").toString().trimmed().isEmpty()) ? QStringLiteral("hazir")
+            : QStringLiteral("eksik");
         kayit["musteriNotu"] = veriQuery.value("MusteriNotu").toString();
         kayit["uretimNotu"] = veriQuery.value("UretimNotu").toString();
         kayit["anaTeklifId"] = veriQuery.value("AnaTeklifId").isNull()
@@ -1391,7 +1410,9 @@ QVariantMap panoOzetiSorgusu(QSqlDatabase &db, const QString &donem,
 //                 bos) ve "Revize Edildi" (yeni revizyonun yan etkisi, elle
 //                 secilmez) ayri olay sayilmaz.
 //   * duzeltme  : dbo.teklif_duzeltme_gecmisi.
-// db/05 veya db/09 calistirilmamissa o kaynak listeye katilmaz.
+//   * silme     : dbo.teklif_silme_gecmisi. Teklif artik dbo.teklifler'de
+//                 olmadigi icin numara ve firma silme kaydindan okunur.
+// db/05, db/09 veya db/28 calistirilmamissa o kaynak listeye katilmaz.
 // ----------------------------------------------------------------------
 QVariantMap islemGecmisiSorgusu(QSqlDatabase &db, const QVariantMap &suzgec, int sayfaNo, int sayfaBoyutu)
 {
@@ -1402,24 +1423,31 @@ QVariantMap islemGecmisiSorgusu(QSqlDatabase &db, const QVariantMap &suzgec, int
 
     const bool durumTablosu = semaKolonuVarMi(db, QStringLiteral("dbo.teklif_durum_gecmisi"), QStringLiteral("YeniDurum"));
     const bool duzeltmeTablosu = semaKolonuVarMi(db, QStringLiteral("dbo.teklif_duzeltme_gecmisi"), QStringLiteral("Sebep"));
+    const bool silmeTablosu = semaKolonuVarMi(db, QStringLiteral("dbo.teklif_silme_gecmisi"), QStringLiteral("SilinenVeri"));
 
     QStringList kaynaklar;
     kaynaklar << QStringLiteral(
         "SELECT N'olusturma' AS Tur, t.TeklifId, t.OlusturmaTarihi AS Tarih, t.KullaniciId, "
         "       CAST(NULL AS NVARCHAR(50)) AS EskiDurum, CAST(NULL AS NVARCHAR(50)) AS YeniDurum, "
-        "       CAST(NULL AS NVARCHAR(1000)) AS Aciklama "
+        "       CAST(NULL AS NVARCHAR(1000)) AS Aciklama, "
+        "       CAST(NULL AS NVARCHAR(30)) AS SilinenNo, CAST(NULL AS NVARCHAR(500)) AS SilinenFirma "
         "FROM dbo.teklifler t");
     if (durumTablosu)
         kaynaklar << QStringLiteral(
             "SELECT N'durum', g.TeklifId, g.DegisiklikTarihi, g.KullaniciId, g.EskiDurum, g.YeniDurum, "
-            "       CAST(g.Aciklama AS NVARCHAR(1000)) "
+            "       CAST(g.Aciklama AS NVARCHAR(1000)), NULL, NULL "
             "FROM dbo.teklif_durum_gecmisi g "
             "WHERE g.EskiDurum IS NOT NULL AND g.YeniDurum <> N'Revize Edildi'");
     if (duzeltmeTablosu)
         kaynaklar << QStringLiteral(
             "SELECT N'duzeltme', d.TeklifId, d.DuzeltmeTarihi, d.KullaniciId, NULL, NULL, "
-            "       CAST(d.Sebep AS NVARCHAR(1000)) "
+            "       CAST(d.Sebep AS NVARCHAR(1000)), NULL, NULL "
             "FROM dbo.teklif_duzeltme_gecmisi d");
+    if (silmeTablosu)
+        kaynaklar << QStringLiteral(
+            "SELECT N'silme', s.TeklifId, s.SilmeTarihi, s.KullaniciId, s.Durum, NULL, NULL, "
+            "       s.TeklifNo, s.FirmaAdi "
+            "FROM dbo.teklif_silme_gecmisi s");
 
     // ---- Suzgecler ----
     QStringList kosullar;
@@ -1433,7 +1461,8 @@ QVariantMap islemGecmisiSorgusu(QSqlDatabase &db, const QVariantMap &suzgec, int
     }
 
     const QString tur = suzgec.value("tur").toString();
-    if (tur == QStringLiteral("olusturma") || tur == QStringLiteral("durum") || tur == QStringLiteral("duzeltme"))
+    if (tur == QStringLiteral("olusturma") || tur == QStringLiteral("durum") || tur == QStringLiteral("duzeltme")
+        || tur == QStringLiteral("silme"))
     {
         kosullar << QStringLiteral("o.Tur = :tur");
         parametreler[":tur"] = tur;
@@ -1464,16 +1493,28 @@ QVariantMap islemGecmisiSorgusu(QSqlDatabase &db, const QVariantMap &suzgec, int
             QStringLiteral("^#?(\\d+)(?:\\s*(?:[/-]\\s*(?:rev\\.?|r)?|rev\\.?|r)\\s*(\\d+))?$"),
             QRegularExpression::CaseInsensitiveOption);
         const QRegularExpressionMatch no = teklifNoDeseni.match(arama);
-        QString kosul = QStringLiteral("(m.FirmaAdi LIKE :firma ESCAPE N'\\'");
+        QString kosul = QStringLiteral("(ISNULL(m.FirmaAdi, o.SilinenFirma) LIKE :firma ESCAPE N'\\'");
         parametreler[":firma"] = likeDeseni(arama);
         if (no.hasMatch())
         {
+            const int kokNo = no.captured(1).toInt();
             kosul += no.captured(2).isEmpty()
                 ? QStringLiteral(" OR %1 = :kokNo").arg(noSql)
                 : QStringLiteral(" OR (%1 = :kokNo AND t.RevizyonNo = :revNo)").arg(noSql);
-            parametreler[":kokNo"] = no.captured(1).toInt();
-            if (!no.captured(2).isEmpty())
+            parametreler[":kokNo"] = kokNo;
+            // Silinen teklif: numara silme kaydinda metin olarak durur.
+            if (no.captured(2).isEmpty())
+            {
+                kosul += QStringLiteral(" OR o.SilinenNo = :silNo OR o.SilinenNo LIKE :silNoRev");
+                parametreler[":silNo"] = QString::number(kokNo);
+                parametreler[":silNoRev"] = QString::number(kokNo) + QStringLiteral("/%");
+            }
+            else
+            {
                 parametreler[":revNo"] = no.captured(2).toInt();
+                kosul += QStringLiteral(" OR o.SilinenNo = :silNo");
+                parametreler[":silNo"] = teklifNoMetniBicimle(kokNo, no.captured(2).toInt());
+            }
         }
         kosullar << kosul + QStringLiteral(")");
     }
@@ -1481,7 +1522,8 @@ QVariantMap islemGecmisiSorgusu(QSqlDatabase &db, const QVariantMap &suzgec, int
     const QString olaylar = QStringLiteral("WITH olaylar AS (%1) ").arg(kaynaklar.join(QStringLiteral(" UNION ALL ")));
     const QString govde = QStringLiteral(
         "FROM olaylar o "
-        "JOIN dbo.teklifler t ON t.TeklifId = o.TeklifId "
+        // Silinen teklifin satiri dbo.teklifler'de yoktur.
+        "LEFT JOIN dbo.teklifler t ON t.TeklifId = o.TeklifId AND o.Tur <> N'silme' "
         "LEFT JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
         "LEFT JOIN dbo.kullanicilar k ON k.KullaniciId = o.KullaniciId ")
         + (kosullar.isEmpty() ? QString() : QStringLiteral("WHERE ") + kosullar.join(QStringLiteral(" AND ")));
@@ -1515,7 +1557,8 @@ QVariantMap islemGecmisiSorgusu(QSqlDatabase &db, const QVariantMap &suzgec, int
     QSqlQuery query(db);
     query.prepare(olaylar + QStringLiteral(
         "SELECT o.Tur, o.TeklifId, o.Tarih, o.EskiDurum, o.YeniDurum, o.Aciklama, "
-        "       t.RevizyonNo, %1 AS No, m.FirmaAdi, k.AdSoyad, %2 AS OlusturmaAciklamasi ")
+        "       t.RevizyonNo, %1 AS No, ISNULL(m.FirmaAdi, o.SilinenFirma) AS FirmaAdi, k.AdSoyad, "
+        "       %2 AS OlusturmaAciklamasi, o.SilinenNo ")
         .arg(noSql, sebepSutunu)
         + govde
         + QStringLiteral(" ORDER BY o.Tarih DESC, o.TeklifId DESC "
@@ -1546,7 +1589,21 @@ QVariantMap islemGecmisiSorgusu(QSqlDatabase &db, const QVariantMap &suzgec, int
         }
         else if (olayTuru == QStringLiteral("durum"))
         {
-            baslik = query.value("EskiDurum").toString() + QStringLiteral("  →  ") + query.value("YeniDurum").toString();
+            // EskiDurum = YeniDurum: planlanan teslim tarihi degisikligi
+            // (bkz. Database::teklifTeslimatTarihiGuncelle).
+            const QString eskiDurum = query.value("EskiDurum").toString();
+            const QString yeniDurum = query.value("YeniDurum").toString();
+            baslik = eskiDurum == yeniDurum
+                ? QStringLiteral("Planlanan teslim tarihi değişti")
+                : eskiDurum + QStringLiteral("  →  ") + yeniDurum;
+        }
+        else if (olayTuru == QStringLiteral("silme"))
+        {
+            baslik = QStringLiteral("Teklif silindi");
+            // EskiDurum sutunu silme kaynaginda silindigi andaki durumu tasir.
+            const QString silinenDurum = query.value("EskiDurum").toString();
+            if (!silinenDurum.isEmpty())
+                aciklama = QStringLiteral("Silindiğinde durumu: ") + silinenDurum;
         }
         else
         {
@@ -1556,7 +1613,9 @@ QVariantMap islemGecmisiSorgusu(QSqlDatabase &db, const QVariantMap &suzgec, int
         QVariantMap k;
         k["tur"] = olayTuru;
         k["teklifId"] = query.value("TeklifId").toInt();
-        k["teklifNo"] = teklifNoMetniBicimle(query.value("No").toInt(), revizyonNo);
+        k["teklifNo"] = olayTuru == QStringLiteral("silme")
+            ? query.value("SilinenNo").toString()
+            : teklifNoMetniBicimle(query.value("No").toInt(), revizyonNo);
         k["firmaAdi"] = query.value("FirmaAdi").toString();
         k["personel"] = query.value("AdSoyad").toString();
         k["tarih"] = teklifTarihSaatStr(query.value("Tarih"));
@@ -1580,6 +1639,138 @@ QVariantMap islemGecmisiSorgusu(QSqlDatabase &db, const QVariantMap &suzgec, int
 
     QVariantMap sonuc;
     sonuc["personeller"] = personeller;
+    sonuc["kayitlar"] = kayitlar;
+    sonuc["toplamKayit"] = toplamKayit;
+    sonuc["toplamSayfa"] = toplamSayfa;
+    sonuc["mevcutSayfa"] = sayfaNo;
+    return sonuc;
+}
+
+// ----------------------------------------------------------------------
+// Muhasebe karti. "Faturalandı" teklifin durumundan bagimsizdir (fatura
+// kesilip cihaz teslim edilmemis olabilir); yalnizca sevk kaydindaki
+// FaturaNo'ya bakar (db/30).
+// ----------------------------------------------------------------------
+QVariantMap muhasebeListesiSorgusu(QSqlDatabase &db, const QVariantMap &suzgec, int sayfaNo, int sayfaBoyutu)
+{
+    QVariantMap sonuc = bosListeSonucu();
+    if (!semaKolonuVarMi(db, QStringLiteral("dbo.sevk_bilgileri"), QStringLiteral("FaturaNo")))
+    {
+        sonuc["hata"] = QStringLiteral("db/30_fatura_takibi.sql betiği çalıştırılmalı.");
+        return sonuc;
+    }
+
+    QStringList kosullar;
+    QVariantMap parametreler;
+    kosullar << QStringLiteral("t.Durum IN (N'Kabul Edildi', N'Tamamlandı')");
+
+    const bool faturalanan = suzgec.value("sekme").toString() == QStringLiteral("faturalanan");
+    kosullar << (faturalanan ? QStringLiteral("NULLIF(LTRIM(RTRIM(sb.FaturaNo)), N'') IS NOT NULL")
+                             : QStringLiteral("NULLIF(LTRIM(RTRIM(sb.FaturaNo)), N'') IS NULL"));
+
+    const QString durum = suzgec.value("durum").toString();
+    if (durum == QStringLiteral("Kabul Edildi") || durum == QStringLiteral("Tamamlandı"))
+    {
+        kosullar << QStringLiteral("t.Durum = :durum");
+        parametreler[":durum"] = durum;
+    }
+
+    const QString noSql = teklifNoSqlIfadesi(db, QStringLiteral("t"));
+    const QString arama = suzgec.value("arama").toString().trimmed();
+    if (!arama.isEmpty())
+    {
+        static const QRegularExpression teklifNoDeseni(
+            QStringLiteral("^#?(\\d+)(?:\\s*(?:[/-]\\s*(?:rev\\.?|r)?|rev\\.?|r)\\s*(\\d+))?$"),
+            QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch no = teklifNoDeseni.match(arama);
+        QString kosul = QStringLiteral("(m.FirmaAdi LIKE :firma ESCAPE N'\\' OR sb.FaturaNo LIKE :firma ESCAPE N'\\'");
+        parametreler[":firma"] = likeDeseni(arama);
+        if (no.hasMatch())
+        {
+            kosul += no.captured(2).isEmpty()
+                ? QStringLiteral(" OR %1 = :kokNo").arg(noSql)
+                : QStringLiteral(" OR (%1 = :kokNo AND t.RevizyonNo = :revNo)").arg(noSql);
+            parametreler[":kokNo"] = no.captured(1).toInt();
+            if (!no.captured(2).isEmpty())
+                parametreler[":revNo"] = no.captured(2).toInt();
+        }
+        kosullar << kosul + QStringLiteral(")");
+    }
+
+    const QString kaynak = QStringLiteral(
+        "FROM dbo.teklifler t "
+        "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
+        "LEFT JOIN dbo.sevk_bilgileri sb ON sb.TeklifId = t.TeklifId ");
+    const QString where = QStringLiteral("WHERE ") + kosullar.join(QStringLiteral(" AND ")) + QStringLiteral(" ");
+
+    const auto bagla = [&](QSqlQuery &q) {
+        for (auto it = parametreler.cbegin(); it != parametreler.cend(); ++it)
+            q.bindValue(it.key(), it.value());
+    };
+
+    QSqlQuery sayac(db);
+    sayac.prepare(QStringLiteral("SELECT COUNT(*) ") + kaynak + where);
+    bagla(sayac);
+    if (!sayac.exec() || !sayac.next())
+    {
+        qWarning() << "muhasebeListesiSorgusu (sayac) basarisiz:" << sayac.lastError().text();
+        return QVariantMap();
+    }
+    const int toplamKayit = sayac.value(0).toInt();
+    int toplamSayfa = 1;
+    sayfaNo = sayfayiSinirla(toplamKayit, sayfaBoyutu, sayfaNo, toplamSayfa);
+
+    // Faturalanacak: en yeni kabul ustte. Faturalanan: en yeni fatura ustte.
+    const QString siralama = faturalanan
+        ? QStringLiteral("ORDER BY sb.FaturaTarihi DESC, sb.FaturaGuncellemeTarihi DESC, t.TeklifId DESC ")
+        : QStringLiteral("ORDER BY t.KabulTarihi DESC, t.TeklifId DESC ");
+
+    QSqlQuery query(db);
+    query.prepare(QStringLiteral(
+        "SELECT t.TeklifId, %1 AS No, t.RevizyonNo, m.FirmaAdi, t.Durum, t.KabulTarihi, "
+        "       t.TeslimatTarihi, t.TeslimTarihi, t.ParaBirimi, tt.GenelToplam, p.AdSoyad, "
+        "       sb.SevkBilgileriId, sb.FaturaBasligi, sb.FaturaVergiNo, sb.FaturaNo, sb.IrsaliyeNo, "
+        "       sb.FaturaTarihi ").arg(noSql)
+        + kaynak
+        + QStringLiteral("LEFT JOIN dbo.teklif_toplamlari tt ON tt.TeklifId = t.TeklifId "
+                         "LEFT JOIN dbo.kullanicilar p ON p.KullaniciId = t.KullaniciId ")
+        + where + siralama
+        + QStringLiteral("OFFSET %1 ROWS FETCH NEXT %2 ROWS ONLY")
+              .arg((sayfaNo - 1) * sayfaBoyutu).arg(sayfaBoyutu));
+    bagla(query);
+    if (!query.exec())
+    {
+        qWarning() << "muhasebeListesiSorgusu basarisiz:" << query.lastError().text();
+        return QVariantMap();
+    }
+
+    QVariantList kayitlar;
+    while (query.next())
+    {
+        const QString faturaNo = query.value("FaturaNo").toString().trimmed();
+        const bool hazir = !query.value("SevkBilgileriId").isNull()
+                           && !query.value("FaturaBasligi").toString().trimmed().isEmpty()
+                           && !query.value("FaturaVergiNo").toString().trimmed().isEmpty();
+        QVariantMap k;
+        k["teklifId"] = query.value("TeklifId").toInt();
+        k["teklifNo"] = teklifNoMetniBicimle(query.value("No").toInt(), query.value("RevizyonNo").toInt());
+        k["firmaAdi"] = query.value("FirmaAdi").toString();
+        k["durum"] = query.value("Durum").toString();
+        k["kabulTarihi"] = teklifTarihStr(query.value("KabulTarihi"));
+        k["teslimatTarihi"] = teklifTarihStr(query.value("TeslimatTarihi"));
+        k["teslimTarihi"] = teklifTarihStr(query.value("TeslimTarihi"));
+        k["paraBirimi"] = query.value("ParaBirimi").toString();
+        k["genelToplam"] = query.value("GenelToplam").toDouble();
+        k["personel"] = query.value("AdSoyad").toString();
+        k["faturaNo"] = faturaNo;
+        k["irsaliyeNo"] = query.value("IrsaliyeNo").toString();
+        k["faturaTarihi"] = query.value("FaturaTarihi").isNull()
+            ? QString() : query.value("FaturaTarihi").toDate().toString(QStringLiteral("dd.MM.yyyy"));
+        k["faturaDurumu"] = !faturaNo.isEmpty() ? QStringLiteral("faturalandi")
+                          : hazir ? QStringLiteral("hazir") : QStringLiteral("eksik");
+        kayitlar << k;
+    }
+
     sonuc["kayitlar"] = kayitlar;
     sonuc["toplamKayit"] = toplamKayit;
     sonuc["toplamSayfa"] = toplamSayfa;

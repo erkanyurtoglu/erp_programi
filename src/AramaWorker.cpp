@@ -163,6 +163,16 @@ void AramaWorker::islemGecmisiCalistir(int istekNo, const QVariantMap &suzgec, i
     emit islemGecmisiHazir(istekNo, islemGecmisiSorgusu(m_db, suzgec, sayfaNo, sayfaBoyutu));
 }
 
+void AramaWorker::muhasebeListesiCalistir(int istekNo, const QVariantMap &suzgec, int sayfaNo, int sayfaBoyutu)
+{
+    if (!baglantiHazir())
+    {
+        emit muhasebeListesiHazir(istekNo, QVariantMap());
+        return;
+    }
+    emit muhasebeListesiHazir(istekNo, muhasebeListesiSorgusu(m_db, suzgec, sayfaNo, sayfaBoyutu));
+}
+
 void AramaWorker::cihazListesiCalistir(int istekNo, const QString &arama, bool arsivDahil)
 {
     if (!baglantiHazir())

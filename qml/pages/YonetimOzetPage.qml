@@ -358,7 +358,8 @@ Item {
                         Layout.bottomMargin: 12
                         spacing: 10
                         SayiKarti { baslik: "Patron onayı bekleyen"; deger: root.satinalma.onayBekleyen || 0 }
-                        SayiKarti { baslik: "Açık talep"; deger: root.satinalma.acikTalep || 0 }
+                        // Siparise donusmemis kalemi olan talepler (malini bekleyenler degil).
+                        SayiKarti { baslik: "Sipariş bekleyen talep"; deger: root.satinalma.acikTalep || 0 }
                         SayiKarti { baslik: "Açık sipariş"; deger: root.satinalma.acikSiparis || 0 }
                         SayiKarti { baslik: "Teslimi geciken"; deger: root.satinalma.geciken || 0 }
                         SayiKarti { baslik: "Faturası eksik"; deger: root.satinalma.faturasiEksik || 0 }

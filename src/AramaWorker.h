@@ -54,6 +54,7 @@ public slots:
     void panoOzetiCalistir(int istekNo, const QString &donem,
                            const QString &ozelBaslangic, const QString &ozelBitis);
     void islemGecmisiCalistir(int istekNo, const QVariantMap &suzgec, int sayfaNo, int sayfaBoyutu);
+    void muhasebeListesiCalistir(int istekNo, const QVariantMap &suzgec, int sayfaNo, int sayfaBoyutu);
     void cihazListesiCalistir(int istekNo, const QString &arama, bool arsivDahil);
 
     void teklifListesiCalistir(int istekNo, const QString &arama,
@@ -82,6 +83,7 @@ signals:
     void ayarListesiHazir(const QVariantMap &sonuc);
     void panoOzetiHazir(int istekNo, const QVariantMap &sonuc);
     void islemGecmisiHazir(int istekNo, const QVariantMap &sonuc);
+    void muhasebeListesiHazir(int istekNo, const QVariantMap &sonuc);
     void cihazListesiHazir(int istekNo, const QVariantList &liste);
 
 private:

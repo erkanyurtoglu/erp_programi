@@ -44,26 +44,51 @@ Item {
     // sekme sorgu atsin.
     function sekmeyiAc(sira) {
         // Cihaz kartinda kaydedilmemis degisiklik varsa once onay istenir.
-        if (icerikYiginlar.currentIndex === 5 && sira !== 5 && cihazMaliyetleriPage.degisti) {
-            cihazMaliyetleriPage.gecisYap(function() { cihazMaliyetleriPage.formuKapat(); root.sekmeyiAc(sira) })
+        if (icerikYiginlar.currentIndex === 5 && sira !== 5 && root.cihazMaliyetleriPage.degisti) {
+            root.cihazMaliyetleriPage.gecisYap(function() { root.cihazMaliyetleriPage.formuKapat(); root.sekmeyiAc(sira) })
             return
         }
         icerikYiginlar.currentIndex = sira
         if (sira === 0)
-            yonetimOzetPage.sayfayiYukle()
+            root.yonetimOzetPage.sayfayiYukle()
         else if (sira === 1)
-            personellerimPage.sayfayiYukle(1)
+            root.personellerimPage.sayfayiYukle(1)
         else if (sira === 2)
-            rollerYetkilerPage.sayfayiYukle()
+            root.rollerYetkilerPage.sayfayiYukle()
         else if (sira === 3)
-            sistemAyarlariPage.sayfayiYukle()
+            root.sistemAyarlariPage.sayfayiYukle()
         else if (sira === 4)
-            islemGecmisiPage.sayfayiYukle(1)
+            root.islemGecmisiPage.sayfayiYukle(1)
         else if (sira === 5)
-            cihazMaliyetleriPage.sayfayiYukle()
+            root.cihazMaliyetleriPage.sayfayiYukle()
     }
 
-    Component.onCompleted: root.sekmeyiAc(root.baslangicSekmesi)
+    // StackLayout'taki bir sekmeyi ilk secildiginde olusturur ve sonra hep tutar
+    // (bkz. SatisModuluPage.SekmeYukleyici). Eskiden alti sayfanin hepsi modul
+    // acilirken olusturuluyor, karta basinca ekran bir sure donuyordu.
+    component SekmeYukleyici: Loader {
+        property int sekme: -1
+        property bool yuklendi: false
+        active: yuklendi || icerikYiginlar.currentIndex === sekme
+        onLoaded: yuklendi = true
+    }
+
+    // Sekme sayfalari; sekme henuz acilmadiysa null.
+    readonly property var yonetimOzetPage: ozetYukleyici.item
+    readonly property var personellerimPage: personellerimYukleyici.item
+    readonly property var rollerYetkilerPage: rollerYukleyici.item
+    readonly property var sistemAyarlariPage: ayarlarYukleyici.item
+    readonly property var islemGecmisiPage: gecmisYukleyici.item
+    readonly property var cihazMaliyetleriPage: cihazlarYukleyici.item
+
+    // Ilk sekmenin sorgusu modul ekrana cizildikten sonra atilir; karta basinca
+    // ekran sorgu bitene kadar ana menude takili kalmasin.
+    Component.onCompleted: ilkYukleme.start()
+    Timer {
+        id: ilkYukleme
+        interval: 50
+        onTriggered: root.sekmeyiAc(icerikYiginlar.currentIndex)
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -200,41 +225,59 @@ Item {
             Layout.fillHeight: true
             currentIndex: root.baslangicSekmesi
 
-            YonetimOzetPage {
-                id: yonetimOzetPage
-                otomatikYukle: false
+            SekmeYukleyici {
+                id: ozetYukleyici
+                sekme: 0
+                sourceComponent: YonetimOzetPage {
+                    otomatikYukle: false
+                }
             }
 
-            PersonellerimPage {
-                id: personellerimPage
-                otomatikYukle: false
-                // Kendi satirini ayirt edip kendi hesabini pasife alma
-                // butonunu kapatmak icin (sunucu da reddeder, bkz.
-                // Database::personelAktifDurumDegistir).
-                aktifKullaniciId: root.kullaniciId
-                duzenleyebilir: root.yonetimDuzenleyebilir
+            SekmeYukleyici {
+                id: personellerimYukleyici
+                sekme: 1
+                sourceComponent: PersonellerimPage {
+                    otomatikYukle: false
+                    // Kendi satirini ayirt edip kendi hesabini pasife alma
+                    // butonunu kapatmak icin (sunucu da reddeder, bkz.
+                    // Database::personelAktifDurumDegistir).
+                    aktifKullaniciId: root.kullaniciId
+                    duzenleyebilir: root.yonetimDuzenleyebilir
+                }
             }
 
-            RollerYetkilerPage {
-                id: rollerYetkilerPage
-                otomatikYukle: false
-                duzenleyebilir: root.yonetimDuzenleyebilir
+            SekmeYukleyici {
+                id: rollerYukleyici
+                sekme: 2
+                sourceComponent: RollerYetkilerPage {
+                    otomatikYukle: false
+                    duzenleyebilir: root.yonetimDuzenleyebilir
+                }
             }
 
-            SistemAyarlariPage {
-                id: sistemAyarlariPage
-                otomatikYukle: false
-                duzenleyebilir: root.yonetimDuzenleyebilir
+            SekmeYukleyici {
+                id: ayarlarYukleyici
+                sekme: 3
+                sourceComponent: SistemAyarlariPage {
+                    otomatikYukle: false
+                    duzenleyebilir: root.yonetimDuzenleyebilir
+                }
             }
 
-            IslemGecmisiPage {
-                id: islemGecmisiPage
-                otomatikYukle: false
+            SekmeYukleyici {
+                id: gecmisYukleyici
+                sekme: 4
+                sourceComponent: IslemGecmisiPage {
+                    otomatikYukle: false
+                }
             }
 
-            CihazMaliyetleriPage {
-                id: cihazMaliyetleriPage
-                otomatikYukle: false
+            SekmeYukleyici {
+                id: cihazlarYukleyici
+                sekme: 5
+                sourceComponent: CihazMaliyetleriPage {
+                    otomatikYukle: false
+                }
             }
         }
     }

@@ -16,7 +16,8 @@ Item {
 
     property int aktifKullaniciId: 0
 
-    property bool pasifGoster: true
+    // Varsayilan: yalnizca aktifler; pasifler kutu isaretlenince gosterilir.
+    property bool pasifGoster: false
 
     property int bekleyenIstek: 0
     property bool yukleniyor: false
@@ -462,6 +463,9 @@ Item {
             kullaniciAdiAlani.text = kayit ? kayit.kullaniciAdi : ""
             sifreAlani.text = ""
             sifreTekrarAlani.text = ""
+            duzenlemeDialogu.mevcutSifre = ""
+            duzenlemeDialogu.mevcutSifreHatasi = ""
+            duzenlemeDialogu.sifreGorebilir = kayit !== null && database.sifreGoruntuleyebilirMi()
             telefonAlani.text = kayit ? kayit.telefon : ""
             pozisyonAlani.text = kayit ? kayit.pozisyon : ""
             // Secim artik kutularin kendisinden degil, bu listeden okunuyor
@@ -478,6 +482,21 @@ Item {
 
         // Secili rol id'leri. Tek dogruluk kaynagi budur.
         property var secilenRoller: []
+
+        // "Göster" ile PIN sorularak sunucudan okunan mevcut sifre. Satir yalnizca
+        // sifreleri gorebilen tek kullaniciya gorunur (bkz.
+        // Database::sifreGoruntuleyebilirMi / personelSifresiGetir).
+        property bool sifreGorebilir: false
+        property string mevcutSifre: ""
+        property string mevcutSifreHatasi: ""
+
+        function mevcutSifreyiGoster() {
+            if (duzenlemeDialogu.mevcutSifre.length > 0) {
+                duzenlemeDialogu.mevcutSifre = ""
+                return
+            }
+            pinDialogu.open()
+        }
 
         function roluDegistir(rolId, secili) {
             const liste = duzenlemeDialogu.secilenRoller.slice()
@@ -558,6 +577,43 @@ Item {
             EtiketliAlan { id: adSoyadAlani; etiket: "AD SOYAD *" }
             EtiketliAlan { id: kullaniciAdiAlani; etiket: "KULLANICI ADI *" }
 
+            Label {
+                visible: duzenlemeDialogu.sifreGorebilir
+                text: "MEVCUT ŞİFRE"
+                color: Theme.metinSoluk
+                font.family: Theme.fontAilesi
+                font.pixelSize: 10
+                font.letterSpacing: 1
+            }
+            RowLayout {
+                visible: duzenlemeDialogu.sifreGorebilir
+                Layout.fillWidth: true
+                spacing: 10
+                TextField {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.girdiYuksekligi
+                    readOnly: true
+                    selectByMouse: true
+                    text: duzenlemeDialogu.mevcutSifre.length > 0 ? duzenlemeDialogu.mevcutSifre
+                        : duzenlemeDialogu.mevcutSifreHatasi.length > 0 ? duzenlemeDialogu.mevcutSifreHatasi
+                        : "••••••"
+                    color: duzenlemeDialogu.mevcutSifreHatasi.length > 0 ? Theme.uyariAcik : Theme.metinBirincil
+                    font.family: Theme.fontAilesi
+                    font.pixelSize: duzenlemeDialogu.mevcutSifreHatasi.length > 0 ? Theme.fontBoyutKucuk : Theme.fontBoyutNormal
+                    leftPadding: 14
+                    background: Rectangle {
+                        radius: Theme.radiusKucuk
+                        color: Theme.arkaplan
+                        border.width: 1
+                        border.color: Theme.kenarlik
+                    }
+                }
+                TemaButon {
+                    text: duzenlemeDialogu.mevcutSifre.length > 0 ? "Gizle" : "Göster"
+                    onClicked: duzenlemeDialogu.mevcutSifreyiGoster()
+                }
+            }
+
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 10
@@ -575,15 +631,6 @@ Item {
                     etiket: "ŞİFRE (TEKRAR)"
                     echoMode: TextInput.Password
                 }
-            }
-
-            Label {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                color: Theme.metinCokSoluk
-                font.family: Theme.fontAilesi
-                font.pixelSize: 10
-                text: "Şifre en az 6 karakter olmalıdır."
             }
 
             RowLayout {
@@ -628,6 +675,52 @@ Item {
 
     // Personel ekleme/duzenleme/aktif-pasif yonetici sifresiyle onaylanir.
     SifreOnayDialog { id: sifreDialogu }
+
+    // Personel Duzenle'de "Mevcut Şifre"yi gostermeden once PIN ister.
+    TemaDialog {
+        id: pinDialogu
+        width: 360
+        baslik: "Şifreyi Göster"
+        onayMetni: "Göster"
+        elleKapat: true
+
+        onOpened: {
+            pinAlani.text = ""
+            pinHatasi.text = ""
+            pinAlani.alan.forceActiveFocus()
+        }
+
+        onOnaylandi: {
+            const sonuc = database.personelSifresiGetir(duzenlemeDialogu.kullaniciId, pinAlani.text)
+            if (!sonuc.basarili && sonuc.hata === "PIN yanlış.") {
+                pinHatasi.text = sonuc.hata
+                pinAlani.alan.selectAll()
+                pinAlani.alan.forceActiveFocus()
+                return
+            }
+            duzenlemeDialogu.mevcutSifre = sonuc.basarili ? sonuc.sifre : ""
+            duzenlemeDialogu.mevcutSifreHatasi = sonuc.basarili ? "" : sonuc.hata
+            pinDialogu.close()
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+            EtiketliAlan {
+                id: pinAlani
+                etiket: "PIN"
+                echoMode: TextInput.Password
+                onKabulEdildi: pinDialogu.onaylandi()
+            }
+            Label {
+                id: pinHatasi
+                visible: text.length > 0
+                Layout.fillWidth: true
+                color: Theme.tehlikeAcik
+                font.family: Theme.fontAilesi
+                font.pixelSize: Theme.fontBoyutKucuk
+            }
+        }
+    }
 
     function aktifDurumDegistir(kullaniciId, aktif) {
         const sonuc = database.personelAktifDurumDegistir(kullaniciId, aktif)

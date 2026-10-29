@@ -184,6 +184,10 @@ private:
     // motoruHazirla ile olusturulan, tum PDF'lerde tekrar kullanilan sayfa.
     mutable std::unique_ptr<QWebEnginePage> m_sayfa;
 
+    // htmlyiPdfeBas'in ic dongusu calisirken true: kullanici girdisi o sirada
+    // islendigi icin ic ice ikinci bir basma istegi buradan reddedilir.
+    mutable bool m_basiliyor = false;
+
     // TR locale (nokta/virgul) ile sayiyi bicimlendirip, "paraBirimi"ne (TL/USD/EUR)
     // gore dogru sembolu (₺/$/€) sonuna ekler -- ekrandaki (TeklifVerPage.qml
     // paraFormat + paraBirimiSembol) ile ayni gosterim kurali.

@@ -21,4 +21,15 @@ QtObject {
     function ac(tur, teklifId, baslik) {
         acIstendi(tur, teklifId, baslik)
     }
+
+    // Main.qml dinler; PDF onizlemesiz uretilip dogrudan klasore kaydedilir.
+    signal indirIstendi(string tur, int teklifId, string baslik, bool acilsin)
+
+    // Onizleme acmadan PDF'i uretip klasore kaydeder ("Teklifi Kaydet" sonrasi
+    // zaman kaybi olmasin diye). Sonuc Main.qml'deki bildirimde gosterilir;
+    // basariliysa "kaydedildi" de yayinlanir. "acilsin": kaydedilen dosya
+    // varsayilan PDF goruntuleyicide acilir.
+    function indir(tur, teklifId, baslik, acilsin) {
+        indirIstendi(tur, teklifId, baslik, acilsin === true)
+    }
 }

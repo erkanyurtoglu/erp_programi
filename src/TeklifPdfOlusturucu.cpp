@@ -486,6 +486,11 @@ bool TeklifPdfOlusturucu::htmlyiPdfeBas(const QString &html, const QString &dosy
     // iceren sablonlarda sessizce (loadFinished(false)) basarisiz olur. Bu
     // sinirdan tamamen kacinmak icin HTML'i gecici bir dosyaya yazip
     // dosyadan (file://) yukluyoruz -- boyut siniri yok.
+    if (m_basiliyor)
+    {
+        hataOut = "Başka bir PDF hazırlanıyor; lütfen bitmesini bekleyin.";
+        return false;
+    }
     QTemporaryFile geciciDosya(QDir::tempPath() + "/teklif_pdf_XXXXXX.html");
     if (!geciciDosya.open())
     {
@@ -545,10 +550,14 @@ bool TeklifPdfOlusturucu::htmlyiPdfeBas(const QString &html, const QString &dosy
     if (!tamamlandiMi)
     {
         zamanAsimi.start(60 * 1000);
-        // Kullanici girdisi bu surede islenmez: PDF uretilirken ayni butona tekrar
-        // basilip bu fonksiyona ic ice yeniden girilmesi (ve ayni dosyaya iki kez
-        // yazilmasi) engellenir. Pencere yine de cizilmeye devam eder.
-        dongu.exec(QEventLoop::ExcludeUserInputEvents);
+        // Kullanici girdisi bu surede de islenir. ExcludeUserInputEvents ile
+        // bekletilen tiklamalar Windows'ta pencereyi birkac saniye sonra "Yanit
+        // vermiyor" (donmus) gosteriyordu. Ic ice yeniden girme m_basiliyor ile
+        // engellenir; onizleme penceresi modal oldugu icin arkadaki ekrana da
+        // tiklanamaz.
+        m_basiliyor = true;
+        dongu.exec();
+        m_basiliyor = false;
     }
 
     QObject::disconnect(yuklemeBaglantisi);

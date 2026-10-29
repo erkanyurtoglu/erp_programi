@@ -217,7 +217,8 @@ Item {
                 spacing: 12
 
                 DurumRozeti {
-                    metin: SatinalmaBicim.siparisDurumAdi(detayDialogu.durum, detayDialogu.d.teslimatSekli)
+                    metin: SatinalmaBicim.siparisDurumAdi(detayDialogu.durum, detayDialogu.d.teslimatSekli,
+                                                         detayDialogu.d.eksikKapatildi)
                     renk: SatinalmaBicim.siparisDurumRengi(detayDialogu.durum)
                     dolu: true
                 }
@@ -278,13 +279,24 @@ Item {
                         onFaturaIstendi: (id) => root.faturaAc(id)
                     }
                     // Teslimat ve fatura bilgisi kartlarin "Düzenle" baglantisindan girilir.
+                    // Kalan gelmeyecekse siparis eksik kapatilir; iptal mali
+                    // gelmis sipariste yapilamaz.
+                    TemaButon {
+                        visible: detayDialogu.durum === "Kısmi Teslim"
+                        tur: "uyari"
+                        kucuk: true
+                        text: "Eksik Kapat"
+                        onClicked: eksikKapatDialogu.ac()
+                    }
                     TemaButon {
                         visible: detayDialogu.teslimVar
                         kucuk: true
                         text: "Teslimi Geri Al"
                         onClicked: onayDialogu.iste(
                             "Teslimi Geri Al",
-                            "Gelen miktarlar sıfırlanır, sipariş \"Sipariş Verildi\" durumuna döner.",
+                            "Gelen miktarlar sıfırlanır, sipariş teslimden önceki durumuna döner."
+                            + (detayDialogu.d.eksikKapatildi
+                               ? " Eksik kapatma kaldırılır; eksik miktar için talepte açılan kalemler silinir." : ""),
                             "Geri Al", true,
                             function() {
                                 root.islemSonucu(database.satinalmaDurumGuncelle(root.seciliId, "Sipariş Verildi"),
@@ -506,6 +518,14 @@ Item {
                             }
                             Bilgi { etiket: "Tek teklif"; deger: detayDialogu.d.tekTeklifGerekcesi || "" }
                             Bilgi { etiket: "Red sebebi"; deger: detayDialogu.d.redSebebi || ""; renk: Theme.tehlikeAcik }
+                            Bilgi {
+                                etiket: "Eksik kapatıldı"
+                                deger: !detayDialogu.d.eksikKapatildi ? ""
+                                       : (detayDialogu.d.eksikKapatmaSebebi || "") + " ("
+                                         + [detayDialogu.d.eksikKapatan || "", detayDialogu.d.eksikKapatmaTarihi || ""]
+                                           .filter(p => p.length > 0).join(", ") + ")"
+                                renk: Theme.uyariAcik
+                            }
                         }
 
                         BilgiKarti {
@@ -655,6 +675,98 @@ Item {
         }
     }
 
+    // ================================================================ EKSIK KAPAT
+    // 10 istenip 6 gelmis ve kalan 4 gelmeyecekse: siparis kapanir, eksik
+    // miktar istenirse talepte yeni kalem olarak acilir (baska yerden alinir).
+    TemaDialog {
+        id: eksikKapatDialogu
+        baslik: "Eksik Kapat — " + SatinalmaBicim.siparisNo(root.detay.siparisNo || 0)
+        onayMetni: "Siparişi Kapat"
+        onayEtkin: eksikSebep.text.trim().length > 0
+        elleKapat: true
+        width: 520
+
+        readonly property var eksikler: (root.detay.kalemler || []).filter(k => (k.adet || 0) - (k.gelenAdet || 0) > 0.0005)
+
+        function ac() {
+            eksikSebep.text = ""
+            eksikTalebeAc.checked = true
+            eksikHatasi.text = ""
+            eksikKapatDialogu.open()
+        }
+
+        onOnaylandi: {
+            const talepli = (root.detay.talepNo || 0) > 0
+            const sonuc = database.satinalmaEksikKapat(root.seciliId, eksikSebep.text,
+                                                       talepli && eksikTalebeAc.checked)
+            if (!sonuc.basarili) {
+                eksikHatasi.text = sonuc.hata
+                return
+            }
+            eksikKapatDialogu.close()
+            root.islemSonucu(sonuc, SatinalmaBicim.siparisNo(root.detay.siparisNo) + " eksik kapatıldı."
+                                    + (sonuc.acilanKalemSayisi > 0
+                                       ? " " + sonuc.acilanKalemSayisi + " kalem talepte yeniden açıldı." : ""))
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            Label {
+                text: "GELMEYECEK MİKTAR"
+                color: Theme.metinSoluk
+                font.family: Theme.fontAilesi
+                font.pixelSize: 10
+                font.letterSpacing: 1
+            }
+            Repeater {
+                model: eksikKapatDialogu.eksikler
+                delegate: RowLayout {
+                    id: eksikSatiri
+                    required property var modelData
+                    Layout.fillWidth: true
+                    spacing: 10
+                    KisalanMetin {
+                        Layout.fillWidth: true
+                        text: eksikSatiri.modelData.kalemAdi
+                        color: Theme.metinBirincil
+                        font.family: Theme.fontAilesi
+                        font.pixelSize: Theme.fontBoyutNormal
+                    }
+                    Label {
+                        text: SatinalmaBicim.miktar(eksikSatiri.modelData.adet - eksikSatiri.modelData.gelenAdet)
+                              + " " + (eksikSatiri.modelData.birim || "")
+                        color: Theme.uyariAcik
+                        font.family: Theme.fontAilesi
+                        font.pixelSize: Theme.fontBoyutKucuk
+                    }
+                }
+            }
+
+            EtiketliAlan {
+                id: eksikSebep
+                etiket: "KALAN NEDEN GELMEYECEK? *"
+                placeholderText: "Örn: Tedarikçide stok bitti"
+            }
+
+            TemaOnayKutusu {
+                id: eksikTalebeAc
+                visible: (root.detay.talepNo || 0) > 0
+                text: "Eksik miktarı talepte yeniden aç"
+            }
+
+            Label {
+                id: eksikHatasi
+                Layout.fillWidth: true
+                visible: text.length > 0
+                color: Theme.tehlikeAcik
+                font.family: Theme.fontAilesi
+                font.pixelSize: Theme.fontBoyutKucuk
+                wrapMode: Text.WordWrap
+            }
+        }
+    }
+
     // ================================================================ TESLIMAT
     TemaDialog {
         id: sevkiyatDialogu
@@ -752,6 +864,7 @@ Item {
                 id: sevkTarih
                 Layout.fillWidth: true
                 etiket: "BEKLENEN TESLİM TARİHİ"
+                gecmisKapali: true
                 onSecildi: (tarih) => sevkTarih.deger = tarih
             }
 

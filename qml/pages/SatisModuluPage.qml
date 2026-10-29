@@ -48,12 +48,30 @@ Item {
     // yoneticinin personel listesine ulasmak icin Satis moduline girmesi
     // gerekiyordu.
 
+    // StackLayout'taki bir sekmeyi ilk secildiginde olusturur ve sonra hep tutar.
+    // currentIndex degisince "active" hemen guncellendigi icin, sekmeyi secen
+    // kod hemen ardindan sayfanin fonksiyonlarini (sayfayiYukle vb.) cagirabilir.
+    component SekmeYukleyici: Loader {
+        property int sekme: -1
+        property bool yuklendi: false
+        active: yuklendi || icerikYiginlar.currentIndex === sekme
+        onLoaded: yuklendi = true
+    }
+
+    // Sekme sayfalari; sekme henuz acilmadiysa null.
+    readonly property var gidenTekliflerPage: gidenYukleyici.item
+    readonly property var alinanTekliflerPage: alinanYukleyici.item
+    readonly property var bitenTekliflerPage: bitenYukleyici.item
+    readonly property var musterilerimPage: musterilerimYukleyici.item
+    readonly property var urunlerimPage: urunlerimYukleyici.item
+    readonly property var revizyonPage: revizyonYukleyici.item
+
     // Duzenleme yetkisi yoksa "Teklif Ver" sekmesi yoktur; modul Giden
     // Tekliflerim'le acilir.
     Component.onCompleted: {
         if (!root.satisDuzenleyebilir && icerikYiginlar.currentIndex === 0) {
             icerikYiginlar.currentIndex = 1
-            gidenTekliflerPage.sayfayiYukle(1)
+            root.gidenTekliflerPage.sayfayiYukle(1)
         }
     }
 
@@ -67,15 +85,15 @@ Item {
     property int revizyonKaynakSekme: 1
 
     function revizyonKaynakSayfasi() {
-        if (root.revizyonKaynakSekme === 2) return alinanTekliflerPage
-        if (root.revizyonKaynakSekme === 3) return bitenTekliflerPage
-        return gidenTekliflerPage
+        if (root.revizyonKaynakSekme === 2) return root.alinanTekliflerPage
+        if (root.revizyonKaynakSekme === 3) return root.bitenTekliflerPage
+        return root.gidenTekliflerPage
     }
 
     function revizyonuAc(kaynakSekme, teklifId) {
         root.revizyonKaynakSekme = kaynakSekme
         icerikYiginlar.currentIndex = root.revizyonSekmesi
-        revizyonPage.duzenlemeyeBasla(teklifId)
+        root.revizyonPage.duzenlemeyeBasla(teklifId)
     }
 
     // "Kopya" butonu: AYNI alt sayfayi kullanir, ama teklifin icerigi BAGIMSIZ bir
@@ -90,7 +108,7 @@ Item {
     function kopyayiAc(teklifId) {
         root.revizyonKaynakSekme = 1
         icerikYiginlar.currentIndex = root.revizyonSekmesi
-        revizyonPage.kopyalamayaBasla(teklifId)
+        root.revizyonPage.kopyalamayaBasla(teklifId)
     }
 
     // listeyiYenile: Detay ekraninda teklif uzerinde yerinde degisiklik yapilmis
@@ -209,7 +227,7 @@ Item {
                             || (icerikYiginlar.currentIndex === root.revizyonSekmesi && root.revizyonKaynakSekme === 1)
                     onTiklandi: {
                         icerikYiginlar.currentIndex = 1
-                        gidenTekliflerPage.sayfayiYukle(1)
+                        root.gidenTekliflerPage.sayfayiYukle(1)
                     }
                 }
                 YanMenuButonu {
@@ -218,7 +236,7 @@ Item {
                             || (icerikYiginlar.currentIndex === root.revizyonSekmesi && root.revizyonKaynakSekme === 2)
                     onTiklandi: {
                         icerikYiginlar.currentIndex = 2
-                        alinanTekliflerPage.sayfayiYukle(1)
+                        root.alinanTekliflerPage.sayfayiYukle(1)
                     }
                 }
                 YanMenuButonu {
@@ -227,7 +245,7 @@ Item {
                             || (icerikYiginlar.currentIndex === root.revizyonSekmesi && root.revizyonKaynakSekme === 3)
                     onTiklandi: {
                         icerikYiginlar.currentIndex = 3
-                        bitenTekliflerPage.sayfayiYukle(1)
+                        root.bitenTekliflerPage.sayfayiYukle(1)
                     }
                 }
 
@@ -238,7 +256,7 @@ Item {
                     secili: icerikYiginlar.currentIndex === 4
                     onTiklandi: {
                         icerikYiginlar.currentIndex = 4
-                        musterilerimPage.sayfayiYukle(1)
+                        root.musterilerimPage.sayfayiYukle(1)
                     }
                 }
                 YanMenuButonu {
@@ -246,7 +264,7 @@ Item {
                     secili: icerikYiginlar.currentIndex === 5
                     onTiklandi: {
                         icerikYiginlar.currentIndex = 5
-                        urunlerimPage.sayfayiYukle(1)
+                        root.urunlerimPage.sayfayiYukle(1)
                     }
                 }
                 Item { Layout.fillHeight: true }
@@ -254,15 +272,25 @@ Item {
         }
 
         // ---- Sag icerik ----
+        // Her sekme ilk kez acildiginda olusturulur (SekmeYukleyici): eskiden 7
+        // sayfanin hepsi (iki ayri TeklifVerPage dahil) modul acilirken ayni anda
+        // olusturuluyor, karta basinca ekran bir sure donuyordu. Olusan sekme
+        // kapanmaz; icindeki yarim taslak/filtre sekme degistirilince kaybolmaz.
         StackLayout {
             id: icerikYiginlar
             Layout.fillWidth: true
             Layout.fillHeight: true
             currentIndex: root.baslangicSekmesi
 
-            TeklifVerPage {
-                kullaniciId: root.kullaniciId
-                yetkiVar: root.satisDuzenleyebilir
+            SekmeYukleyici {
+                id: teklifVerYukleyici
+                sekme: 0
+                // Yetki yoksa modul Giden Tekliflerim'le acilir; Teklif Ver hic olusmaz.
+                active: root.satisDuzenleyebilir && (yuklendi || icerikYiginlar.currentIndex === sekme)
+                sourceComponent: TeklifVerPage {
+                    kullaniciId: root.kullaniciId
+                    yetkiVar: root.satisDuzenleyebilir
+                }
             }
 
             // otomatikYukle: false -- StackLayout, gorunur olmayan sekmeleri de
@@ -278,48 +306,63 @@ Item {
             // orijinal teklife dokunulmadan yeni bir revizyon eklenir ve otomatik
             // olarak bu listeye donulur. Alınan/Biten Tekliflerim'den acildiginda
             // kabul edilmis/tamamlanmis teklif kilitlidir -- detay salt goruntulemedir.
-            GecmisTekliflerPage {
-                id: gidenTekliflerPage
-                durumFiltresi: ""
-                baslikMetni: "Giden Tekliflerim"
-                otomatikYukle: false
-                kullaniciId: root.kullaniciId
-                duzenleyebilir: root.satisDuzenleyebilir
-                onDetayIstendi: (teklifId) => root.revizyonuAc(1, teklifId)
-                // Kopya butonu yalnizca bu sekmede var (bkz. kopyayiAc).
-                onKopyaIstendi: (teklifId) => root.kopyayiAc(teklifId)
+            SekmeYukleyici {
+                id: gidenYukleyici
+                sekme: 1
+                sourceComponent: GecmisTekliflerPage {
+                    durumFiltresi: ""
+                    baslikMetni: "Giden Tekliflerim"
+                    otomatikYukle: false
+                    kullaniciId: root.kullaniciId
+                    duzenleyebilir: root.satisDuzenleyebilir
+                    onDetayIstendi: (teklifId) => root.revizyonuAc(1, teklifId)
+                    // Kopya butonu yalnizca bu sekmede var (bkz. kopyayiAc).
+                    onKopyaIstendi: (teklifId) => root.kopyayiAc(teklifId)
+                }
             }
 
-            GecmisTekliflerPage {
-                id: alinanTekliflerPage
-                durumFiltresi: "Kabul Edildi"
-                baslikMetni: "Alınan Tekliflerim"
-                otomatikYukle: false
-                kullaniciId: root.kullaniciId
-                duzenleyebilir: root.satisDuzenleyebilir
-                onDetayIstendi: (teklifId) => root.revizyonuAc(2, teklifId)
+            SekmeYukleyici {
+                id: alinanYukleyici
+                sekme: 2
+                sourceComponent: GecmisTekliflerPage {
+                    durumFiltresi: "Kabul Edildi"
+                    baslikMetni: "Alınan Tekliflerim"
+                    otomatikYukle: false
+                    kullaniciId: root.kullaniciId
+                    duzenleyebilir: root.satisDuzenleyebilir
+                    onDetayIstendi: (teklifId) => root.revizyonuAc(2, teklifId)
+                }
             }
 
-            GecmisTekliflerPage {
-                id: bitenTekliflerPage
-                durumFiltresi: "Tamamlandı"
-                baslikMetni: "Biten Tekliflerim"
-                otomatikYukle: false
-                kullaniciId: root.kullaniciId
-                duzenleyebilir: root.satisDuzenleyebilir
-                onDetayIstendi: (teklifId) => root.revizyonuAc(3, teklifId)
+            SekmeYukleyici {
+                id: bitenYukleyici
+                sekme: 3
+                sourceComponent: GecmisTekliflerPage {
+                    durumFiltresi: "Tamamlandı"
+                    baslikMetni: "Biten Tekliflerim"
+                    otomatikYukle: false
+                    kullaniciId: root.kullaniciId
+                    duzenleyebilir: root.satisDuzenleyebilir
+                    onDetayIstendi: (teklifId) => root.revizyonuAc(3, teklifId)
+                }
             }
 
-            MusterilerimPage {
-                id: musterilerimPage
-                otomatikYukle: false
-                duzenleyebilir: root.satisDuzenleyebilir
+            SekmeYukleyici {
+                id: musterilerimYukleyici
+                sekme: 4
+                sourceComponent: MusterilerimPage {
+                    otomatikYukle: false
+                    duzenleyebilir: root.satisDuzenleyebilir
+                }
             }
 
-            UrunlerimPage {
-                id: urunlerimPage
-                otomatikYukle: false
-                duzenleyebilir: root.satisDuzenleyebilir
+            SekmeYukleyici {
+                id: urunlerimYukleyici
+                sekme: 5
+                sourceComponent: UrunlerimPage {
+                    otomatikYukle: false
+                    duzenleyebilir: root.satisDuzenleyebilir
+                }
             }
 
             // ---- Index 6: "Detay" (revizyon) alt sayfasi ----
@@ -327,51 +370,54 @@ Item {
             // ornek: Teklif Ver sekmesinde yarim kalmis bir teklif varsa bu akistan
             // hic etkilenmez. Sol menude kendi maddesi yok; sadece listelerdeki
             // "Detay" butonuyla acilir, geri butonuyla gelinen listeye donulur.
-            TeklifVerPage {
-                id: revizyonPage
-                kullaniciId: root.kullaniciId
-                yetkiVar: root.satisDuzenleyebilir
-                geriDonusEtiketi: root.revizyonKaynakSekme === 2 ? "Alınan Tekliflerim"
-                                : root.revizyonKaynakSekme === 3 ? "Biten Tekliflerim"
-                                : "Giden Tekliflerim"
+            SekmeYukleyici {
+                id: revizyonYukleyici
+                sekme: root.revizyonSekmesi
+                sourceComponent: TeklifVerPage {
+                    kullaniciId: root.kullaniciId
+                    yetkiVar: root.satisDuzenleyebilir
+                    geriDonusEtiketi: root.revizyonKaynakSekme === 2 ? "Alınan Tekliflerim"
+                                    : root.revizyonKaynakSekme === 3 ? "Biten Tekliflerim"
+                                    : "Giden Tekliflerim"
 
-                // Kabul edilmis / tamamlanmis teklifin kendisi hic degismez. Giden
-                // Tekliflerim'den (1) acilan KABUL EDILMIS teklif yine de revize
-                // edilebilir (yeni revizyon olusur, eski surum "Revize Edildi" olur
-                // ve yeni surumun yeniden kabul edilmesi gerekir); tamamlanmis teklif
-                // hicbir yerden revize edilemez. Alınan (2) / Biten (3) listelerinden acilan
-                // detay salt goruntulemedir (bkz. TeklifVerPage.revizyonAcik).
-                revizyonIzinli: root.revizyonKaynakSekme === 1
+                    // Kabul edilmis / tamamlanmis teklifin kendisi hic degismez. Giden
+                    // Tekliflerim'den (1) acilan KABUL EDILMIS teklif yine de revize
+                    // edilebilir (yeni revizyon olusur, eski surum "Revize Edildi" olur
+                    // ve yeni surumun yeniden kabul edilmesi gerekir); tamamlanmis teklif
+                    // hicbir yerden revize edilemez. Alınan (2) / Biten (3) listelerinden acilan
+                    // detay salt goruntulemedir (bkz. TeklifVerPage.revizyonAcik).
+                    revizyonIzinli: root.revizyonKaynakSekme === 1
 
-                onGeriDonuldu: root.revizyondanDon()
+                    onGeriDonuldu: root.revizyondanDon()
 
-                onRevizyonKaydedildi: (yeniTeklifId, kaynakTeklifId, revizeEdilenIdler) => {
-                    root.revizyondanDon(false)
-                    // Yeni revizyon en yeni kayit oldugu icin listenin ILK sayfasinda
-                    // gorunur; kullanici sonucu ("R1" rozetli yeni satir) hemen gorsun
-                    // diye kaldigi sayfa yerine 1. sayfaya donuyoruz.
-                    const sayfa = root.revizyonKaynakSayfasi()
-                    sayfa.sayfayiYukle(1)
-                    // Yeni revizyon "Beklemede" durumunda olusur; Alınan/Biten
-                    // listelerinde gorunmedigi icin nerede oldugu belirtilir.
-                    sayfa.durumMesajiGoster("Revizyon kaydedildi: Teklif " + database.teklifNoGetir(yeniTeklifId)
-                                            + (root.revizyonKaynakSekme === 1 ? "" : " (Giden Tekliflerim)"))
-                }
+                    onRevizyonKaydedildi: (yeniTeklifId, kaynakTeklifId, revizeEdilenIdler) => {
+                        root.revizyondanDon(false)
+                        // Yeni revizyon en yeni kayit oldugu icin listenin ILK sayfasinda
+                        // gorunur; kullanici sonucu ("R1" rozetli yeni satir) hemen gorsun
+                        // diye kaldigi sayfa yerine 1. sayfaya donuyoruz.
+                        const sayfa = root.revizyonKaynakSayfasi()
+                        sayfa.sayfayiYukle(1)
+                        // Yeni revizyon "Beklemede" durumunda olusur; Alınan/Biten
+                        // listelerinde gorunmedigi icin nerede oldugu belirtilir.
+                        sayfa.durumMesajiGoster("Revizyon kaydedildi: Teklif " + database.teklifNoGetir(yeniTeklifId)
+                                                + (root.revizyonKaynakSekme === 1 ? "" : " (Giden Tekliflerim)"))
+                    }
 
-                // Duzeltme ayni teklifi yerinde gunceller: yeni satir olusmaz,
-                // teklif listede kaldigi yerdedir -- o sayfa tazelenir.
-                onDuzeltmeKaydedildi: (teklifId) => {
-                    root.revizyondanDon()
-                    root.revizyonKaynakSayfasi().durumMesajiGoster("Teklif " + database.teklifNoGetir(teklifId) + " düzeltildi.")
-                }
+                    // Duzeltme ayni teklifi yerinde gunceller: yeni satir olusmaz,
+                    // teklif listede kaldigi yerdedir -- o sayfa tazelenir.
+                    onDuzeltmeKaydedildi: (teklifId) => {
+                        root.revizyondanDon()
+                        root.revizyonKaynakSayfasi().durumMesajiGoster("Teklif " + database.teklifNoGetir(teklifId) + " düzeltildi.")
+                    }
 
-                onKopyaKaydedildi: (yeniTeklifId, kaynakTeklifId) => {
-                    root.revizyondanDon(false)
-                    // Kopya da "Beklemede" durumunda, en yeni kayit olarak olusur --
-                    // listenin ilk sayfasinda gorunur.
-                    const sayfa = root.revizyonKaynakSayfasi()
-                    sayfa.sayfayiYukle(1)
-                    sayfa.durumMesajiGoster("Kopya kaydedildi: Teklif " + database.teklifNoGetir(yeniTeklifId))
+                    onKopyaKaydedildi: (yeniTeklifId, kaynakTeklifId) => {
+                        root.revizyondanDon(false)
+                        // Kopya da "Beklemede" durumunda, en yeni kayit olarak olusur --
+                        // listenin ilk sayfasinda gorunur.
+                        const sayfa = root.revizyonKaynakSayfasi()
+                        sayfa.sayfayiYukle(1)
+                        sayfa.durumMesajiGoster("Kopya kaydedildi: Teklif " + database.teklifNoGetir(yeniTeklifId))
+                    }
                 }
             }
         }

@@ -79,6 +79,100 @@ ApplicationWindow {
         function onAcIstendi(tur, teklifId, baslik) {
             pdfOnizlemeDialogu.ac(tur, teklifId, baslik)
         }
+        function onIndirIstendi(tur, teklifId, baslik, acilsin) {
+            pdfIndirici.bekleyenler.push({ tur: tur, teklifId: teklifId, baslik: baslik, acilsin: acilsin })
+            pdfIndirici.mesaj = baslik + " PDF hazırlanıyor…"
+            pdfIndirici.hata = false
+            pdfIndirici.dosyaYolu = ""
+            gizlemeZamanlayici.stop()
+            pdfIndirici.visible = true
+            indirmeZamanlayici.restart()
+        }
+    }
+
+    // PdfOnizleme.indir: onizleme acmadan PDF'i uretip klasore kaydeder ve
+    // sonucu sag altta gecici bir bildirimle gosterir. Uretim arayuzu birkac
+    // saniye mesgul ettigi icin once bildirimin cizilmesine firsat verilir.
+    Timer {
+        id: indirmeZamanlayici
+        interval: 60
+        onTriggered: {
+            const istek = pdfIndirici.bekleyenler.shift()
+            if (!istek)
+                return
+            const pdf = istek.tur === "uretim"
+                ? database.uretimPdfOlustur(istek.teklifId)
+                : database.teklifPdfOlustur(istek.teklifId)
+            if (!pdf.basarili) {
+                pdfIndirici.hata = true
+                pdfIndirici.mesaj = istek.baslik + " PDF oluşturulamadı: " + pdf.hata
+            } else {
+                const kayit = database.pdfKaydet(pdf)
+                database.pdfOnizlemesiniSil(pdf.dosyaYolu)
+                if (kayit.basarili) {
+                    pdfIndirici.hata = false
+                    pdfIndirici.dosyaYolu = kayit.dosyaYolu
+                    pdfIndirici.mesaj = istek.baslik + " PDF kaydedildi: " + kayit.dosyaYolu
+                    PdfOnizleme.kaydedildi(pdf, kayit.dosyaYolu)
+                    if (istek.acilsin)
+                        Qt.openUrlExternally("file:///" + kayit.dosyaYolu)
+                } else {
+                    pdfIndirici.hata = true
+                    pdfIndirici.mesaj = istek.baslik + " PDF kaydedilemedi: " + kayit.hata
+                }
+            }
+            if (pdfIndirici.bekleyenler.length > 0)
+                indirmeZamanlayici.restart()
+            else
+                gizlemeZamanlayici.restart()
+        }
+    }
+    Timer {
+        id: gizlemeZamanlayici
+        interval: 8000
+        onTriggered: pdfIndirici.visible = false
+    }
+
+    Rectangle {
+        id: pdfIndirici
+        property var bekleyenler: []
+        property string mesaj: ""
+        property string dosyaYolu: ""
+        property bool hata: false
+
+        visible: false
+        z: 1000
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: 24
+        width: Math.min(pdfMesajMetni.implicitWidth + 24, pencere.width - 48)
+        height: pdfMesajMetni.height + 16
+        radius: Theme.radiusNormal
+        color: pdfIndirici.hata ? Qt.rgba(0.14, 0.08, 0.09, 0.97) : Qt.rgba(0.07, 0.14, 0.10, 0.97)
+        border.width: 1
+        border.color: pdfIndirici.hata ? Theme.tehlikeAcik : Theme.basariAcik
+
+        Text {
+            id: pdfMesajMetni
+            anchors.centerIn: parent
+            width: Math.min(implicitWidth, pencere.width - 72)
+            text: pdfIndirici.mesaj
+            color: pdfIndirici.hata ? Theme.tehlikeAcik : Theme.basariAcik
+            font.family: Theme.fontAilesi
+            font.pixelSize: Theme.fontBoyutKucuk
+            wrapMode: Text.Wrap
+        }
+
+        // Kaydedilen dosyayi acmak icin bildirime tiklanir.
+        MouseArea {
+            anchors.fill: parent
+            enabled: pdfIndirici.dosyaYolu.length > 0
+            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: {
+                Qt.openUrlExternally("file:///" + pdfIndirici.dosyaYolu)
+                pdfIndirici.visible = false
+            }
+        }
     }
 
     Component {
@@ -104,6 +198,8 @@ ApplicationWindow {
                     yiginGorunumu.push(satinalmaModuluBileseni, { baslangicSekmesi: 0 });
                 else if (modulKodu === "YONETIM")
                     yiginGorunumu.push(yonetimModuluBileseni, { baslangicSekmesi: 0 });
+                else if (modulKodu === "MUHASEBE")
+                    yiginGorunumu.push(muhasebeModuluBileseni, { baslangicSekmesi: 0 });
             }
 
             onTeklifVerSecildi: {
@@ -141,6 +237,14 @@ ApplicationWindow {
     Component {
         id: yonetimModuluBileseni
         YonetimModuluPage {
+            oturum: pencere.oturum
+            onAnaMenuyeDon: yiginGorunumu.pop()
+        }
+    }
+
+    Component {
+        id: muhasebeModuluBileseni
+        MuhasebeModuluPage {
             oturum: pencere.oturum
             onAnaMenuyeDon: yiginGorunumu.pop()
         }

@@ -34,7 +34,7 @@ bool manuelKoduMu(const QString &urunKodu);
 // calistirilirsa programin yeniden baslatilmasi gerekir (kopyaKolonuVarMi ile
 // ayni davranis). Onbellek thread-guvenlidir -- ana baglanti ile arama
 // worker'inin baglantisi ayni onbellegi paylasir.
-bool semaKolonuVarMi(QSqlDatabase &db, const QString &tablo, const QString &kolon);
+bool semaKolonuVarMi(const QSqlDatabase &db, const QString &tablo, const QString &kolon);
 
 // "Yönetici" ve goc donemindeki "Göç - Geçici Tam Yetkili" rolleri SISTEM
 // rolleridir: yonetici sifresi dogrulamasi ve "son yonetici" korumalari

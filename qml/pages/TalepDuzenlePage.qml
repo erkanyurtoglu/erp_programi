@@ -68,7 +68,8 @@ Item {
     // siparisNo, satinalmaId, arastirilacak (birden fazla fiyat satiri var)
     ListModel { id: kalemModel }
     // Roller: anahtar, kalemAnahtar, teklifFirmaId, tedarikciId, firmaAdi,
-    // link, notu, paraBirimi, kur, birimFiyat, secildi, kilitli
+    // link, notu, paraBirimi, kur, birimFiyat, secildi, kilitli (kalem siparise
+    // donustu), firmaKilitli (yer kaydinin aktif siparisi var)
     ListModel { id: fiyatModel }
     // Siparis olusturma penceresindeki tedarikci kartlari.
     ListModel { id: siparisBilgiModel }
@@ -95,7 +96,7 @@ Item {
     function bosFiyat(kalemAnahtar, secildi) {
         return { anahtar: root.yeniAnahtar("f"), kalemAnahtar: kalemAnahtar, teklifFirmaId: 0,
                  tedarikciId: 0, firmaAdi: "", link: "", notu: "", paraBirimi: "TL", kur: 1,
-                 birimFiyat: 0, secildi: secildi, kilitli: false }
+                 birimFiyat: 0, secildi: secildi, kilitli: false, firmaKilitli: false }
     }
 
     function yeniTalep() {
@@ -163,10 +164,14 @@ Item {
                                     kalemAnahtar: anahtar, teklifFirmaId: f.teklifFirmaId,
                                     tedarikciId: f.tedarikciId || 0, firmaAdi: f.firmaAdi,
                                     link: fy.link || f.teklifLinki || "", notu: fy.notu || "",
-                                    paraBirimi: f.paraBirimi || "TL", kur: f.kur || 1,
+                                    // Kursuz kaydedilmis doviz 0 kalmali: 1 olursa
+                                    // dolar fiyati TL sayilir ve kur uyarisi kaybolur.
+                                    paraBirimi: f.paraBirimi || "TL",
+                                    kur: (f.paraBirimi || "TL") === "TL" ? 1 : (f.kur || 0),
                                     birimFiyat: fy.birimFiyat,
                                     // Tek satirli kalemde o satir her zaman alinacak yerdir.
-                                    secildi: fy.secildi || !coklu, kilitli: kilitli })
+                                    secildi: fy.secildi || !coklu, kilitli: kilitli,
+                                    firmaKilitli: f.siparisiVar === true })
             }
             if (satirlar.length === 0)
                 fiyatModel.append(root.bosFiyat(anahtar, true))
@@ -279,12 +284,15 @@ Item {
         fiyatModel.setProperty(indeks, rol, deger)
         if (rol === "paraBirimi") {
             // TL'de kur 1; dovizde o gunun TCMB kuru otomatik dusuyor. Ayni
-            // yerin ayni dovizdeki baska satirinda kur varsa o kullanilir.
+            // yerin ayni dovizdeki baska satirinda kur varsa o kullanilir;
+            // siparisi verilmis yerin kuru (siparis gunu) devralinmaz.
             var kur = deger === "TL" ? 1 : kurServisi.kur(deger)
             const grup = root.grupAnahtari(fiyatModel.get(indeks))
-            for (var i = 0; i < fiyatModel.count; ++i)
-                if (i !== indeks && root.grupAnahtari(fiyatModel.get(i)) === grup && fiyatModel.get(i).kur > 0)
-                    kur = fiyatModel.get(i).kur
+            for (var i = 0; i < fiyatModel.count; ++i) {
+                const d = fiyatModel.get(i)
+                if (i !== indeks && !d.kilitli && !d.firmaKilitli && root.grupAnahtari(d) === grup && d.kur > 0)
+                    kur = d.kur
+            }
             fiyatModel.setProperty(indeks, "kur", kur)
         } else if (rol === "kur") {
             // Kur yer + para birimi basinadir: ayni gruptaki satirlara da yaz.
@@ -335,7 +343,7 @@ Item {
             const durum = s ? s.durum : ""
             return { kod: "siparis",
                      metin: SatinalmaBicim.siparisNo(k.siparisNo)
-                            + (durum ? " · " + SatinalmaBicim.siparisDurumAdi(durum, "") : "") + "  ›",
+                            + (durum ? " · " + SatinalmaBicim.siparisDurumAdi(durum, "", s.eksikKapatildi) : "") + "  ›",
                      renk: durum ? SatinalmaBicim.siparisDurumRengi(durum) : Theme.basariAcik }
         }
         const secili = root.seciliFiyat(k.anahtar)
@@ -397,7 +405,7 @@ Item {
                 sira[g] = gruplar.length
                 gruplar.push({ grup: g, teklifFirmaId: f.teklifFirmaId, firmaAdi: f.firmaAdi.trim(),
                                teslimSuresiGun: 0, kaynak: "Tedarikçi",
-                               toplamTL: 0, kalemler: [], tekTeklif: false })
+                               toplamTL: 0, oncekiTL: root.oncekiSiparisTL(f.firmaAdi), kalemler: [] })
             }
             const grp = gruplar[sira[g]]
             if (f.tedarikciId === 0 && f.link.trim().length > 0)
@@ -406,6 +414,18 @@ Item {
             grp.kalemler.push(k.kalemAdi + " × " + SatinalmaBicim.miktar(k.miktar) + " " + (k.birim || ""))
         }
         return gruplar
+    }
+
+    // Bu talepten ayni yere verilmis aktif siparislerin toplami: onay esigi
+    // bunlarla birlikte denetlenir (sunucudaki kuralin aynisi).
+    function oncekiSiparisTL(firmaAdi) {
+        const ad = (firmaAdi || "").trim().toLocaleLowerCase("tr")
+        var t = 0
+        for (const s of root.siparisler)
+            if (s.durum !== "İptal" && s.durum !== "Reddedildi"
+                    && (s.firmaAdi || "").trim().toLocaleLowerCase("tr") === ad)
+                t += s.toplamTutarTL || 0
+        return t
     }
 
     readonly property real seciliToplamTL: {
@@ -439,32 +459,36 @@ Item {
             const g = root.grupAnahtari(f)
             if (g.length === 0)
                 continue
-            if (firmaAnahtari[g] === undefined) {
-                firmaAnahtari[g] = "f" + firmalar.length
-                firmalar.push({ anahtar: firmaAnahtari[g], teklifFirmaId: 0, tedarikciId: f.tedarikciId,
+            // Siparisi verilmis yer kaydi (para birimi, kur) sunucuda degismez.
+            // Siparise donusmus kalemlerin satirlari o kayitta kalir; ayni yere
+            // yeni yazilan kalemler ayri kayda gider ki guncel kuruyla siparis
+            // edilsin.
+            const kilitliKayit = f.firmaKilitli && f.kilitli
+            const fk = kilitliKayit ? g + "|k" + f.teklifFirmaId : g
+            if (firmaAnahtari[fk] === undefined) {
+                firmaAnahtari[fk] = "f" + firmalar.length
+                firmalar.push({ anahtar: firmaAnahtari[fk], teklifFirmaId: 0, tedarikciId: f.tedarikciId,
                                 firmaAdi: f.firmaAdi.trim(), kaynak: "Tedarikçi", teklifLinki: "",
                                 paraBirimi: f.paraBirimi, kur: f.kur, teslimSuresiGun: 0, notu: "" })
             }
-            const firma = firmalar[Number(firmaAnahtari[g].substring(1))]
+            const firma = firmalar[Number(firmaAnahtari[fk].substring(1))]
             // Kayitli tedarikci olmayan ve urun linki olan yer internet sitesidir.
             if (f.tedarikciId === 0 && f.link.trim().length > 0) {
                 firma.kaynak = "İnternet"
                 if (firma.teklifLinki.length === 0)
                     firma.teklifLinki = f.link.trim()
             }
-            // Siparisi verilmis firma kaydi (kilitli) korunur: o gruba giren
-            // diger satirlar da ayni kayda baglanir.
-            if (f.teklifFirmaId > 0 && (firma.teklifFirmaId === 0 || f.kilitli))
+            if (f.teklifFirmaId > 0 && firma.teklifFirmaId === 0 && (kilitliKayit || !f.firmaKilitli))
                 firma.teklifFirmaId = f.teklifFirmaId
 
-            const cift = f.kalemAnahtar + "|" + firmaAnahtari[g]
+            const cift = f.kalemAnahtar + "|" + g
             if (ciftler[cift]) {
                 root.hata = "\"" + (kalemAdlari[f.kalemAnahtar] || "Kalem") + "\" için \""
                             + f.firmaAdi.trim() + "\" iki kez yazılmış. Birini silin."
                 return null
             }
             ciftler[cift] = true
-            fiyatlar.push({ kalemAnahtar: f.kalemAnahtar, firmaAnahtar: firmaAnahtari[g],
+            fiyatlar.push({ kalemAnahtar: f.kalemAnahtar, firmaAnahtar: firmaAnahtari[fk],
                             birimFiyat: f.birimFiyat || 0, secildi: f.secildi,
                             link: f.link.trim(), notu: f.notu.trim() })
         }
@@ -513,8 +537,27 @@ Item {
             root.hata = "Siparişe hazır kalem yok: tedarikçiyi ve fiyatı yazın."
             return
         }
-        // Siparis kaydedilmis talebe dayanir: once kaydet.
-        if (root.degisti || root.talepId === 0) {
+        // Siparis bugunun kuruyla verilir: fiyatin girildigi gunun kuru
+        // eskimis olabilir. Kur alinamadiysa kayitli kur kalir.
+        for (var j = 0; j < fiyatModel.count; ++j) {
+            const f = fiyatModel.get(j)
+            if (f.paraBirimi === "TL" || f.kilitli)
+                continue
+            const bugunku = kurServisi.kur(f.paraBirimi)
+            if (bugunku > 0 && bugunku !== f.kur) {
+                fiyatModel.setProperty(j, "kur", bugunku)
+                root.surum += 1
+                root.degisti = true
+            }
+        }
+        // Siparis kaydedilmis talebe dayanir: once kaydet. Siparisi verilmis
+        // yerin kaydina bagli kalmis acik kalem varsa (bu kural oncesi
+        // kayitlar) kayit onu ayri kayda tasir.
+        var kilitliYereBagli = false
+        for (var i = 0; i < fiyatModel.count; ++i)
+            if (fiyatModel.get(i).firmaKilitli && !fiyatModel.get(i).kilitli)
+                kilitliYereBagli = true
+        if (root.degisti || root.talepId === 0 || kilitliYereBagli) {
             if (!root.kaydet())
                 return
         }
@@ -743,6 +786,7 @@ Item {
                     Layout.preferredWidth: 180
                     Layout.fillWidth: false
                     etiket: "NE ZAMAN LAZIM"
+                    gecmisKapali: true
                     deger: root.ihtiyacTarihi
                     onSecildi: (tarih) => {
                         root.ihtiyacTarihi = tarih
@@ -1556,24 +1600,18 @@ Item {
         elleKapat: true
         width: Math.min(root.width - 80, 680)
 
-        property bool gerekceGerekli: false
-
         function ac() {
             siparisBilgiModel.clear()
-            var gerekce = false
             for (const g of root.siparisGruplari) {
-                const onay = root.onayEsigi > 0 && g.toplamTL > root.onayEsigi
-                if (onay && g.tekTeklif)
-                    gerekce = true
+                const onay = root.onayEsigi > 0 && g.oncekiTL + g.toplamTL > root.onayEsigi
                 siparisBilgiModel.append({
                     teklifFirmaId: g.teklifFirmaId, firmaAdi: g.firmaAdi, toplamTL: g.toplamTL,
+                    oncekiTL: g.oncekiTL,
                     kalemMetni: g.kalemler.join("\n"), kalemSayisi: g.kalemler.length,
                     teslimatSekli: g.kaynak === "İnternet" ? "Kargo" : "",
                     beklenen: g.teslimSuresiGun > 0 ? SatinalmaBicim.gunEkle(g.teslimSuresiGun) : "",
                     onayGerekli: onay, patronOnayli: false })
             }
-            siparisDialogu.gerekceGerekli = gerekce
-            gerekceAlani.text = ""
             siparisHatasi.text = ""
             siparisDialogu.open()
         }
@@ -1589,7 +1627,7 @@ Item {
                 bilgiler.push({ teklifFirmaId: b.teklifFirmaId, teslimatSekli: b.teslimatSekli,
                                 beklenenTeslimTarihi: b.beklenen, patronOnayli: b.patronOnayli })
             }
-            const sonuc = database.talepSiparisOlustur(root.talepId, bilgiler, gerekceAlani.text)
+            const sonuc = database.talepSiparisOlustur(root.talepId, bilgiler)
             if (!sonuc.basarili) {
                 siparisHatasi.text = sonuc.hata
                 return
@@ -1624,6 +1662,7 @@ Item {
                             required property int index
                             required property string firmaAdi
                             required property real toplamTL
+                            required property real oncekiTL
                             required property string kalemMetni
                             required property int kalemSayisi
                             required property string teslimatSekli
@@ -1700,6 +1739,7 @@ Item {
                                     TarihSecici {
                                         Layout.preferredWidth: 190
                                         etiket: "BEKLENEN TESLİM"
+                                        gecmisKapali: true
                                         deger: grupKarti.beklenen
                                         onSecildi: (tarih) => siparisBilgiModel.setProperty(grupKarti.index, "beklenen", tarih)
                                     }
@@ -1719,6 +1759,10 @@ Item {
                                         Label {
                                             Layout.fillWidth: true
                                             text: "Onay eşiği (" + SatinalmaBicim.para(root.onayEsigi) + ") aşıldı"
+                                                  + (grupKarti.oncekiTL > 0
+                                                     ? " · önceki siparişlerle toplam "
+                                                       + SatinalmaBicim.para(grupKarti.oncekiTL + grupKarti.toplamTL)
+                                                     : "")
                                             color: Theme.uyariAcik
                                             font.family: Theme.fontAilesi
                                             font.pixelSize: Theme.fontBoyutKucuk
@@ -1735,13 +1779,6 @@ Item {
                         }
                     }
                 }
-            }
-
-            EtiketliAlan {
-                id: gerekceAlani
-                visible: siparisDialogu.gerekceGerekli
-                etiket: "TEK TEKLİF GEREKÇESİ (ZORUNLU)"
-                placeholderText: "Acil, başka yerde yok…"
             }
 
             Label {

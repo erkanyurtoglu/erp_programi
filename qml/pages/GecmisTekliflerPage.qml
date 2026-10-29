@@ -250,6 +250,11 @@ Item {
         durumOnayDialogu.hedefTeklifId = teklifId
         durumOnayDialogu.eskiDurum = eskiDurum
         durumOnayDialogu.yeniDurum = yeniDurum
+        // Kabulde planlanan teslim tarihi zorunlu; teklifte zaten girilmisse
+        // (liste "dd.MM.yyyy" verir) onunla baslar.
+        const kayit = root.kayitlarListesi.find(k => k.teklifId === teklifId)
+        const p = kayit && kayit.teslimatTarihi ? kayit.teslimatTarihi.split(".") : []
+        durumOnayDialogu.teslimatTarihi = p.length === 3 ? p[2] + "-" + p[1] + "-" + p[0] : ""
         durumOnayDialogu.open()
     }
 
@@ -268,7 +273,7 @@ Item {
             // Engel bir yarista (baska kullanici bu arada revizyon kaydetmis olabilir)
             // dogmus olabilir; listeyi yenileyerek satiri guncel haliyle gosteriyoruz.
             root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
-            return
+            return false
         }
 
         // Filtreli bir sekmedeysek (Alınan/Biten) ve yeni durum o filtreye uymuyorsa
@@ -282,6 +287,7 @@ Item {
         root.pdfMesaji = mesaj
         root.pdfMesajiHata = false
         root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
+        return true
     }
 
     function durumGecmisiniAc(teklifId) {
@@ -385,16 +391,30 @@ Item {
         sevkDialogu.teklifNo = kayit.teklifNo
         sevkDialogu.firmaAdi = kayit.firmaAdi
         sevkDialogu.saltOkunur = kayit.durum === "Tamamlandı" || !root.duzenleyebilir
+        sevkDialogu.faturaSaltOkunur = !root.duzenleyebilir
         sevkDialogu.veri = sonuc
         sevkDialogu.open()
     }
 
+    // Sevk alanlari ile fatura/irsaliye numaralari ayri kaydedilir: teklif
+    // "Tamamlandı" ise sevk alanlari kilitlidir ama numaralar yine yazilir.
     function sevkBilgileriniKaydet(teklifId, sevk) {
-        const sonuc = database.sevkBilgileriKaydet(teklifId, sevk)
-        if (!sonuc.basarili) {
-            root.pdfMesaji = "Teklif " + root.teklifNo(teklifId) + " sevk bilgileri kaydedilemedi: " + sonuc.hata
-            root.pdfMesajiHata = true
-            return
+        if (!sevkDialogu.saltOkunur) {
+            const sonuc = database.sevkBilgileriKaydet(teklifId, sevk)
+            if (!sonuc.basarili) {
+                root.pdfMesaji = "Teklif " + root.teklifNo(teklifId) + " sevk bilgileri kaydedilemedi: " + sonuc.hata
+                root.pdfMesajiHata = true
+                return
+            }
+        }
+        if (sevkDialogu.faturaAlanlariVar && !sevkDialogu.faturaSaltOkunur && sevkDialogu.faturaDegistiMi(sevk)) {
+            const faturaSonucu = database.faturaBilgisiKaydet(teklifId, sevkDialogu.faturaDegisiklikleri(sevk))
+            if (!faturaSonucu.basarili) {
+                root.pdfMesaji = "Teklif " + root.teklifNo(teklifId) + ": " + faturaSonucu.hata
+                root.pdfMesajiHata = true
+                root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
+                return
+            }
         }
         root.pdfMesaji = "Teklif " + root.teklifNo(teklifId) + " sevk bilgileri kaydedildi."
         root.pdfMesajiHata = false
@@ -406,8 +426,13 @@ Item {
     // Aciklamalar sutunu: sevk kaydinin aciklamasi ("İrsaliye" penceresindeki
     // AÇIKLAMALAR alani; eski programdan gocen kayitlarda da ayni alan). Notlar
     // burada metin olarak yer kaplamaz; Teklif No hucresindeki not ikonuyla gosterilir.
+    // Faturalanmis teklifte fatura no basa eklenir.
     function aciklamaMetni(kayit) {
-        return (kayit.aciklamalar || "").trim()
+        const aciklama = (kayit.aciklamalar || "").trim()
+        const faturaNo = (kayit.faturaNo || "").trim()
+        if (faturaNo.length === 0 || !root.irsaliyeButonuGoster)
+            return aciklama
+        return "Fatura " + faturaNo + (aciklama.length > 0 ? "  ·  " + aciklama : "")
     }
 
     // Satirda gosterilecek not, sekmeye gore tek bir tanedir.
@@ -1270,23 +1295,39 @@ Item {
                         // Satis + buro personelinin ortak doldurdugu fatura/irsaliye
                         // basligi, vergi bilgileri ve siparis sartlari buradan girilir
                         // ve buradan okunur.
+                        // Rengi fatura durumunu gosterir (bkz. faturaDurumu, AramaSorgulari):
+                        // eksik -> turuncu dolu (unutulmasin), hazir -> sade,
+                        // faturalandi -> yesil.
                         Button {
                             id: irsaliyeButonu
+                            readonly property string faturaDurumu: satir.modelData.faturaDurumu || "eksik"
                             visible: root.irsaliyeButonuGoster
                             text: "İrsaliye"
                             Layout.preferredWidth: Math.max(70, Math.ceil(irsaliyeMetni.implicitWidth) + 20)
                             Layout.preferredHeight: root.hizalanmisYukseklik(Math.max(28, irsaliyeMetni.implicitHeight + 10))
                             onClicked: root.irsaliyeAc(satir.modelData)
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 300
+                            ToolTip.text: faturaDurumu === "faturalandi"
+                                          ? "Faturalandı: " + satir.modelData.faturaNo
+                                            + (satir.modelData.irsaliyeNo ? "  ·  İrsaliye: " + satir.modelData.irsaliyeNo : "")
+                                          : faturaDurumu === "hazir" ? "Faturaya hazır"
+                                          : "İrsaliye bilgileri eksik"
                             background: Rectangle {
                                 radius: 5
-                                color: irsaliyeButonu.hovered ? Theme.uyariZeminHover : "transparent"
-                                border.color: Theme.uyari
+                                color: irsaliyeButonu.faturaDurumu === "eksik"
+                                       ? (irsaliyeButonu.hovered ? Theme.uyariZeminHover : Theme.uyariZemin)
+                                       : (irsaliyeButonu.hovered ? Theme.panelHover : "transparent")
+                                border.color: irsaliyeButonu.faturaDurumu === "faturalandi" ? Theme.basari
+                                            : irsaliyeButonu.faturaDurumu === "hazir" ? Theme.kenarlik : Theme.uyari
                                 border.width: 1
                             }
                             contentItem: Text {
                                 id: irsaliyeMetni
+                                // Metin sabit: islemler sutunu butonun genisligine gore olculu.
                                 text: "İrsaliye"
-                                color: Theme.uyariAcik
+                                color: irsaliyeButonu.faturaDurumu === "faturalandi" ? Theme.basariAcik
+                                     : irsaliyeButonu.faturaDurumu === "hazir" ? Theme.metinIkincil : Theme.uyariAcik
                                 font.family: Theme.fontAilesi
                                 font.pixelSize: Theme.fontBoyutKucuk
                                 horizontalAlignment: Text.AlignHCenter
@@ -1422,21 +1463,62 @@ Item {
         property int hedefTeklifId: -1
         property string eskiDurum: ""
         property string yeniDurum: ""
+        property string teslimatTarihi: ""
+        readonly property bool kabul: yeniDurum === "Kabul Edildi"
         baslik: "Durumu Değiştir"
         onayMetni: "Değiştir"
+        onayEtkin: !kabul || teslimatTarihi.length > 0
         width: 400
 
-        contentItem: Label {
-            text: "Teklif " + root.teklifNo(durumOnayDialogu.hedefTeklifId) + ": "
-                  + durumOnayDialogu.eskiDurum + " → " + durumOnayDialogu.yeniDurum
-            color: Theme.metinBirincil
-            font.family: Theme.fontAilesi
-            font.pixelSize: Theme.fontBoyutNormal
-            wrapMode: Text.WordWrap
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            Label {
+                Layout.fillWidth: true
+                text: "Teklif " + root.teklifNo(durumOnayDialogu.hedefTeklifId) + ": "
+                      + durumOnayDialogu.eskiDurum + " → " + durumOnayDialogu.yeniDurum
+                color: Theme.metinBirincil
+                font.family: Theme.fontAilesi
+                font.pixelSize: Theme.fontBoyutNormal
+                wrapMode: Text.WordWrap
+            }
+
+            TarihSecici {
+                Layout.fillWidth: true
+                visible: durumOnayDialogu.kabul
+                etiket: "PLANLANAN TESLİM TARİHİ *"
+                gecmisKapali: true
+                deger: durumOnayDialogu.teslimatTarihi
+                onSecildi: (tarih) => durumOnayDialogu.teslimatTarihi = tarih
+            }
+
+            // Irsaliye bilgileri sonradan unutuluyordu; kabulle birlikte pencere acilir.
+            TemaOnayKutusu {
+                id: irsaliyeyiAcKutusu
+                visible: durumOnayDialogu.kabul
+                text: "İrsaliye bilgilerini şimdi doldur"
+                checked: true
+            }
         }
 
         onAccepted: {
-            root.durumUygula(durumOnayDialogu.hedefTeklifId, durumOnayDialogu.yeniDurum, "")
+            if (durumOnayDialogu.kabul
+                    && !database.teklifTeslimatTarihiGuncelle(durumOnayDialogu.hedefTeklifId,
+                                                              durumOnayDialogu.teslimatTarihi)) {
+                const sebep = database.sonHataMesaji()
+                root.pdfMesaji = sebep && sebep.length > 0
+                                 ? sebep : "Planlanan teslim tarihi kaydedilemedi."
+                root.pdfMesajiHata = true
+                durumOnayDialogu.hedefTeklifId = -1
+                return
+            }
+            const id = durumOnayDialogu.hedefTeklifId
+            const kayit = root.kayitlarListesi.find(k => k.teklifId === id)
+            if (root.durumUygula(id, durumOnayDialogu.yeniDurum, "")
+                    && durumOnayDialogu.kabul && irsaliyeyiAcKutusu.checked) {
+                root.irsaliyeAc({ teklifId: id, teklifNo: root.teklifNo(id),
+                                  firmaAdi: kayit ? kayit.firmaAdi : "", durum: "Kabul Edildi" })
+            }
             durumOnayDialogu.hedefTeklifId = -1
         }
         onRejected: durumOnayDialogu.hedefTeklifId = -1

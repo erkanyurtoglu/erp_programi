@@ -75,7 +75,10 @@ QtObject {
 
     // ---- Siparis durumu ----
     // "Kargoda" veritabani degeridir; kargo ile gelmeyen sipariste "Yolda" yazilir.
-    function siparisDurumAdi(durum, teslimatSekli) {
+    // Kalani beklenmeden kapatilan siparis 'Teslim Alındı'dir; "Eksik Kapatıldı" yazilir.
+    function siparisDurumAdi(durum, teslimatSekli, eksikKapatildi) {
+        if (durum === "Teslim Alındı" && eksikKapatildi === true)
+            return "Eksik Kapatıldı"
         if (durum === "Kargoda")
             return kargoluMu(teslimatSekli) || !teslimatSekli ? "Kargoda" : "Yolda"
         if (durum === "Patron Onayı Bekliyor")

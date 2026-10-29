@@ -56,6 +56,10 @@ Dialog {
     property bool hazirlaniyor: false
     // Uretilecek PDF ({tur, teklifId}); uretimZamanlayici bunu isler.
     property var bekleyen: null
+    // Uretim surerken arayuz girdi almaya devam eder; pencere bu arada kapatilir
+    // ya da yeni PDF istenirse istekNo artar ve biten eski sonuc atilir.
+    property int istekNo: 0
+    property bool uretiliyor: false
 
     // Pencereyi HEMEN acar, PDF'i ardindan uretir. Uretim (Chromium'un PDF'e
     // basmasi) arayuzu birkac saniye mesgul ediyor; once pencerenin ekrana
@@ -64,6 +68,7 @@ Dialog {
     function ac(tur, teklifId, yeniBaslik) {
         // Pencere acikken yeni bir PDF istenirse oncekinin gecici dosyasi birakilmasin.
         kok.belgeyiBirak()
+        kok.istekNo++
         kok.baslik = yeniBaslik
         kok.kaydedilenYol = ""
         kok.kaydedilenKlasor = ""
@@ -77,13 +82,26 @@ Dialog {
     }
 
     function uret() {
+        // Onceki uretim hala suruyorsa (yeni istek o sirada geldi) bitmesi beklenir.
+        if (kok.uretiliyor) {
+            uretimZamanlayici.restart()
+            return
+        }
         const istek = kok.bekleyen
         kok.bekleyen = null
         if (!istek)
             return
+        const no = kok.istekNo
+        kok.uretiliyor = true
         const sonuc = istek.tur === "uretim"
             ? database.uretimPdfOlustur(istek.teklifId)
             : database.teklifPdfOlustur(istek.teklifId)
+        kok.uretiliyor = false
+        if (no !== kok.istekNo) {
+            if (sonuc.basarili)
+                database.pdfOnizlemesiniSil(sonuc.dosyaYolu)
+            return
+        }
         kok.hazirlaniyor = false
 
         if (!sonuc.basarili) {
@@ -122,6 +140,7 @@ Dialog {
 
     onClosed: {
         uretimZamanlayici.stop()
+        kok.istekNo++
         kok.bekleyen = null
         kok.hazirlaniyor = false
         kok.belgeyiBirak()

@@ -20,6 +20,8 @@ ColumnLayout {
     property bool kompakt: false
     // Kirmizi gosterilsin mi (gecikmis tarih)?
     property bool uyari: false
+    // Bugunden onceki gunler secilemesin mi? (bkz. TarihTakvimi.gecmisKapali)
+    property bool gecmisKapali: false
 
     signal secildi(string tarih)
 
@@ -90,6 +92,7 @@ ColumnLayout {
         TarihTakvimi {
             id: takvim
             y: parent.height + 4
+            gecmisKapali: kok.gecmisKapali
             onTarihSecildi: (tarih) => {
                 kok.secildi(tarih)
                 takvim.close()

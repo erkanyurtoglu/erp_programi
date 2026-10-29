@@ -86,6 +86,16 @@ QVariantMap panoOzetiSorgusu(QSqlDatabase &db, const QString &donem,
 // Hata: bos harita.
 QVariantMap islemGecmisiSorgusu(QSqlDatabase &db, const QVariantMap &suzgec, int sayfaNo, int sayfaBoyutu);
 
+// Muhasebe karti: siparise donusmus ("Kabul Edildi" / "Tamamlandı") teklifler.
+// "suzgec": sekme ("faturalanacak" -> fatura no bos | "faturalanan"),
+//   durum ("" | "Kabul Edildi" | "Tamamlandı"), arama (Teklif No ya da firma).
+// Donen: kayitlar [{teklifId, teklifNo, firmaAdi, durum, kabulTarihi,
+//   teslimatTarihi, teslimTarihi (dd.MM.yyyy), paraBirimi, genelToplam,
+//   faturaDurumu ("eksik" | "hazir" | "faturalandi"), faturaNo, irsaliyeNo,
+//   faturaTarihi (dd.MM.yyyy), personel}], toplamKayit, toplamSayfa,
+//   mevcutSayfa. db/30 yoksa {hata}.
+QVariantMap muhasebeListesiSorgusu(QSqlDatabase &db, const QVariantMap &suzgec, int sayfaNo, int sayfaBoyutu);
+
 // Cihaz Maliyetleri listesi: [{cihazId, cihazAdi, karOrani, toplamMaliyetTL,
 // satisFiyatiTL, aktifMi, kalemSayisi, guncellemeTarihi (dd.MM.yyyy),
 // katalogFiyat (double veya null), katalogParaBirimi}]. db/17 yoksa bos.

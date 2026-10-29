@@ -28,6 +28,12 @@ Dialog {
     // Database::sevkBilgileriKaydet'teki kilit kurali): alanlar okunur ama
     // degistirilemez, "Kaydet" gizlenir.
     property bool saltOkunur: false
+    // Irsaliye No / Fatura No / Fatura Tarihi (db/30) "Tamamlandı"da da
+    // yazilabilir: fatura teslimden sonra kesilebilir (bkz.
+    // Database::faturaBilgisiKaydet). Yalnizca yetki yoksa kilitlidir.
+    property bool faturaSaltOkunur: false
+    readonly property bool faturaAlanlariVar: kok.veri && kok.veri.faturaAlanlariVar === true
+    readonly property bool kaydedilebilir: !kok.saltOkunur || (kok.faturaAlanlariVar && !kok.faturaSaltOkunur)
 
     // Database::sevkBilgileriGetir()'in dondugu harita; acan ekran her acilistan
     // once doldurur, onOpened bunu alanlara dagitir.
@@ -62,6 +68,29 @@ Dialog {
         return sevk
     }
 
+    // Fatura/irsaliye numaralari pencere acildigindan beri degisti mi? Degismediyse
+    // yazilmaz: pencere acikken muhasebenin girdigi fatura no, eski (bos)
+    // degerle ezilmesin.
+    function faturaDegisiklikleri(sevk) {
+        const degisen = ({})
+        for (const anahtar of ["irsaliyeNo", "faturaNo", "faturaTarihi"])
+            if (String(sevk[anahtar] || "").trim() !== kok.alanDegeri(anahtar).trim())
+                degisen[anahtar] = sevk[anahtar]
+        return degisen
+    }
+    function faturaDegistiMi(sevk) {
+        return Object.keys(kok.faturaDegisiklikleri(sevk)).length > 0
+    }
+
+    // Faturalanmis teklifin fatura basligi/adresi/vergi bilgisi kilitlidir (bkz.
+    // Database::sevkBilgileriKaydet); degistirmek icin once fatura no kaldirilir.
+    // Kayitta bos olan alan (musteri kartindan on doldurulmus) doldurulabilir.
+    readonly property bool faturaKesildi: kok.faturaAlanlariVar && String(kok.veri.faturaNo || "").trim().length > 0
+    function kimlikKayitli(anahtar) {
+        const liste = kok.veri && kok.veri.kayitliKimlikAlanlari ? kok.veri.kayitliKimlikAlanlari : []
+        return liste.indexOf(anahtar) >= 0
+    }
+
     // "yyyy-MM-dd" (veritabani/takvim bicimi) -> "gg.aa.yyyy" (ekranda okunan bicim).
     function tarihiGoster(yyyyAaGg) {
         if (!yyyyAaGg || yyyyAaGg.length === 0)
@@ -81,6 +110,11 @@ Dialog {
         // tarafinda hataya donusecegi icin girdi burada sinirlanir.
         property int maksUzunluk: 200
         property alias deger: girdi.text
+        property bool faturaAlani: false
+        property bool faturaKimligi: false
+        readonly property bool kilitli: faturaAlani ? kok.faturaSaltOkunur
+                                                    : (kok.saltOkunur || (faturaKimligi && kok.faturaKesildi
+                                                                          && kok.kimlikKayitli(alanSatiri.anahtar)))
 
         Layout.fillWidth: true
         spacing: 12
@@ -106,7 +140,7 @@ Dialog {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.girdiYuksekligi
             radius: Theme.radiusKucuk
-            color: kok.saltOkunur ? Theme.arkaplan : Theme.panelVurgu
+            color: alanSatiri.kilitli ? Theme.arkaplan : Theme.panelVurgu
             border.width: 1
             border.color: girdi.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
 
@@ -116,7 +150,7 @@ Dialog {
                 anchors.leftMargin: 12
                 anchors.rightMargin: 12
                 background: null
-                readOnly: kok.saltOkunur
+                readOnly: alanSatiri.kilitli
                 maximumLength: alanSatiri.maksUzunluk
                 color: Theme.metinBirincil
                 placeholderTextColor: Theme.metinCokSoluk
@@ -136,6 +170,8 @@ Dialog {
         property string anahtar: ""
         // Her zaman "yyyy-MM-dd" (veya bos) tutulur; ekranda gg.aa.yyyy gorunur.
         property string deger: ""
+        property bool faturaAlani: false
+        readonly property bool kilitli: faturaAlani ? kok.faturaSaltOkunur : kok.saltOkunur
 
         Layout.fillWidth: true
         spacing: 12
@@ -158,7 +194,7 @@ Dialog {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.girdiYuksekligi
             radius: Theme.radiusKucuk
-            color: kok.saltOkunur ? Theme.arkaplan : Theme.panelVurgu
+            color: tarihSatiri.kilitli ? Theme.arkaplan : Theme.panelVurgu
             border.width: 1
             border.color: takvim.visible ? Theme.kenarlikVurgu : Theme.kenarlik
 
@@ -180,7 +216,7 @@ Dialog {
 
             MouseArea {
                 anchors.fill: parent
-                enabled: !kok.saltOkunur
+                enabled: !tarihSatiri.kilitli
                 cursorShape: Qt.PointingHandCursor
                 onClicked: takvim.open()
             }
@@ -191,7 +227,7 @@ Dialog {
                 anchors.right: parent.right
                 anchors.rightMargin: 10
                 anchors.verticalCenter: parent.verticalCenter
-                visible: tarihSatiri.deger.length > 0 && !kok.saltOkunur
+                visible: tarihSatiri.deger.length > 0 && !tarihSatiri.kilitli
                 text: "✕"
                 color: Theme.metinSoluk
                 font.family: Theme.fontAilesi
@@ -336,7 +372,7 @@ Dialog {
         KisalanMetin {
             text: "Teklif " + kok.teklifNo
                   + (kok.firmaAdi.length > 0 ? "  •  " + kok.firmaAdi : "")
-                  + (kok.saltOkunur ? "  •  Salt okunur" : "")
+                  + (!kok.kaydedilebilir ? "  •  Salt okunur" : "")
             color: Theme.metinSoluk
             font.family: Theme.fontAilesi
             font.pixelSize: Theme.fontBoyutKucuk
@@ -362,12 +398,21 @@ Dialog {
                 spacing: 12
 
                 Bolum {
+                    baslik: "FATURA / İRSALİYE KAYDI"
+                    visible: kok.faturaAlanlariVar
+
+                    AlanSatiri { etiket: "İrsaliye No";   anahtar: "irsaliyeNo"; maksUzunluk: 50; faturaAlani: true }
+                    AlanSatiri { etiket: "Fatura No";     anahtar: "faturaNo";   maksUzunluk: 50; faturaAlani: true }
+                    TarihSatiri { etiket: "Fatura Tarihi"; anahtar: "faturaTarihi"; faturaAlani: true }
+                }
+
+                Bolum {
                     baslik: "FATURA BİLGİLERİ"
 
-                    AlanSatiri { etiket: "Fatura Başlığı";  anahtar: "faturaBasligi";      maksUzunluk: 200 }
-                    AlanSatiri { etiket: "Fatura Adresi";   anahtar: "faturaAdresi";       maksUzunluk: 500 }
-                    AlanSatiri { etiket: "Vergi Dairesi";   anahtar: "faturaVergiDairesi"; maksUzunluk: 150 }
-                    AlanSatiri { etiket: "Vergi No";        anahtar: "faturaVergiNo";      maksUzunluk: 50 }
+                    AlanSatiri { etiket: "Fatura Başlığı";  anahtar: "faturaBasligi";      maksUzunluk: 200; faturaKimligi: true }
+                    AlanSatiri { etiket: "Fatura Adresi";   anahtar: "faturaAdresi";       maksUzunluk: 500; faturaKimligi: true }
+                    AlanSatiri { etiket: "Vergi Dairesi";   anahtar: "faturaVergiDairesi"; maksUzunluk: 150; faturaKimligi: true }
+                    AlanSatiri { etiket: "Vergi No";        anahtar: "faturaVergiNo";      maksUzunluk: 50;  faturaKimligi: true }
                     AlanSatiri { etiket: "Yetkili";         anahtar: "faturaYetkili";      maksUzunluk: 150 }
                     AlanSatiri { etiket: "Telefon";         anahtar: "faturaTelefon";      maksUzunluk: 50 }
                     AlanSatiri { etiket: "Fax";             anahtar: "faturaFax";          maksUzunluk: 50 }
@@ -420,7 +465,7 @@ Dialog {
                 id: iptalButonu
                 Layout.preferredWidth: 110
                 Layout.preferredHeight: Theme.girdiYuksekligi
-                text: kok.saltOkunur ? "Kapat" : "İptal"
+                text: kok.kaydedilebilir ? "İptal" : "Kapat"
                 onClicked: kok.close()
                 background: Rectangle {
                     radius: Theme.radiusKucuk
@@ -440,7 +485,7 @@ Dialog {
 
             Button {
                 id: kaydetButonu
-                visible: !kok.saltOkunur
+                visible: kok.kaydedilebilir
                 Layout.preferredWidth: 150
                 Layout.preferredHeight: Theme.girdiYuksekligi
                 text: "Kaydet"

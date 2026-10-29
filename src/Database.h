@@ -8,6 +8,7 @@
 #include <QElapsedTimer>
 #include <QThread>
 #include <QPointer>
+#include <atomic>
 
 #include "TeklifPdfOlusturucu.h"
 
@@ -205,7 +206,8 @@ public:
     // varsa revizyon reddedilir; once durum "Beklemede"ye geri alinmalidir.
     //
     // Indirim/KDV orani 0-100 arasinda, adet en az 1, tutarlar negatif olmamalidir;
-    // dovizli teklifte her kalemin kuru 1'den buyuk olmalidir; kalem ve toplam
+    // kalem kuru pozitif olmalidir (dovizli teklifte kur bilinmiyorsa 1 gelir ve
+    // maliyetFiyati TL'dir); kalem ve toplam
     // tutarlari sunucuda ayni kurallarla yeniden hesaplanip (1 kurus tolerans)
     // dogrulanir. Aksi halde kayit yapilmaz (bkz. teklifVerisiniDenetle).
     //
@@ -237,6 +239,16 @@ public:
     Q_INVOKABLE QVariantMap teklifDuzelt(int teklifId, const QVariantMap &teklif,
                                          const QString &sebep);
 
+    // teklifKaydet / teklifDuzelt'in ARKA PLAN surumleri: kayit kendi thread'i
+    // ve kendi ODBC baglantisi uzerinde yapilir, arayuz beklemez. SQL Server
+    // yavasladiginda (bellek sikismasi vb.) pencere "Yanıt Vermiyor"a dusmesin
+    // diye "Teklifi Kaydet" bunlari kullanir. Sonuc teklifKayitHazir ile gelir
+    // (senkron surumlerin dondurdugu haritanin aynisi). Donen: istek numarasi.
+    Q_INVOKABLE int teklifKaydetBaslat(const QVariantMap &teklif);
+    Q_INVOKABLE int teklifDuzeltBaslat(int teklifId, const QVariantMap &teklif,
+                                       const QString &sebep);
+    Q_SIGNAL void teklifKayitHazir(int istekNo, const QVariantMap &sonuc);
+
     // Teklif Ver ekrani "Teklifi Kaydet"e basildiginda Duzeltme secenegini sunup
     // sunmayacagini buradan ogrenir (kurallar teklifDuzelt ile aynidir). Izin
     // yoksa sonHataMesaji() sebebi tasir.
@@ -253,9 +265,11 @@ public:
     //   numara), "musteriId" (int), "musteriAdi",
     //   "genelIndirimOrani", "kdvOrani", "paraBirimi", "dil", "ilgiliKisi",
     //   "ilgiliKisiTelefonu", "ilgiliKisiEposta", "teslimatSekli", "teslimatYeri",
-    //   "paketlemeUcretiTl", "tasimaUcretiTl", "kur" (double, TL'ye cevirmek icin),
+    //   "paketlemeUcreti", "tasimaUcreti" (teklifin para biriminde),
+    //   "kur" (double, teklifin kaydedildigi kur),
     //   "kalemler" (QVariantList<QVariantMap{urunId (0 ise manuel), urunKodu,
-    //             aciklama, adet (int), birimFiyatTl, maliyet (double),
+    //             aciklama, adet (int), birimFiyat (teklifin para biriminde),
+    //             maliyet (double, TL),
     //             teklifKalemId (int, satirin kendi id'si -- satir bazli uretim
     //             bilgisini YERINDE guncellemek icin, bkz.
     //             teklifKalemTamamlandiGuncelle), tamamlandi (bool),
@@ -265,11 +279,9 @@ public:
     //   "teslimatTarihi" (string, "yyyy-MM-dd" veya bos), "durum" (string),
     //   "guncelSurum" (bool; false ise yerine yeni bir revizyon gecmistir --
     //             ekran salt goruntulemedir), "guncelTeklifNo" (string),
-    //   "kurBilinmiyor" (bool; dovizli teklifte kayitli kur yok/gecersiz -- eski
-    //             programdan gocen tekliflerde Kur=1 yazilmistir). Bu durumda TL
-    //             karsiliklari HESAPLANAMAZ; ekran kalemlerdeki doviz fiyatlarini
-    //             ("birimFiyatDoviz", "maliyetDoviz", "paketlemeUcretiDoviz",
-    //             "tasimaUcretiDoviz") koruyup TL'yi guncel kurla hesaplar.
+    //   "kurBilinmiyor" (bool; dovizli teklifte kayitli kur yok -- gocten gelen
+    //             ya da kur alinamadan kaydedilen tekliflerde Kur=1 yazilir ve
+    //             maliyet TL saklanir). Ekran bu durumda guncel kuru ceker.
     //   "kayitliToplamVar" (bool), "kayitliIndirimliToplam", "kayitliKdvTutari",
     //   "kayitliGenelToplam" (double, teklifin para biriminde): veritabanindaki
     //             (PDF'e basilan) toplamlar -- ekran eski KDV kuraliyla kaydedilmis
@@ -340,6 +352,8 @@ public:
     //
     // ISTISNA: "Tamamlandı"ya yalnizca "Kabul Edildi"den gecilir; kabul edilmemis
     // teklif tamamlanamaz (false doner, sebep sonHataMesaji()'nda).
+    // "Kabul Edildi" icin teklifin planlanan teslim tarihi (TeslimatTarihi) dolu
+    // olmalidir; bos ise false doner.
     //
     // redSebebi yalnizca "Reddedildi" gecisinde kullanilir; kullaniciId 0 ise log
     // satirina NULL yazilir.
@@ -489,11 +503,22 @@ public:
     // modul goremiyordu (kullaniciModulleriniGetir bos doner) -- kullanici
     // acisindan sebebi anlasilmaz bir "bos program" durumu.
     //
-    // SIFRE en az SIFRE_ASGARI_UZUNLUK karakter olmalidir ve kullanici basina
-    // rastgele bir tuzla hashlenir (bkz. db/12_personel_sifre_salt.sql).
+    // SIFRE kullanici basina rastgele bir tuzla hashlenir (bkz. db/12_personel_sifre_salt.sql).
     // Donen: {basarili, kullaniciId, hata}.
     Q_INVOKABLE QVariantMap personelEkle(const QVariantMap &personel);
     Q_INVOKABLE QVariantMap personelGuncelle(int kullaniciId, const QVariantMap &personel);
+
+    // Personelin mevcut sifresini acik metin olarak doner (unutulan sifreyi
+    // yonetici soyleyebilsin diye; bkz. db/29_personel_sifre_gorunur.sql).
+    // YALNIZCA tek bir yetkili kullanici (SIFRE_GORUNTULEYEN_KULLANICI) ve
+    // dogru PIN ile; 5 yanlis PIN'den sonra oturum boyunca kilitlenir. Kopya
+    // henuz yoksa (personel db/29'dan beri giris yapmadi) hata metni doner.
+    // Donen: {basarili, sifre, hata}.
+    Q_INVOKABLE QVariantMap personelSifresiGetir(int kullaniciId, const QString &pin);
+
+    // Oturumdaki kullanici personel sifrelerini gorebilen kisi mi? Personel
+    // Duzenle'deki "Mevcut Şifre" satiri buna gore gosterilir.
+    Q_INVOKABLE bool sifreGoruntuleyebilirMi();
 
     // Pasife alma / aktif etme. Iki korumasi var, cunku ikisinin de sonucu
     // programdan GERI DONUSU OLMAYAN bir kilitlenme:
@@ -569,6 +594,24 @@ public:
     Q_INVOKABLE int islemGecmisiGetirBaslat(const QVariantMap &suzgec, int sayfaNo,
                                             int sayfaBoyutu = 50);
     Q_SIGNAL void islemGecmisiHazir(int istekNo, const QVariantMap &sonuc);
+
+    // Muhasebe karti: faturalanacak / faturalanan teklifler, sayfali ve ASENKRON.
+    // "suzgec" ve sonucun sekli icin bkz. muhasebeListesiSorgusu (AramaSorgulari.h).
+    Q_INVOKABLE int muhasebeListesiGetirBaslat(const QVariantMap &suzgec, int sayfaNo,
+                                               int sayfaBoyutu = 50);
+    Q_SIGNAL void muhasebeListesiHazir(int istekNo, const QVariantMap &sonuc);
+
+    // Muhasebe kartinin detay paneli: teklifin PDF'e basilan kalemleri ve
+    // toplamlari (teklifin para biriminde). Hicbir sey yazmaz.
+    // Donen: {basarili, hata, teklifNo, firmaAdi, paraBirimi, durum,
+    //   kabulTarihi, teslimatTarihi, personelAdSoyad, genelIndirimOrani,
+    //   kdvOrani, indirimliToplam, kdvTutari, genelToplam, paketlemeUcreti,
+    //   tasimaUcreti, kalemler [{urunKodu, aciklama, adet, birimFiyat,
+    //   indirimliBirimFiyat, toplamTutar}]}.
+    Q_INVOKABLE QVariantMap muhasebeTeklifVerisiGetir(int teklifId);
+
+    // Metni sistem panosuna yazar (Muhasebe kartindaki kopyala dugmeleri).
+    Q_INVOKABLE void panoyaKopyala(const QString &metin);
 
     // ------------------------------------------------------------------
     // Cihaz Maliyetleri (Yonetim + Satinalma). Excel'deki cihaz maliyet
@@ -719,6 +762,8 @@ public:
     //   faturaSekli, garanti, teslimat, odeme, nakliye, kalibrasyon, egitim,
     //   referansNumarasi, ekFaturaNotu, aciklamalar (hepsi string),
     //   "siparisTarihi" (string, "yyyy-MM-dd" veya bos).
+    // Fatura takibi (db/30): "faturaAlanlariVar" (bool; betik calistirilmamissa
+    // false), "irsaliyeNo", "faturaNo", "faturaTarihi" ("yyyy-MM-dd" veya bos).
     Q_INVOKABLE QVariantMap sevkBilgileriGetir(int teklifId);
 
     // Formdaki alanlari teklifin TEK sevk kaydina yazar (kayit yoksa olusturur,
@@ -730,6 +775,14 @@ public:
     // bkz. teklifTeslimatTarihiGuncelle ustundeki not).
     // Donen: {basarili (bool), hata (string)}.
     Q_INVOKABLE QVariantMap sevkBilgileriKaydet(int teklifId, const QVariantMap &sevk);
+
+    // Irsaliye No / Fatura No / Fatura Tarihi (db/30). sevkBilgileriKaydet'ten
+    // AYRIDIR: fatura teslimden sonra da kesilebildigi icin "Tamamlandı"
+    // teklifte de yazilabilir. Fatura No dolu teklif "Faturalandı" sayilir;
+    // teklifin durumu degismez. Sevk kaydi yoksa yalnizca bu alanlarla olusturulur.
+    // fatura: {irsaliyeNo, faturaNo, faturaTarihi ("yyyy-MM-dd" veya bos)}.
+    // Donen: {basarili (bool), hata (string)}.
+    Q_INVOKABLE QVariantMap faturaBilgisiKaydet(int teklifId, const QVariantMap &fatura);
 
     // ------------------------------------------------------------------
     // Sayfali listelerin ASENKRON yolu (Musterilerim / Urunlerim / Personellerim).
@@ -843,12 +896,11 @@ public:
     // Talepte SECILMIS ve henuz siparise donusmemis hucrelerden, firma bazinda
     // siparis olusturur. siparisBilgileri, firma basina:
     //   [{teklifFirmaId, teslimatSekli, beklenenTeslimTarihi, patronOnayli}]
-    // tekTeklifGerekcesi: onay esigini asan sipariste karsilastirma icin ikinci
-    // bir firma yoksa ZORUNLU ("3 yerden fiyat alindi mi?" sorusunun izi).
+    // Patron onay esigi, bu talepten ayni yere verilmis aktif siparislerle
+    // birlikte denetlenir (parca parca siparisle esik asilmasin).
     // Talep once talepKaydet ile kaydedilmis olmalidir.
     // Donen: {basarili, siparisler: [{satinalmaId, siparisNo, firmaAdi, durum}], hata}
-    Q_INVOKABLE QVariantMap talepSiparisOlustur(int talepId, const QVariantList &siparisBilgileri,
-                                                const QString &tekTeklifGerekcesi);
+    Q_INVOKABLE QVariantMap talepSiparisOlustur(int talepId, const QVariantList &siparisBilgileri);
 
     // Siparis listesi. filtre: "tumu", "acik" (teslim alinmamis), "onay",
     // "geciken", "kismi", "tamam", "iptal". arama: siparis no / firma /
@@ -874,6 +926,8 @@ public:
     // Modul ozeti (genel bakis + menu rozetleri):
     // {acikTalep, onayBekleyen, acikSiparis, yolda, geciken, buAyTutarTL,
     //  faturasiEksik}
+    // acikTalep: siparise DONUSMEMIS kalemi olan talepler (is bekleyenler);
+    // Talepler'deki "Açık" sekmesi ayrica malini bekleyen talepleri de gosterir.
     Q_INVOKABLE QVariantMap satinalmaOzetiGetir();
 
     // Durum degistirme (Kargoda / İptal / Reddedildi / geri alma).
@@ -881,8 +935,13 @@ public:
     // Teslim bilgisi BURADAN degistirilmez: 'Teslim Alındı' ve 'Kısmi Teslim'
     // yalnizca satinalmaTeslimAl ile olusur, cunku ikisi de kalem bazindaki
     // gelen adetlerden hesaplanir. Teslim alinmis bir siparis 'Sipariş
-    // Verildi'ye geri alinirsa gelen adetler de sifirlanir. Iptal edilen
-    // siparisin kalemleri talepte yeniden "acik" sayilir.
+    // Verildi' istenerek geri alinir: gelen adetler sifirlanir ve siparis
+    // teslimden onceki durumuna ('Sipariş Verildi' / 'Kargoda') doner. Iptal
+    // edilen siparisin kalemleri talepte yeniden "acik" sayilir.
+    //
+    // Gecisler sunucuda denetlenir: mali gelmis (kismi / tam teslim) siparis
+    // iptal edilemez, iptal edilmis siparis yeniden acilamaz, onay bekleyen
+    // siparis onaysiz verilmis sayilamaz.
     Q_INVOKABLE QVariantMap satinalmaDurumGuncelle(int satinalmaId, const QString &yeniDurum,
                                                     const QString &redSebebi = QString());
 
@@ -893,6 +952,13 @@ public:
     // gelen miktar (o ana kadar gelenlerin hepsi). Durum burada hesaplanir.
     // Donen: {basarili, durum, hata}
     Q_INVOKABLE QVariantMap satinalmaTeslimAl(int satinalmaId, const QVariantList &gelenAdetler);
+
+    // Kismi teslim edilmis siparisin kalanini beklemeden kapatir (sebep
+    // zorunlu): siparis 'Teslim Alındı' olur, eksik kapatma izi yazilir.
+    // eksikleriTalebeAc: eksik miktarlar talepte yeni kalem olarak acilir.
+    // Donen: {basarili, acilanKalemSayisi, hata}
+    Q_INVOKABLE QVariantMap satinalmaEksikKapat(int satinalmaId, const QString &sebep,
+                                                bool eksikleriTalebeAc);
 
     // musteriAraBaslat/urunAraBaslat icin sonuc sinyalleri. "arama" (ve urun icin
     // "dil") istegi yapan tarafa aynen geri gonderilir; QML tarafi bunu arama
@@ -927,7 +993,12 @@ public:
 private:
     bool baglan();
     // baglantiyiHazirla()'nin ana baglanti icin kisayolu; m_baglantiHazir'i gunceller.
+    // Kayit thread'inde cagrilirsa o thread'in baglantisini hazirlar.
     bool baglantiHazir();
+    // Cagiran thread'in baglantisi: kayit thread'inde m_kayitDb, digerlerinde m_db.
+    // Yalnizca kayit yolundaki (teklifKaydet / teklifDuzelt ve yardimcilari)
+    // fonksiyonlar bunu kullanir; geri kalan her sey UI thread'inde m_db ile calisir.
+    QSqlDatabase aktifDb() const;
     // Kullanicinin gorebildigi modul listesini (roller birlesik) getirir.
     QVariantList kullaniciModulleriniGetir(int kullaniciId);
     // Aktif oturumdaki kullanici bu modulde "duzenleyebilir" yetkisine sahip mi?
@@ -1031,22 +1102,27 @@ private:
     bool satinalmaSemasiHazirMi();
     // Talep / siparis numarasi (sp_getapplock ile korunur; transaction icinde).
     int satinalmaNoAl(const QString &tablo, const QString &kolon, QString &hataOut);
+    // "LiyaErp_<kaynak>" uygulama kilidini transaction sonuna kadar alir.
+    bool satinalmaKilidiAl(const QString &kaynak, QString &hataOut);
 
     QSqlDatabase m_db;
     bool m_baglantiHazir = false;
     QString m_sonHataMesaji;
     // Giris yapmis kullanici (bkz. aktifKullaniciId); 0 = oturum yok.
     int m_aktifKullaniciId = 0;
+    // personelSifresiGetir'de ust uste yanlis PIN sayisi (oturum boyunca).
+    int m_sifrePinHataSayisi = 0;
     // *ListesiGetirBaslat'in verdigi artan istek numarasi.
     int m_listeIstekSayaci = 0;
     QElapsedTimer m_sonKullanim;
     QElapsedTimer m_sonBaglantiDenemesi;
 
     // kopyaKolonuVarMi() onbellegi: -1 henuz sorgulanmadi, 0 yok, 1 var.
-    int m_kopyaKolonuDurumu = -1;
+    // Kayit thread'i de okudugu icin atomik.
+    std::atomic<int> m_kopyaKolonuDurumu{-1};
     // teklifNoKolonuVarMi() onbellegi (ayni anlamlar). const sorgu
     // metodlarindan (whereKosullariniOlustur) de okunabilsin diye mutable.
-    mutable int m_teklifNoKolonuDurumu = -1;
+    mutable std::atomic<int> m_teklifNoKolonuDurumu{-1};
 
     // Verilen thread'i baslatip uzerinde kendi ODBC baglantisina sahip bir
     // worker olusturur (bkz. Database.cpp'deki "UC AYRI WORKER" notu).
@@ -1063,6 +1139,17 @@ private:
     QPointer<AramaWorker> m_listeWorker;
     QThread m_teklifThread;
     QPointer<AramaWorker> m_teklifWorker;
+
+    // Arka plan kaydi (teklifKaydetBaslat / teklifDuzeltBaslat). m_kayitBaglami
+    // kayit thread'inde yasar; isler ona kuyruklanir. m_kayitDb ve yaninda duran
+    // durum YALNIZCA kayit thread'inden kullanilir.
+    QThread m_kayitThread;
+    QObject *m_kayitBaglami = nullptr;
+    QSqlDatabase m_kayitDb;
+    QElapsedTimer m_kayitSonKullanim;
+    QElapsedTimer m_kayitSonBaglantiDenemesi;
+    QString m_kayitHataMesaji;
+    int m_kayitIstekSayaci = 0;
 
     TeklifPdfOlusturucu m_pdfOlusturucu;
 };

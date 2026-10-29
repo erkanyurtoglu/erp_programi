@@ -52,46 +52,77 @@ Item {
     readonly property int sayfaTedarikciler: 3
     readonly property int sayfaCihazlar: 4
 
-    readonly property bool yeniTalepAcik: icerik.currentIndex === root.sayfaTalep && talepPage.talepId === 0
+    // StackLayout'taki bir sekmeyi ilk secildiginde olusturur ve sonra hep tutar
+    // (bkz. SatisModuluPage.SekmeYukleyici). Eskiden bes sayfanin hepsi modul
+    // acilirken olusturuluyor, karta basinca ekran bir sure donuyordu.
+    component SekmeYukleyici: Loader {
+        property int sekme: -1
+        property bool yuklendi: false
+        active: yuklendi || icerik.currentIndex === sekme
+        onLoaded: yuklendi = true
+    }
+
+    // Sekme sayfalari; sekme henuz acilmadiysa null.
+    readonly property var taleplerPage: taleplerYukleyici.item
+    readonly property var talepPage: talepYukleyici.item
+    readonly property var siparislerPage: siparislerYukleyici.item
+    readonly property var tedarikcilerimPage: tedarikcilerimYukleyici.item
+    readonly property var cihazlarPage: cihazlarYukleyici.item
+
+    readonly property bool yeniTalepAcik: icerik.currentIndex === root.sayfaTalep
+                                          && root.talepPage !== null && root.talepPage.talepId === 0
 
     function talepleraGit() {
         icerik.currentIndex = root.sayfaTalepler
-        taleplerPage.yukle()
+        root.taleplerPage.yukle()
         root.ozetiYenile()
     }
+    // Sekme once secilir ki sayfa olussun; ac/yeniTalep ayni cagrida
+    // calistigi icin arada eski icerik ekrana cizilmez.
     function talepAc(talepId) {
-        talepPage.ac(talepId)
         icerik.currentIndex = root.sayfaTalep
+        root.talepPage.ac(talepId)
     }
     function yeniTalep() {
-        talepPage.yeniTalep()
         icerik.currentIndex = root.sayfaTalep
+        root.talepPage.yeniTalep()
     }
     function siparisleraGit() {
         icerik.currentIndex = root.sayfaSiparisler
-        siparislerPage.yukle()
+        root.siparislerPage.yukle()
         root.ozetiYenile()
     }
     // Talep ekraninda kaydedilmemis degisiklik varken menuden ayrilmak
     // calismayi kaybettirmesin.
     function menudenGit(islem) {
-        if (icerik.currentIndex === root.sayfaTalep && talepPage.degisti && talepPage.duzenlenebilir) {
+        if (icerik.currentIndex === root.sayfaTalep && root.talepPage.degisti && root.talepPage.duzenlenebilir) {
             cikisOnayi.iste("Kaydedilmemiş Değişiklikler",
                             "Açık talepte kaydedilmemiş değişiklikler var. Kaydetmeden çıkılsın mı?",
                             "Kaydetmeden Çık", true,
-                            function() { talepPage.degisti = false; islem() })
+                            function() { root.talepPage.degisti = false; islem() })
             return
         }
-        if (icerik.currentIndex === root.sayfaCihazlar && cihazlarPage.degisti) {
-            cihazlarPage.gecisYap(function() { cihazlarPage.formuKapat(); islem() })
+        if (icerik.currentIndex === root.sayfaCihazlar && root.cihazlarPage.degisti) {
+            root.cihazlarPage.gecisYap(function() { root.cihazlarPage.formuKapat(); islem() })
             return
         }
         islem()
     }
 
-    Component.onCompleted: {
-        root.ozetiYenile()
-        taleplerPage.yukle()
+    // Modul "Talep Oluştur" ile acilir; duzenleme yetkisi yoksa (menude o madde
+    // yok) Talepler ile. Ilk sorgular modul ekrana cizildikten sonra atilir;
+    // karta basinca ekran sorgu bitene kadar ana menude takili kalmasin.
+    Component.onCompleted: ilkYukleme.start()
+    Timer {
+        id: ilkYukleme
+        interval: 50
+        onTriggered: {
+            root.ozetiYenile()
+            if (root.satinalmaDuzenleyebilir)
+                root.yeniTalep()
+            else
+                root.taleplerPage.yukle()
+        }
     }
 
     Rectangle {
@@ -242,7 +273,7 @@ Item {
                     secili: icerik.currentIndex === root.sayfaTedarikciler
                     onTiklandi: root.menudenGit(function() {
                         icerik.currentIndex = root.sayfaTedarikciler
-                        tedarikcilerimPage.sayfayiYukle(1)
+                        root.tedarikcilerimPage.sayfayiYukle(1)
                     })
                 }
 
@@ -251,7 +282,7 @@ Item {
                     secili: icerik.currentIndex === root.sayfaCihazlar
                     onTiklandi: root.menudenGit(function() {
                         icerik.currentIndex = root.sayfaCihazlar
-                        cihazlarPage.sayfayiYukle()
+                        root.cihazlarPage.sayfayiYukle()
                     })
                 }
 
@@ -264,39 +295,54 @@ Item {
             id: icerik
             Layout.fillWidth: true
             Layout.fillHeight: true
-            currentIndex: root.sayfaTalepler
+            currentIndex: root.satinalmaDuzenleyebilir ? root.sayfaTalep : root.sayfaTalepler
 
-            SatinalmaTaleplerPage {
-                id: taleplerPage
-                duzenleyebilir: root.satinalmaDuzenleyebilir
-                onTalepAc: (talepId) => root.talepAc(talepId)
-                onYeniTalep: root.yeniTalep()
+            SekmeYukleyici {
+                id: taleplerYukleyici
+                sekme: root.sayfaTalepler
+                sourceComponent: SatinalmaTaleplerPage {
+                    duzenleyebilir: root.satinalmaDuzenleyebilir
+                    onTalepAc: (talepId) => root.talepAc(talepId)
+                    onYeniTalep: root.yeniTalep()
+                }
             }
 
-            TalepDuzenlePage {
-                id: talepPage
-                duzenleyebilir: root.satinalmaDuzenleyebilir
-                onGeri: root.talepleraGit()
-                onKaydedildi: root.ozetiYenile()
+            SekmeYukleyici {
+                id: talepYukleyici
+                sekme: root.sayfaTalep
+                sourceComponent: TalepDuzenlePage {
+                    duzenleyebilir: root.satinalmaDuzenleyebilir
+                    onGeri: root.talepleraGit()
+                    onKaydedildi: root.ozetiYenile()
+                }
             }
 
-            SatinalmaSiparislerPage {
-                id: siparislerPage
-                duzenleyebilir: root.satinalmaDuzenleyebilir
-                ozet: root.ozet
-                onTalepAc: (talepId) => root.menudenGit(function() { root.talepAc(talepId) })
-                onDegisiklikOldu: root.ozetiYenile()
+            SekmeYukleyici {
+                id: siparislerYukleyici
+                sekme: root.sayfaSiparisler
+                sourceComponent: SatinalmaSiparislerPage {
+                    duzenleyebilir: root.satinalmaDuzenleyebilir
+                    ozet: root.ozet
+                    onTalepAc: (talepId) => root.menudenGit(function() { root.talepAc(talepId) })
+                    onDegisiklikOldu: root.ozetiYenile()
+                }
             }
 
-            TedarikcilerimPage {
-                id: tedarikcilerimPage
-                otomatikYukle: false
-                duzenleyebilir: root.satinalmaDuzenleyebilir
+            SekmeYukleyici {
+                id: tedarikcilerimYukleyici
+                sekme: root.sayfaTedarikciler
+                sourceComponent: TedarikcilerimPage {
+                    otomatikYukle: false
+                    duzenleyebilir: root.satinalmaDuzenleyebilir
+                }
             }
 
-            CihazMaliyetleriPage {
-                id: cihazlarPage
-                otomatikYukle: false
+            SekmeYukleyici {
+                id: cihazlarYukleyici
+                sekme: root.sayfaCihazlar
+                sourceComponent: CihazMaliyetleriPage {
+                    otomatikYukle: false
+                }
             }
         }
     }

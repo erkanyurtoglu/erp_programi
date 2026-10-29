@@ -26,8 +26,13 @@ Item {
 
     property bool revizyonIzinli: false
 
+    // Acik teklifin (zincirinin) fatura no'su; doluysa revizyon yapilamaz
+    // (bkz. C++ faturaNoBul).
+    property string faturaNo: ""
+
     readonly property bool revizyonAcik: root.yetkiVar && root.revizyonIzinli
                                          && root.teklifDurumu !== "Tamamlandı" && root.guncelSurum
+                                         && root.faturaNo.length === 0
 
     readonly property bool formKilitli: !root.yetkiVar || (root.teklifKilitli && !root.revizyonAcik)
 
@@ -375,6 +380,40 @@ Item {
     // varsayilan metnini kullanir (bkz. TeklifPdfOlusturucu). Kullanici pencerede
     // kaydederse buraya yazilir ve teklifle birlikte saklanir.
     property string sozlesmeMetni: ""
+    // sozlesmeMetni'nin hangi dilde oldugu. Dil degisince metin o dile
+    // uyarlanir (bkz. sozlesmeDiliniUygula); aksi halde EN PDF'e TR sozlesme
+    // basiliyordu. sozlesmeDilMetinleri: dil degisiminde birakilan metinler,
+    // geri donulurse yeniden kullanilir.
+    property string sozlesmeDili: ""
+    property var sozlesmeDilMetinleri: ({})
+
+    function sozlesmeDiliniUygula() {
+        const dil = dilCombo.currentText
+        const eskiDil = root.sozlesmeDili
+        root.sozlesmeDili = dil
+        if (root.sozlesmeMetni.length === 0 || eskiDil.length === 0 || eskiDil === dil)
+            return
+
+        const metinler = Object.assign({}, root.sozlesmeDilMetinleri)
+        metinler[eskiDil] = root.sozlesmeMetni
+        root.sozlesmeDilMetinleri = metinler
+
+        if (metinler[dil] !== undefined) {
+            root.sozlesmeMetni = metinler[dil]
+            return
+        }
+        // Yeni teklif / kopyada bos = kayitta dilin varsayilani yazilir. Kayitli
+        // teklifte bos "dokunulmadi" demektir (eski dildeki metin kalirdi); bu
+        // yuzden yeni dilin varsayilani acikca verilir.
+        const yeniVarsayilan = database.varsayilanSozlesmeMetni(dil)
+        const ozelMetinVardi = root.sozlesmeMetni.trim() !== database.varsayilanSozlesmeMetni(eskiDil).trim()
+        root.sozlesmeMetni = root.duzenlenenKaynakTeklifId > 0 ? yeniVarsayilan.trim() : ""
+        if (ozelMetinVardi) {
+            bilgiMesaji.color = Theme.uyariAcik
+            bilgiMesaji.text = "Dil değiştiği için satış sözleşmesi " + dil + " varsayılan metne döndü; "
+                               + "özel maddeler varsa \"Satış Sözleşmesi\"nden yeniden düzenleyin."
+        }
+    }
 
     // --- Planlanan teslim tarihi, teklif notu ve uretim notu ---
     // teslimatTarihi "yyyy-MM-dd" (TarihTakvimi ciktisi) veya bos. Veritabaninda
@@ -541,6 +580,7 @@ Item {
         root.teklifDurumu = veri.durum || ""
         root.guncelSurum = veri.guncelSurum !== false
         root.guncelTeklifNo = veri.guncelTeklifNo || ""
+        root.faturaNo = veri.faturaNo || ""
 
         root.duzenlenenAnaTeklifId = veri.anaTeklifId
         root.duzenlenenKaynakTeklifId = veri.teklifId
@@ -554,6 +594,10 @@ Item {
             bilgiMesaji.color = Theme.uyariAcik
             bilgiMesaji.text = "Teklif " + veri.teklifNo + " revize edildi; yalnızca görüntülenir. Güncel teklif: "
                                + root.guncelTeklifNo
+        } else if (root.faturaNo.length > 0 && root.revizyonIzinli) {
+            bilgiMesaji.color = Theme.uyariAcik
+            bilgiMesaji.text = "Teklif faturalandı (Fatura No: " + root.faturaNo + "); revize edilemez. "
+                               + "Önce Muhasebe'den fatura bilgisi kaldırılmalı."
         }
     }
 
@@ -588,6 +632,7 @@ Item {
         root.teklifDurumu = ""
         root.guncelSurum = true
         root.guncelTeklifNo = ""
+        root.faturaNo = ""
 
         root.duzenlenenAnaTeklifId = 0
         root.duzenlenenKaynakTeklifId = 0
@@ -618,21 +663,13 @@ Item {
     // para birimi, teslimat sekli/yeri, sozlesme metni) forma yazar. Basarisizsa
     // hata mesajini gosterip null doner.
     //
-    // guncelKur: KUR bu iki akista farkli davranir.
-    //   false (Detay/revizyon) -> teklifin kaydedildigi andaki ORIJINAL kur yuklenir;
-    //          revizyon ayni teklifin yeni surumudur, doviz tutarlari kaymamalidir.
-    //   true  (Kopya) -> kur GUNCEL olarak internetten cekilir; aylar once
-    //          kaydedilmis bir teklifin kuruyla yeni bir firmaya teklif verilmez.
-    //          Ama musteriye verilen DOVIZ FIYATLARI (birim fiyat, paketleme,
-    //          tasima) aynen korunur -- eskiden TL karsiliklari korunup yeni kura
-    //          bolunuyordu ve $1.000'lik kalem kur artinca $800'e dusuyordu.
-    //          TL karsiliklari yeni kurla hesaplanir (bkz. sabitDovizFiyatlariniUygula).
-    //          Maliyet TL'dir (katalog maliyeti) ve aynen kalir.
-    //
-    // Gocten gelen dovizli tekliflerde kayitli kur yoktur (veri.kurBilinmiyor):
-    // eski kur 1 kabul edilirse 54 USD 54 TL sanilir ve "Kuru Güncelle" fiyati
-    // 1,15 USD'ye dusururdu. Bu tekliflerde de doviz BIRIM FIYATLARI korunur,
-    // TL karsiligi guncel kurla hesaplanir. Maliyet ise TL'dir (bkz. asagisi).
+    // Fiyatlar (birim fiyat, paketleme, tasima) teklifin KENDI para biriminde
+    // yuklenir ve kurdan bagimsizdir. Kur yalnizca TL tutulan maliyetin teklif
+    // para birimindeki karsiligi (kar hesabi) icindir.
+    // guncelKur: false (Detay/revizyon) -> teklifin kaydedildigi kur yuklenir;
+    //            true  (Kopya) -> guncel kur cekilir.
+    // Kayitli kuru bilinmeyen dovizli teklifte (veri.kurBilinmiyor) de guncel
+    // kur cekilir.
     function teklifVerisiniYukle(teklifId, guncelKur) {
         const veri = database.teklifDuzenlemeVerisiGetir(teklifId)
         if (!veri.basarili) {
@@ -663,61 +700,28 @@ Item {
         // kaydedildigi kur yuklenir.
         const kurCekilecek = dovizliMi && (guncelKur === true || veri.kurBilinmiyor === true)
 
-        // DOVIZ FIYATI SABIT: dovizli teklifin HER akisinda (kopya, revizyon,
-        // duzeltme) musteriye verilmis doviz fiyatlari (birim fiyat, paketleme,
-        // tasima) esastir; kur degisirse (Kuru Güncelle / elle giris) yalnizca TL
-        // karsiliklari yeniden hesaplanir. Eskiden revizyonda kur guncellenince
-        // sepet TL tabanli oldugu icin $1.000'lik kalem $800'e dusebiliyordu.
-        // Kullanici bir fiyati elle degistirince o alanin bagi kalkar.
-        root.sabitDovizPb = dovizliMi ? veri.paraBirimi : ""
-        // Kayitli kur kullanilacaksa TL karsiliklari zaten o kurla hesaplidir.
-        root.sabitDovizUygulandi = dovizliMi && !kurCekilecek
-        root.sabitUcretler = dovizliMi
-            ? { paketleme: veri.paketlemeUcretiDoviz, tasima: veri.tasimaUcretiDoviz }
-            : null
-
         // Onceki tekliften/oturumdan kalan kurlar HER yuklemede temizlenir: eskiden
         // ayni ekranda once eski bir EUR teklifi acilip sonra bir TL teklifi
         // kopyalanir ve EUR'a gecilirse, aylar onceki kur (0 olmadigi icin yeniden
         // cekilmeden) sessizce kullaniliyordu.
         root.kurlariSifirla()
+        root.bekleyenUcretler = ({})
 
-        if (kurCekilecek) {
-            // Eski kur hic yuklenmez: cekme basarisiz olursa (agsizlik) kaydetme
-            // yanlis bir kurla sessizce yapilamaz; "Teklifi Kaydet" kurEksik uyarisi
-            // verir ve kullanici kuru elle girer. Kur gelene kadar kutularda
-            // dogrudan doviz tutarlari gorunur (kur 0 iken tlDenCevir degeri aynen
-            // dondurur).
-            paketlemeAlaniWrap.ayarla(veri.paketlemeUcretiDoviz)
-            tasimaAlaniWrap.ayarla(veri.tasimaUcretiDoviz)
-        } else {
-            paketlemeAlaniWrap.ayarla(veri.paketlemeUcretiTl)
-            tasimaAlaniWrap.ayarla(veri.tasimaUcretiTl)
-            // Teklifin kendi (kayitli) kuru: "guncel" sayilmaz (bkz. kurGuncel).
+        // Teklifin kendi (kayitli) kuru: "guncel" sayilmaz (bkz. kurGuncel).
+        if (dovizliMi && !kurCekilecek) {
             if (veri.paraBirimi === "USD") {
                 root.usdKur = veri.kur
                 usdKurBicimi.ayarla(veri.kur)
-            } else if (veri.paraBirimi === "EUR") {
+            } else {
                 root.eurKur = veri.kur
                 eurKurBicimi.ayarla(veri.kur)
             }
         }
+        paketlemeAlaniWrap.ayarla(veri.paketlemeUcreti)
+        tasimaAlaniWrap.ayarla(veri.tasimaUcreti)
         paraBirimiCombo.currentIndex = Math.max(0, paraBirimiCombo.model.indexOf(veri.paraBirimi))
 
-        // Sabit doviz fiyatli kalemler: TL karsiligi kur her kesinlestiginde doviz
-        // fiyatindan hesaplanir. Kur henuz yoksa birimFiyatTl doviz tutarini tasir.
-        root.sepet = dovizliMi
-            ? veri.kalemler.map(k => Object.assign({}, k, {
-                  sabitBirimDoviz: k.birimFiyatDoviz,
-                  birimFiyatTl: kurCekilecek ? k.birimFiyatDoviz : k.birimFiyatTl,
-                  // Maliyet HER ZAMAN TL'dir (katalog maliyeti). Gocten gelen
-                  // dovizli tekliflerde Kur=1 oldugu icin maliyetDoviz alani da
-                  // ayni TL degerini tasir; onu doviz sanip kullanmak
-                  // 125.000 TL'lik maliyeti 125.000 $ gosteriyor ve kar orani
-                  // eksiye dusuyordu. Doviz bagi yalnizca birim fiyata kurulur.
-                  maliyet: k.maliyet
-              }))
-            : veri.kalemler
+        root.sepet = veri.kalemler
 
         // Kuru burada, para birimi secildikten SONRA cekiyoruz. Combo'nun kendi
         // onCurrentTextChanged'i de kur 0 oldugunda cekmeyi tetikler; ancak para
@@ -738,7 +742,7 @@ Item {
         root.eskiKdvKurali = (function() {
             if (!root.kayitliToplamlar)
                 return false
-            const ek = (veri.paketlemeUcretiDoviz || 0) + (veri.tasimaUcretiDoviz || 0)
+            const ek = (veri.paketlemeUcreti || 0) + (veri.tasimaUcreti || 0)
             if (!(ek > 0) || !(veri.kdvOrani > 0))
                 return false
             const t = root.kayitliToplamlar
@@ -751,6 +755,8 @@ Item {
         // yazilmamis) bir kayittir; pencere fabrika metniyle acilir
         // (bkz. Database::teklifSozlesmeMetniGetir).
         root.sozlesmeMetni = veri.sozlesmeMetni !== undefined ? veri.sozlesmeMetni : ""
+        root.sozlesmeDili = dilCombo.currentText
+        root.sozlesmeDilMetinleri = ({})
 
         // Hangi teklifte oldugumuz zaten basliktan ("Teklif 1203/Rev.2 Bilgileri") ve
         // geri butonundan belli; ayrica bir "yuklendi" bildirimi gosterilmiyor.
@@ -772,6 +778,7 @@ Item {
         root.kopyaKaynakTeklifId = 0
         root.kopyaKaynakTeklifNo = ""
         root.sozlesmeMetni = ""
+        root.sozlesmeDilMetinleri = ({})
 
         root.sepet = []
         root.secilenMusteriId = 0
@@ -788,9 +795,8 @@ Item {
         root.teklifDurumu = ""
         root.guncelSurum = true
         root.guncelTeklifNo = ""
-        root.sabitDovizPb = ""
-        root.sabitDovizUygulandi = false
-        root.sabitUcretler = null
+        root.faturaNo = ""
+        root.bekleyenUcretler = ({})
         root.kayitliToplamlar = null
         root.eskiKdvKurali = false
         // Kurlar da sifirlanir: acilan teklifin (belki aylar onceki) kuru bir
@@ -846,85 +852,92 @@ Item {
     property var kayitliToplamlar: null
     property bool eskiKdvKurali: false
 
-    // --- Doviz fiyati SABIT kalemler (Kopya / gocten gelen dovizli teklif) ---
-    // Bu kalemlerde musteriye verilmis doviz fiyati esastir; TL karsiligi kur
-    // her kesinlestiginde (TCMB'den cekildi ya da elle girildi) doviz fiyatindan
-    // yeniden hesaplanir. Kalemdeki "sabitBirimDoviz"/"sabitMaliyetDoviz" alani
-    // kullanici o fiyati elle degistirene kadar gecerlidir (bkz. sepetTutarGuncelle).
-    // sabitDovizPb bos degilse ve fiyatlar henuz bir kurla hesaplanmadiysa
-    // (sabitDovizUygulandi false) teklif kaydedilemez (bkz. kurEksik).
-    property string sabitDovizPb: ""
-    property bool sabitDovizUygulandi: false
-    // Paketleme/tasima ucretlerinin doviz tutarlari ({paketleme, tasima}); her
-    // kesin kurla TL'ye yeniden cevrilir. Kullanici kutuyu elle degistirince o
-    // ucretin bagi kalkar (alan undefined olur, bkz. ucretBaginiKaldir).
-    property var sabitUcretler: null
-
     function kurDegeri(pb) {
         return pb === "USD" ? root.usdKur : (pb === "EUR" ? root.eurKur : 1)
     }
 
-    function sabitDovizFiyatlariniUygula() {
-        if (root.sabitDovizPb === "")
-            return
-        const kur = root.kurDegeri(root.sabitDovizPb)
-        if (!(kur > 0))
-            return
+    // --- Para birimi degisince fiyatlarin cevrilmesi ---
+    // Sepetteki birim fiyatlar ve paketleme/tasima TEKLIFIN para birimindedir.
+    // Para birimi degisince katalog kalemleri yeni para biriminin liste fiyatini
+    // alir; liste fiyati olmayan (elle fiyatlanmis / kayitli tekliften gelen)
+    // tutarlar kurla cevrilir. Gereken kur henuz yoksa tutar cevrilmeyi bekler:
+    // kalemde "cevrilecek" ({tutar, pb}), ucretlerde bekleyenUcretler[alan]
+    // tutulur ve kur gelince (bkz. bekleyenCevrimleriUygula) uygulanir. Bekleyen
+    // cevrim varken teklif kaydedilmez (bkz. cevrimBekliyor).
+    property var bekleyenUcretler: ({})
+    // onActivated'da para biriminin bir onceki degeri gerekir.
+    property string sonParaBirimi: "TL"
+    property string oncekiParaBirimi: "TL"
+
+    readonly property bool cevrimBekliyor: root.sepet.some(k => k.cevrilecek !== undefined)
+                                           || Object.keys(root.bekleyenUcretler).length > 0
+
+    // Tutari kaynak para biriminden hedefe cevirir; kur yoksa NaN.
+    function tutarCevir(tutar, kaynakPb, hedefPb) {
+        if (kaynakPb === hedefPb || !(tutar > 0))
+            return tutar
+        const kaynakKur = root.kurDegeri(kaynakPb)
+        const hedefKur = root.kurDegeri(hedefPb)
+        if (!(kaynakKur > 0) || !(hedefKur > 0))
+            return NaN
+        return tutar * kaynakKur / hedefKur
+    }
+
+    function fiyatlariCevir(eskiPb, eksikBildir) {
+        const pb = paraBirimiCombo.currentText
+        const eksikler = []
         root.sepetiDegistir(root.sepet.map(k => {
-            if (k.sabitBirimDoviz === undefined && k.sabitMaliyetDoviz === undefined)
-                return k
+            if (k.listeFiyatlari) {
+                if (eksikBildir && !(root.listeFiyati(k.listeFiyatlari, pb) > 0))
+                    eksikler.push(k.urunKodu || k.aciklama)
+                return root.kalemeListeFiyatiUygula(k, pb)
+            }
+            const kaynak = k.cevrilecek || { tutar: k.birimFiyat, pb: eskiPb }
             const yeni = Object.assign({}, k)
-            if (k.sabitBirimDoviz !== undefined)
-                yeni.birimFiyatTl = k.sabitBirimDoviz * kur
-            if (k.sabitMaliyetDoviz !== undefined)
-                yeni.maliyet = k.sabitMaliyetDoviz * kur
+            const cevrilen = root.tutarCevir(kaynak.tutar, kaynak.pb, pb)
+            if (isNaN(cevrilen)) {
+                yeni.cevrilecek = kaynak
+            } else {
+                yeni.birimFiyat = root.yuvarla(cevrilen)
+                delete yeni.cevrilecek
+            }
             return yeni
         }))
-        if (root.sabitUcretler) {
-            if (root.sabitUcretler.paketleme !== undefined)
-                paketlemeAlaniWrap.ayarla((root.sabitUcretler.paketleme || 0) * kur)
-            if (root.sabitUcretler.tasima !== undefined)
-                tasimaAlaniWrap.ayarla((root.sabitUcretler.tasima || 0) * kur)
+
+        const bekleyen = {}
+        for (const [alan, kutu] of [["paketleme", paketlemeAlaniWrap], ["tasima", tasimaAlaniWrap]]) {
+            const kaynak = root.bekleyenUcretler[alan] || { tutar: kutu.deger, pb: eskiPb }
+            const cevrilen = root.tutarCevir(kaynak.tutar, kaynak.pb, pb)
+            if (isNaN(cevrilen))
+                bekleyen[alan] = kaynak
+            else if (cevrilen !== kutu.deger)
+                kutu.ayarla(root.yuvarla(cevrilen))
         }
-        root.sabitDovizUygulandi = true
+        root.bekleyenUcretler = bekleyen
+
+        root.eksikListeFiyatiBildir(eksikler, pb)
     }
 
-    // Paketleme/tasima kutusu elle degistirildi: girilen TL deger artik esastir,
-    // sonraki kur degisikligi onu ezmesin. alan: "paketleme" | "tasima".
-    function ucretBaginiKaldir(alan) {
-        if (!root.sabitUcretler || root.sabitUcretler[alan] === undefined)
-            return
-        const yeni = Object.assign({}, root.sabitUcretler)
-        yeni[alan] = undefined
-        root.sabitUcretler = yeni
+    // Kur geldiginde (TCMB ya da elle giris) bekleyen cevrimleri tamamlar.
+    function bekleyenCevrimleriUygula() {
+        if (root.cevrimBekliyor)
+            root.fiyatlariCevir(paraBirimiCombo.currentText, false)
     }
 
-    // Kullanici teklifin para birimini DEGISTIRDIGINDE doviz baglari kalkar:
-    // artik baska bir para biriminde teklif veriliyor, eski para birimindeki
-    // fiyatlarin sabit kalmasinin anlami yok -- mevcut TL karsiliklari esas alinir.
-    // Kur henuz gelmemisse (TL karsiliklari hesaplanmadi) baglar korunur; aksi
-    // halde doviz tutarlari TL sanilirdi.
-    function sabitDovizBaglariniKaldir() {
-        if (root.sabitDovizPb === "" || !root.sabitDovizUygulandi)
+    // Paketleme/tasima kutusu elle degistirildi: girilen deger esastir.
+    function ucretCevriminiBirak(alan) {
+        if (root.bekleyenUcretler[alan] === undefined)
             return
-        root.sepetiDegistir(root.sepet.map(k => {
-            const yeni = Object.assign({}, k)
-            delete yeni.sabitBirimDoviz
-            delete yeni.sabitMaliyetDoviz
-            return yeni
-        }))
-        root.sabitDovizPb = ""
-        root.sabitDovizUygulandi = false
-        root.sabitUcretler = null
+        const yeni = Object.assign({}, root.bekleyenUcretler)
+        delete yeni[alan]
+        root.bekleyenUcretler = yeni
     }
 
     // --- Urun LISTE fiyatlari (TL / USD / EUR) ---
     // Bir urunun uc para birimindeki fiyati BIRBIRINDEN BAGIMSIZDIR: 1.000 TL'lik
     // urun yurt disina 60 $'a satilabilir (dbo.urunler.BirimFiyat / FiyatUSD /
     // FiyatEUR, bkz. db/26). Bu yuzden katalogdan eklenen kalemde secili para
-    // biriminin liste fiyati DOGRUDAN kullanilir; TL fiyati kura bolunmez.
-    // Doviz fiyati "sabit doviz" mekanizmasiyla tutulur (sabitBirimDoviz): TL
-    // karsiligi kur her kesinlestiginde yeniden hesaplanir.
+    // biriminin liste fiyati DOGRUDAN kullanilir; kur kullanilmaz.
     // O para biriminde fiyat girilmemisse kalem 0 gelir ve elle girilir.
     // Kalemin "listeFiyatlari" alani, kullanici birim fiyati elle degistirince
     // silinir (bkz. sepetTutarGuncelle): elle verilen fiyat para birimi
@@ -942,46 +955,9 @@ Item {
         if (!kalem.listeFiyatlari)
             return kalem
         const yeni = Object.assign({}, kalem)
-        const fiyat = root.listeFiyati(kalem.listeFiyatlari, pb)
-        if (pb === "TL") {
-            delete yeni.sabitBirimDoviz
-            yeni.birimFiyatTl = fiyat
-        } else {
-            const kur = root.kurDegeri(pb)
-            yeni.sabitBirimDoviz = fiyat
-            // Kur henuz yoksa birimFiyatTl doviz tutarini tasir (yuklemedeki
-            // kural); kur gelince sabitDovizFiyatlariniUygula TL'ye cevirir.
-            yeni.birimFiyatTl = kur > 0 ? fiyat * kur : fiyat
-        }
+        yeni.birimFiyat = root.listeFiyati(kalem.listeFiyatlari, pb)
+        delete yeni.cevrilecek
         return yeni
-    }
-
-    // Para birimi degisince katalog kalemlerini yeni para biriminin liste
-    // fiyatina getirir. Fiyati girilmemis urunler kullaniciya bildirilir.
-    function listeFiyatlariniUygula() {
-        const pb = paraBirimiCombo.currentText
-        let katalogKalemi = false
-        const eksikler = []
-        const yeniSepet = root.sepet.map(k => {
-            if (!k.listeFiyatlari)
-                return k
-            katalogKalemi = true
-            if (!(root.listeFiyati(k.listeFiyatlari, pb) > 0))
-                eksikler.push(k.urunKodu || k.aciklama)
-            return root.kalemeListeFiyatiUygula(k, pb)
-        })
-        if (!katalogKalemi)
-            return
-        root.sepetiDegistir(yeniSepet)
-        if (pb !== "TL") {
-            root.sabitDovizPb = pb
-            root.sabitDovizUygulandi = root.kurDegeri(pb) > 0
-        } else if (!yeniSepet.some(k => k.sabitBirimDoviz !== undefined)) {
-            // TL'ye donuldu ve doviz fiyati sabit kalem kalmadi: kur beklenmez.
-            root.sabitDovizPb = ""
-            root.sabitDovizUygulandi = false
-        }
-        root.eksikListeFiyatiBildir(eksikler, pb)
     }
 
     function eksikListeFiyatiBildir(eksikler, pb) {
@@ -1039,7 +1015,7 @@ Item {
             root.kurMesaji = "TCMB kurları güncellendi (" + kurServisi.kurTarihi + ")."
             root.kurMesajiHata = false
             root.kurGuncel = true
-            root.sabitDovizFiyatlariniUygula()
+            root.bekleyenCevrimleriUygula()
         }
 
         function onDurumDegisti() {
@@ -1050,31 +1026,20 @@ Item {
             root.kurMesajiHata = true
         }
     }
-    // TL tutarini secili teklif para birimine cevirir. Kur girilmemisse (0)
-    // TL olarak birakir -- yanlislikla 0'a bolme veya anlamsiz deger olmasin.
-    function tlDenCevir(tlTutar) {
-        if (paraBirimiCombo.currentText === "USD" && root.usdKur > 0)
-            return tlTutar / root.usdKur
-        if (paraBirimiCombo.currentText === "EUR" && root.eurKur > 0)
-            return tlTutar / root.eurKur
-        return tlTutar
+    // --- Maliyet ---
+    // Maliyet katalogdaki gibi TL tutulur. Teklif para biriminde gosterilip kar
+    // hesaplanabilmesi icin o para biriminin kuru gerekir; kur yokken maliyet
+    // sutunu TL gosterir ve kar bilgisi bos kalir. Fiyatlar bundan etkilenmez.
+    readonly property real maliyetKuru: root.kurDegeri(paraBirimiCombo.currentText)
+    readonly property bool maliyetKuruVar: root.maliyetKuru > 0
+
+    function maliyetGoster(maliyetTl) {
+        return root.maliyetKuruVar ? maliyetTl / root.maliyetKuru : maliyetTl
     }
 
-    // tlDenCevir'in tersi: secili para biriminde girilen tutari TL'ye cevirir.
-    function tlYeCevir(tutar) {
-        if (paraBirimiCombo.currentText === "USD" && root.usdKur > 0)
-            return tutar * root.usdKur
-        if (paraBirimiCombo.currentText === "EUR" && root.eurKur > 0)
-            return tutar * root.eurKur
-        return tutar
+    function maliyetTlYe(deger) {
+        return root.maliyetKuruVar ? deger * root.maliyetKuru : deger
     }
-
-    // TL disi para birimi secili ama kur henuz yok (cekilemedi/girilmedi):
-    // bu durumda tutarlar cevrilemez, teklif kaydedilmemeli.
-    // Doviz fiyati sabit kalemler henuz bir kurla TL'ye cevrilmediyse de eksiktir.
-    readonly property bool kurEksik: (paraBirimiCombo.currentText === "USD" && root.usdKur <= 0)
-                                     || (paraBirimiCombo.currentText === "EUR" && root.eurKur <= 0)
-                                     || (root.sabitDovizPb !== "" && !root.sabitDovizUygulandi)
 
     // Sepet kaleminin secili teklif dilindeki aciklamasi. Kalem her iki dili de
     // tasir (aciklamaTr/aciklamaEn); EN cevirisi yoksa TR'ye duser. Eski yapidaki
@@ -1112,39 +1077,27 @@ Item {
         root.sepetiDegistir(yeniSepet)
     }
 
-    // Sepetteki Maliyet/Fiyat kutulari secili para biriminde gosterilir, ama
-    // deger her zaman TL olarak saklanir. Kullanici kutuya dokunup degistirmeden
-    // ciktiginda (editingFinished yine tetiklenir) yuvarlanmis gorunen deger
-    // TL'ye geri cevrilip elle girilmis fiyati kaydirmasin diye, sadece gercekten
-    // degisen deger yazilir.
+    // Sepetteki Fiyat kutusu teklifin para birimindedir ve aynen saklanir;
+    // Maliyet kutusu ise TL saklanir (bkz. maliyetGoster). Kullanici kutuya
+    // dokunup degistirmeden ciktiginda (editingFinished yine tetiklenir)
+    // yuvarlanmis gorunen deger geri yazilip degeri kaydirmasin diye yalnizca
+    // gercekten degisen deger yazilir. alanAdi: "birimFiyat" | "maliyet".
     function sepetTutarGuncelle(dizinIndex, alanAdi, yeniDeger) {
-        const mevcutTl = root.sepet[dizinIndex][alanAdi]
-        if (yeniDeger.toFixed(2) === root.tlDenCevir(mevcutTl).toFixed(2))
+        const mevcut = root.sepet[dizinIndex][alanAdi]
+        const gorunen = alanAdi === "maliyet" ? root.maliyetGoster(mevcut) : mevcut
+        if (yeniDeger.toFixed(2) === gorunen.toFixed(2))
             return
-        // Kur yokken (cekilemedi / henuz girilmedi) dovizle yazilan tutar TL'ye
-        // cevrilemez: eskiden 50 USD, 50 TL olarak saklaniyor -- maliyette ustelik
-        // kataloga da 50 TL yaziliyordu. Once kur girilmeli; kutu eski degerine doner.
-        if (root.kurEksik) {
-            const eksikPb = (root.sabitDovizPb !== "" && !root.sabitDovizUygulandi)
-                            ? root.sabitDovizPb : paraBirimiCombo.currentText
-            bilgiMesaji.color = Theme.tehlikeAcik
-            bilgiMesaji.text = "Fiyat/maliyet değiştirmeden önce " + eksikPb + " kurunu güncelleyin veya elle girin."
-            root.sepetiDegistir(root.sepet.slice())
-            return
-        }
-        const yeniTl = root.tlYeCevir(yeniDeger)
-        // Elle girilen deger artik esastir: bu alanin "doviz fiyati sabit" bagi
-        // kalkar, yoksa bir sonraki kur guncellemesi kullanicinin degerini ezerdi.
         const yeniSepet = root.sepet.slice()
         const kalem = Object.assign({}, yeniSepet[dizinIndex])
-        kalem[alanAdi] = yeniTl
-        if (alanAdi === "birimFiyatTl") {
-            delete kalem.sabitBirimDoviz
+        if (alanAdi === "birimFiyat") {
+            kalem.birimFiyat = yeniDeger
             // Elle verilen fiyat artik esastir: para birimi degisince liste
-            // fiyatiyla ezilmesin (bkz. listeFiyatlariniUygula).
+            // fiyatiyla ya da bekleyen cevrimle ezilmesin.
             delete kalem.listeFiyatlari
-        } else if (alanAdi === "maliyet")
-            delete kalem.sabitMaliyetDoviz
+            delete kalem.cevrilecek
+        } else {
+            kalem.maliyet = root.maliyetTlYe(yeniDeger)
+        }
         yeniSepet[dizinIndex] = kalem
         root.sepetiDegistir(yeniSepet)
         // Maliyet, bu teklife ozel bir dokunus degil urunun GUNCEL maliyetidir:
@@ -1152,7 +1105,7 @@ Item {
         // ayni anda guncellenir. Birim fiyat bunun DISINDADIR -- o teklifin
         // pazarligina gore degisir, katalog fiyatini baglamaz.
         if (alanAdi === "maliyet")
-            root.urunMaliyetiniKatalogaYaz(dizinIndex, yeniTl)
+            root.urunMaliyetiniKatalogaYaz(dizinIndex, kalem.maliyet)
     }
 
     // Sepetteki bir kalemin yeni maliyetini urun kataloguna isler. Manuel
@@ -1166,7 +1119,8 @@ Item {
         // Dovizle girilen maliyet, teklifin KAYITLI (eski) kuruyla TL'ye cevrilip
         // kataloga yazilirsa katalog yanlis olur (kur 30'dan 40'a ciktiysa $10,
         // 400 yerine 300 TL). Katalog yalnizca guncel kurla guncellenir.
-        if (paraBirimiCombo.currentText !== "TL" && !root.kurGuncel) {
+        // Kur yokken maliyet zaten TL girildigi icin cevrim yoktur.
+        if (paraBirimiCombo.currentText !== "TL" && root.maliyetKuruVar && !root.kurGuncel) {
             bilgiMesaji.color = Theme.uyariAcik
             bilgiMesaji.text = "Maliyet bu teklife yazıldı; katalog güncellenmedi (teklifin kayıtlı kuru kullanılıyor). "
                                + "Kataloğu da güncellemek için önce \"Kuru Güncelle\"."
@@ -1192,11 +1146,10 @@ Item {
         }
     }
 
-    // Secili para birimi icin gecerli kur degerini dondurur (TL ise 1).
+    // Kalemlere yazilan kur: TL'de ve kur bilinmeyen dovizli teklifte 1
+    // (MaliyetFiyati o zaman TL'dir; bkz. hesap.maliyetFiyati).
     function gecerliKur() {
-        if (paraBirimiCombo.currentText === "USD") return root.usdKur > 0 ? root.usdKur : 1
-        if (paraBirimiCombo.currentText === "EUR") return root.eurKur > 0 ? root.eurKur : 1
-        return 1
+        return root.maliyetKuruVar ? root.maliyetKuru : 1
     }
 
     // Sepet + form alanlarindan teklifKaydet()/teklifDuzelt() ve sozlesme
@@ -1328,10 +1281,6 @@ Item {
         const pb = paraBirimiCombo.currentText
         if (kalem.listeFiyatlari) {
             kalem = root.kalemeListeFiyatiUygula(kalem, pb)
-            if (pb !== "TL" && root.sabitDovizPb !== pb) {
-                root.sabitDovizPb = pb
-                root.sabitDovizUygulandi = root.kurDegeri(pb) > 0
-            }
             if (!(root.listeFiyati(kalem.listeFiyatlari, pb) > 0))
                 root.eksikListeFiyatiBildir([kalem.urunKodu || kalem.aciklama], pb)
         }
@@ -1401,8 +1350,9 @@ Item {
     // ise DECIMAL(5,2) sutununa sigmayip kayit hatasi demekti (C++ tarafi da denetler).
     readonly property real indirimOrani: Math.max(0, Math.min(100, indirimAlaniWrap.deger))
     readonly property real kdvOrani: Math.max(0, Math.min(100, kdvAlaniWrap.deger))
-    readonly property real paketlemeUcretiTl: paketlemeAlaniWrap.deger
-    readonly property real tasimaUcretiTl: tasimaAlaniWrap.deger
+    // Teklifin para biriminde.
+    readonly property real paketlemeUcreti: paketlemeAlaniWrap.deger
+    readonly property real tasimaUcreti: tasimaAlaniWrap.deger
 
     function yuvarla(x) {
         return Math.round((x + Number.EPSILON) * 100) / 100
@@ -1419,12 +1369,17 @@ Item {
     // nakliye bedeli satis bedelinin parcasidir ve KDV'ye tabidir; eskiden KDV
     // yalnizca urun toplamindan hesaplaniyordu (10.000 + 1.000 tasima, %20 ->
     // 13.000 yerine 13.200 olmaliydi).
+    //
+    // Maliyet (TL) teklif para birimine ancak kur varsa cevrilir; yoksa kar
+    // bilgisi bilinmez (karBilinir false) ve maliyetFiyati TL olarak, Kur=1 ile
+    // kaydedilir (bkz. gecerliKur).
     readonly property var hesap: {
         const ind = root.indirimOrani / 100
+        const karBilinir = root.maliyetKuruVar
         const kalemler = root.sepet.map(k => {
-            const birim = root.yuvarla(root.tlDenCevir(k.birimFiyatTl))
+            const birim = root.yuvarla(k.birimFiyat)
             const indirimliBirim = root.yuvarla(birim * (1 - ind))
-            const maliyet = root.yuvarla(root.tlDenCevir(k.maliyet))
+            const maliyet = root.yuvarla(root.maliyetGoster(k.maliyet))
             return {
                 birimFiyat: birim,
                 indirimliBirimFiyat: indirimliBirim,
@@ -1435,9 +1390,9 @@ Item {
         })
         const topla = (alan) => root.yuvarla(kalemler.reduce((acc, k) => acc + k[alan], 0))
         const indirimliToplam = topla("toplamTutar")
-        const toplamMaliyet = topla("maliyetToplami")
-        const paketleme = root.yuvarla(root.tlDenCevir(root.paketlemeUcretiTl))
-        const tasima = root.yuvarla(root.tlDenCevir(root.tasimaUcretiTl))
+        const toplamMaliyet = karBilinir ? topla("maliyetToplami") : 0
+        const paketleme = root.yuvarla(root.paketlemeUcreti)
+        const tasima = root.yuvarla(root.tasimaUcreti)
         const kdvMatrahi = root.yuvarla(indirimliToplam + paketleme + tasima)
         const kdvTutari = root.yuvarla(kdvMatrahi * root.kdvOrani / 100)
         const karTutari = root.yuvarla(indirimliToplam - toplamMaliyet)
@@ -1450,6 +1405,7 @@ Item {
             kdvMatrahi: kdvMatrahi,
             kdvTutari: kdvTutari,
             genelToplam: root.yuvarla(kdvMatrahi + kdvTutari),
+            karBilinir: karBilinir,
             karTutari: karTutari,
             // Kar orani maliyet uzerinden hesaplanir (kar tutari / toplam maliyet).
             karOrani: toplamMaliyet > 0 ? (karTutari / toplamMaliyet * 100) : 0,
@@ -1978,8 +1934,8 @@ Item {
                                 spacing: 4
                                 KisalanMetin { text: "PAKETLEME"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; elide: Text.ElideRight; Layout.maximumWidth: 100 }
                                 UcretAlani {
-                                    id: paketlemeAlaniWrap; baslangicDegeri: 0; birim: "TL"
-                                    onDuzenlendi: root.ucretBaginiKaldir("paketleme")
+                                    id: paketlemeAlaniWrap; baslangicDegeri: 0; birim: paraBirimiCombo.currentText
+                                    onDuzenlendi: root.ucretCevriminiBirak("paketleme")
                                 }
                             }
                             ColumnLayout {
@@ -1989,8 +1945,8 @@ Item {
                                 spacing: 4
                                 Label { text: "TAŞIMA"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
                                 UcretAlani {
-                                    id: tasimaAlaniWrap; baslangicDegeri: 0; birim: "TL"
-                                    onDuzenlendi: root.ucretBaginiKaldir("tasima")
+                                    id: tasimaAlaniWrap; baslangicDegeri: 0; birim: paraBirimiCombo.currentText
+                                    onDuzenlendi: root.ucretCevriminiBirak("tasima")
                                 }
                             }
                         }
@@ -2100,6 +2056,7 @@ Item {
                                 TarihTakvimi {
                                     id: teslimTakvimi
                                     y: parent.height + 4
+                                    gecmisKapali: true
                                     onTarihSecildi: (tarih) => root.teslimatTarihiniAyarla(tarih)
                                 }
                             }
@@ -2163,7 +2120,10 @@ Item {
                                     // Dil degisince urun arama sonuclarini (ve dolayisiyla
                                     // aciklamalari) hemen yeniden cek -- kullanici tekrar
                                     // yazmak zorunda kalmasin.
-                                    onCurrentTextChanged: root.urunAramaTazele()
+                                    onCurrentTextChanged: {
+                                        root.urunAramaTazele()
+                                        root.sozlesmeDiliniUygula()
+                                    }
                                 }
                             }
                         }
@@ -2186,12 +2146,14 @@ Item {
                                     // Yalnizca KULLANICI secimi (programdan yapilan
                                     // currentIndex atamasi activated yaymaz).
                                     // Katalog kalemleri yeni para biriminin LISTE fiyatina
-                                    // gecer; elle fiyatlanmis / kayitli kalemlerin TL
-                                    // karsiligi korunur (bkz. listeFiyatlariniUygula).
+                                    // gecer; elle fiyatlanmis / kayitli kalemler kurla
+                                    // cevrilir (bkz. fiyatlariCevir).
+                                    // Ayni para birimi yeniden secilirse de activated gelir
+                                    // (currentTextChanged gelmez); cevrim sonrasi onceki
+                                    // deger guncellenir ki ikinci kez cevrilmesin.
                                     onActivated: {
-                                        if (paraBirimiCombo.currentText !== root.sabitDovizPb)
-                                            root.sabitDovizBaglariniKaldir()
-                                        root.listeFiyatlariniUygula()
+                                        root.fiyatlariCevir(root.oncekiParaBirimi, true)
+                                        root.oncekiParaBirimi = paraBirimiCombo.currentText
                                     }
                                     // TL disi bir para birimine gecildiginde, kur henuz
                                     // girilmemisse (0) otomatik olarak internetten cekmeyi
@@ -2199,7 +2161,11 @@ Item {
                                     // basmasini beklemeden. Basarisiz olursa (agsizlik vs.)
                                     // guncelKuruCek() zaten hata mesaji gosterip elle giris
                                     // alanlarini fallback olarak birakiyor.
+                                    // onActivated'dan ONCE calisir; onceki para birimi
+                                    // burada saklanir.
                                     onCurrentTextChanged: {
+                                        root.oncekiParaBirimi = root.sonParaBirimi
+                                        root.sonParaBirimi = paraBirimiCombo.currentText
                                         if (paraBirimiCombo.currentText === "USD" && root.usdKur <= 0)
                                             root.guncelKuruCek()
                                         else if (paraBirimiCombo.currentText === "EUR" && root.eurKur <= 0)
@@ -2383,7 +2349,7 @@ Item {
                                         aciklamaTr: urunSatiri.modelData.urunAciklamasiTr,
                                         aciklamaEn: urunSatiri.modelData.urunAciklamasiEn,
                                         adet: 1,
-                                        birimFiyatTl: urunSatiri.modelData.birimFiyat,
+                                        birimFiyat: urunSatiri.modelData.birimFiyat,
                                         maliyet: urunSatiri.modelData.maliyet,
                                         listeFiyatlari: root.urunListeFiyatlari(urunSatiri.modelData)
                                     })
@@ -2486,7 +2452,7 @@ Item {
                             Label { text: "KOD"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 60 }
                             Label { text: "AÇIKLAMA"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.fillWidth: true; Layout.preferredWidth: 0; Layout.minimumWidth: 0 }
                             Label { text: "ADET"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 58; horizontalAlignment: Text.AlignHCenter }
-                            Label { text: "MALİYET " + root.paraBirimiSembol(paraBirimiCombo.currentText); color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignLeft }
+                            Label { text: "MALİYET " + (root.maliyetKuruVar ? root.paraBirimiSembol(paraBirimiCombo.currentText) : "₺"); color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignLeft }
                             Label { text: "FİYAT " + root.paraBirimiSembol(paraBirimiCombo.currentText); color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignLeft }
                             Label { text: "İNDİRİMLİ"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 96; horizontalAlignment: Text.AlignLeft }
                             Label { text: "TOPLAM"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 112; horizontalAlignment: Text.AlignLeft }
@@ -2809,15 +2775,15 @@ Item {
                                 SepetSayiAlani {
                                     enabled: !root.formKilitli
                                     Layout.preferredWidth: 80
-                                    deger: root.tlDenCevir(sepetSatiri.modelData.maliyet)
+                                    deger: root.maliyetGoster(sepetSatiri.modelData.maliyet)
                                     onDegisti: (yeniDeger) => root.sepetTutarGuncelle(sepetSatiri.index, "maliyet", yeniDeger)
                                 }
 
                                 SepetSayiAlani {
                                     enabled: !root.formKilitli
                                     Layout.preferredWidth: 80
-                                    deger: root.tlDenCevir(sepetSatiri.modelData.birimFiyatTl)
-                                    onDegisti: (yeniDeger) => root.sepetTutarGuncelle(sepetSatiri.index, "birimFiyatTl", yeniDeger)
+                                    deger: sepetSatiri.modelData.birimFiyat
+                                    onDegisti: (yeniDeger) => root.sepetTutarGuncelle(sepetSatiri.index, "birimFiyat", yeniDeger)
                                 }
 
                                 KisalanMetin {
@@ -2983,9 +2949,9 @@ Item {
             border.color: Theme.kenarlik
             // Kilitli teklifte kur, teklifin kaydedildigi andaki degerdir; guncellenemez.
             enabled: !root.formKilitli
-            // Doviz fiyati sabit kalemler kur bekliyorsa TL seciliyken de gorunur
-            // (kur elle girilebilsin).
-            visible: paraBirimiCombo.currentText !== "TL" || (root.sabitDovizPb !== "" && !root.sabitDovizUygulandi)
+            // Bekleyen bir fiyat cevrimi (ör. USD'den TL'ye) varsa TL seciliyken
+            // de gorunur (kur elle girilebilsin).
+            visible: paraBirimiCombo.currentText !== "TL" || root.cevrimBekliyor
 
             ColumnLayout {
                 anchors.fill: parent
@@ -3118,7 +3084,7 @@ Item {
                                     // kurdur: guncel sayilir (bkz. kurGuncel).
                                     onTextEdited: root.kurGuncel = true
                                     // Yazma bitince (her tusta degil) kur kesinlesmis sayilir.
-                                    onEditingFinished: root.sabitDovizFiyatlariniUygula()
+                                    onEditingFinished: root.bekleyenCevrimleriUygula()
                                     anchors.fill: parent
                                     anchors.leftMargin: 10
                                     background: null
@@ -3149,7 +3115,7 @@ Item {
                                 TextField {
                                     id: eurKurAlani
                                     onTextEdited: root.kurGuncel = true
-                                    onEditingFinished: root.sabitDovizFiyatlariniUygula()
+                                    onEditingFinished: root.bekleyenCevrimleriUygula()
                                     anchors.fill: parent
                                     anchors.leftMargin: 10
                                     background: null
@@ -3237,10 +3203,11 @@ Item {
                     Layout.alignment: Qt.AlignVCenter
                     Layout.preferredHeight: implicitHeight
 
-                    Ozet { baslik: "Toplam Maliyet"; deger: root.tutarMetni(root.hesap.toplamMaliyet) }
-                    Ozet { baslik: "Kar Tutarı"; deger: root.tutarMetni(root.hesap.karTutari); renk: Theme.basariAcik }
-                    Ozet { baslik: "Kar Oranı (maliyete göre)"; deger: root.paraFormat(root.hesap.karOrani) + " %"; renk: Theme.basariAcik }
-                    Ozet { baslik: "Kar Marjı (satışa göre)"; deger: root.paraFormat(root.hesap.karMarji) + " %"; renk: Theme.basariAcik }
+                    // Kur yokken maliyet teklif para birimine cevrilemez; kar bos kalir.
+                    Ozet { baslik: "Toplam Maliyet"; deger: root.hesap.karBilinir ? root.tutarMetni(root.hesap.toplamMaliyet) : "—" }
+                    Ozet { baslik: "Kar Tutarı"; deger: root.hesap.karBilinir ? root.tutarMetni(root.hesap.karTutari) : "—"; renk: Theme.basariAcik }
+                    Ozet { baslik: "Kar Oranı (maliyete göre)"; deger: root.hesap.karBilinir ? root.paraFormat(root.hesap.karOrani) + " %" : "—"; renk: Theme.basariAcik }
+                    Ozet { baslik: "Kar Marjı (satışa göre)"; deger: root.hesap.karBilinir ? root.paraFormat(root.hesap.karMarji) + " %" : "—"; renk: Theme.basariAcik }
                     Ozet { baslik: "Toplam Fiyat"; deger: root.tutarMetni(root.hesap.indirimliToplam) }
                     Ozet { baslik: "Paketleme Ücreti"; deger: root.tutarMetni(root.hesap.paketleme) }
                     Ozet { baslik: "Taşıma Ücreti"; deger: root.tutarMetni(root.hesap.tasima) }
@@ -3380,6 +3347,7 @@ Item {
                         visible: !root.formKilitli
                         Layout.preferredWidth: 138
                         Layout.preferredHeight: 40
+                        enabled: !root.kaydediliyor
                         onClicked: {
                             if (root.secilenMusteriId <= 0) {
                                 bilgiMesaji.color = Theme.tehlikeAcik
@@ -3391,13 +3359,14 @@ Item {
                                 bilgiMesaji.text = "Sepette en az bir ürün olmalı."
                                 return
                             }
-                            // Kur yokken kaydedilirse TL tutarlar USD/EUR etiketiyle
-                            // (kur=1) yazilirdi -- teklif tamamen yanlis olurdu.
-                            if (root.kurEksik) {
-                                const eksikPb = (root.sabitDovizPb !== "" && !root.sabitDovizUygulandi)
-                                                ? root.sabitDovizPb : paraBirimiCombo.currentText
+                            // Para birimi degistirilip kur olmadigi icin henuz
+                            // cevrilemeyen fiyat varsa kaydedilmez: tutarlar hala
+                            // eski para birimindedir.
+                            if (root.cevrimBekliyor) {
                                 bilgiMesaji.color = Theme.tehlikeAcik
-                                bilgiMesaji.text = eksikPb + " kuru alınamadı. Kuru güncelleyin veya elle girin."
+                                bilgiMesaji.text = "Bazı fiyatlar " + paraBirimiCombo.currentText
+                                                   + " cinsine çevrilemedi; kuru güncelleyin, elle girin "
+                                                   + "ya da fiyatları elle düzeltin."
                                 return
                             }
 
@@ -3419,9 +3388,10 @@ Item {
                         background: Rectangle {
                             radius: Theme.radiusKucuk
                             color: kaydetButonu.hovered ? Theme.vurguHover : Theme.vurgu
+                            opacity: kaydetButonu.enabled ? 1 : 0.6
                         }
                         contentItem: Text {
-                            text: "Teklifi Kaydet"
+                            text: root.kaydediliyor ? "Kaydediliyor…" : "Teklifi Kaydet"
                             color: "#ffffff"
                             font.family: Theme.fontAilesi
                             font.bold: true
@@ -3438,22 +3408,56 @@ Item {
     // duzeltilir (Database::teklifDuzelt); bossa yeni teklif / revizyon / kopya
     // olarak kaydedilir (Database::teklifKaydet). revizyonSebebi, revizyonda
     // Teklif Gecmisi'ne yazilir.
-    // PDF onizlemesi yalnizca musteriye gidecek YENI bir belge ciktiginda
-    // (yeni teklif, revizyon, kopya) kendiliginden acilir; duzeltmede acilmaz --
-    // istenirse listedeki "PDF" butonuyla bakilir. Dosya ancak onizlemede
-    // "İndir"e basilinca kaydedilir.
+    // Musteriye gidecek YENI bir belge ciktiginda (yeni teklif, revizyon, kopya)
+    // PDF onizleme penceresi ACILMAZ: dosya dogrudan klasore indirilir ve PDF
+    // goruntuleyicide acilir (PdfOnizleme.indir). Duzeltmede indirilmez.
+    //
+    // Kayit ARKA PLANDA yapilir (database.teklifKaydetBaslat / teklifDuzeltBaslat):
+    // SQL Server yavasladiginda pencere donmaz. Sonuc gelene kadar "Teklifi
+    // Kaydet" kilitlidir; kayit aninin bilgileri bekleyenKayit'ta saklanir.
+    property bool kaydediliyor: false
+    property int bekleyenKayitIstegi: 0
+    property var bekleyenKayit: ({})
+
     function teklifiKaydet(duzeltmeSebebi, revizyonSebebi) {
+        if (root.kaydediliyor)
+            return
         const duzeltmeMiydi = duzeltmeSebebi.length > 0
-        const revizyonMuydu = !duzeltmeMiydi && root.duzenlenenAnaTeklifId > 0
-        const kopyaMiydi = root.kopyaModu
-        const kopyaKaynagi = root.kopyaKaynakTeklifId
-        const kopyaKaynakNo = root.kopyaKaynakTeklifNo
-        const kaynakTeklifNo = root.duzenlenenTeklifNo
         const veri = root.teklifVerisiOlustur()
         veri.revizyonSebebi = revizyonSebebi || ""
-        const sonuc = duzeltmeMiydi
-            ? database.teklifDuzelt(root.duzenlenenKaynakTeklifId, veri, duzeltmeSebebi)
-            : database.teklifKaydet(veri)
+        root.bekleyenKayit = {
+            duzeltmeMiydi: duzeltmeMiydi,
+            revizyonMuydu: !duzeltmeMiydi && root.duzenlenenAnaTeklifId > 0,
+            kopyaMiydi: root.kopyaModu,
+            kopyaKaynagi: root.kopyaKaynakTeklifId,
+            kopyaKaynakNo: root.kopyaKaynakTeklifNo,
+            kaynakTeklifNo: root.duzenlenenTeklifNo
+        }
+        root.kaydediliyor = true
+        bilgiMesaji.color = Theme.metinSoluk
+        bilgiMesaji.text = "Teklif kaydediliyor…"
+        root.bekleyenKayitIstegi = duzeltmeMiydi
+            ? database.teklifDuzeltBaslat(root.duzenlenenKaynakTeklifId, veri, duzeltmeSebebi)
+            : database.teklifKaydetBaslat(veri)
+    }
+
+    Connections {
+        target: database
+        function onTeklifKayitHazir(istekNo, sonuc) {
+            if (istekNo !== root.bekleyenKayitIstegi)
+                return
+            root.kaydediliyor = false
+            root.kayitSonucunuIsle(sonuc)
+        }
+    }
+
+    function kayitSonucunuIsle(sonuc) {
+        const duzeltmeMiydi = root.bekleyenKayit.duzeltmeMiydi
+        const revizyonMuydu = root.bekleyenKayit.revizyonMuydu
+        const kopyaMiydi = root.bekleyenKayit.kopyaMiydi
+        const kopyaKaynagi = root.bekleyenKayit.kopyaKaynagi
+        const kopyaKaynakNo = root.bekleyenKayit.kopyaKaynakNo
+        const kaynakTeklifNo = root.bekleyenKayit.kaynakTeklifNo
         if (sonuc.basarili) {
             bilgiMesaji.color = Theme.basariAcik
             const onEk = duzeltmeMiydi
@@ -3466,7 +3470,7 @@ Item {
             bilgiMesaji.text = onEk
 
             if (!duzeltmeMiydi)
-                PdfOnizleme.ac("teklif", sonuc.teklifId, "Teklif " + sonuc.teklifNo)
+                PdfOnizleme.indir("teklif", sonuc.teklifId, "Teklif " + sonuc.teklifNo, true)
 
             if (duzeltmeMiydi) {
                 // Duzeltme: ayni teklif guncellendi; formu bosaltip
@@ -3666,6 +3670,7 @@ Item {
             const temiz = yeniMetin.trim()
             root.sozlesmeMetni = (root.duzenlenenKaynakTeklifId <= 0
                                   && temiz === sozlesmeDialogu.varsayilanMetin.trim()) ? "" : temiz
+            root.sozlesmeDili = dilCombo.currentText
 
             // Metin YALNIZCA formda bekler ve "Teklifi Kaydet" ile kaydedilir.
             // Kayitli bir teklifte (Detay) eskiden aninda o teklife yaziliyordu:
@@ -3785,8 +3790,11 @@ Item {
                 aciklamaTr: manuelAciklama.text,
                 aciklamaEn: manuelAciklamaEn.text,
                 adet: 1,
-                birimFiyatTl: birimFiyatTl,
-                maliyet: maliyet
+                birimFiyat: birimFiyatTl,
+                maliyet: maliyet,
+                // Katalog urunu gibi davranir: TL disi teklifte o para biriminin
+                // fiyati girilmemis olarak gelir (bkz. sepeteEkle).
+                listeFiyatlari: root.urunListeFiyatlari({ birimFiyat: birimFiyatTl })
             })
             manuelUrunDialogu.close()
         }

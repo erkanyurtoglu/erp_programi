@@ -5,7 +5,7 @@ import QtQuick.Layouts
 import erp_programi
 
 // Yonetim / Islem Gecmisi: tum tekliflerdeki olaylar (olusturma / revizyon,
-// durum degisikligi, duzeltme) yeniden eskiye, sayfali. Kaynaklar ve hangi
+// durum degisikligi, duzeltme, silme) yeniden eskiye, sayfali. Kaynaklar ve hangi
 // olayin sayildigi: bkz. islemGecmisiSorgusu (AramaSorgulari.cpp).
 // Satirdaki "Teklif" butonu teklifin PDF'ini onizlemede acar.
 Item {
@@ -85,7 +85,8 @@ Item {
     }
 
     function turAdi(tur) {
-        return tur === "olusturma" ? "Oluşturma" : tur === "durum" ? "Durum" : tur === "duzeltme" ? "Düzeltme" : ""
+        return tur === "olusturma" ? "Oluşturma" : tur === "durum" ? "Durum" : tur === "duzeltme" ? "Düzeltme"
+             : tur === "silme" ? "Silme" : ""
     }
 
     Rectangle {
@@ -124,6 +125,7 @@ Item {
             SuzgecHapi { metin: "Oluşturma"; secili: root.tur === "olusturma"; onTiklandi: { root.tur = "olusturma"; root.sayfayiYukle(1) } }
             SuzgecHapi { metin: "Durum"; secili: root.tur === "durum"; onTiklandi: { root.tur = "durum"; root.sayfayiYukle(1) } }
             SuzgecHapi { metin: "Düzeltme"; secili: root.tur === "duzeltme"; onTiklandi: { root.tur = "duzeltme"; root.sayfayiYukle(1) } }
+            SuzgecHapi { metin: "Silme"; secili: root.tur === "silme"; onTiklandi: { root.tur = "silme"; root.sayfayiYukle(1) } }
         }
 
         // ---- Arama, personel, tarih ----
@@ -261,12 +263,12 @@ Item {
                                     radius: 4
                                     color: "transparent"
                                     border.width: 1
-                                    border.color: Theme.kenarlik
+                                    border.color: satir.modelData.tur === "silme" ? Theme.tehlike : Theme.kenarlik
                                     Text {
                                         id: turYazisi
                                         anchors.centerIn: parent
                                         text: root.turAdi(satir.modelData.tur)
-                                        color: Theme.metinSoluk
+                                        color: satir.modelData.tur === "silme" ? Theme.tehlikeAcik : Theme.metinSoluk
                                         font.family: Theme.fontAilesi
                                         font.pixelSize: 10
                                     }
@@ -318,10 +320,13 @@ Item {
                             elide: Text.ElideRight
                             Layout.preferredWidth: 150
                         }
+                        // Silinen teklifin PDF'i uretilemez; yer tutsun diye
+                        // gizlenmez, yalnizca pasif kalir.
                         TemaButon {
                             kucuk: true
                             text: "Teklif"
                             Layout.preferredWidth: 70
+                            enabled: satir.modelData.tur !== "silme"
                             onClicked: PdfOnizleme.ac("teklif", satir.modelData.teklifId,
                                                       "Teklif " + satir.modelData.teklifNo)
                         }

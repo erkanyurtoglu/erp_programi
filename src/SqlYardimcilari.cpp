@@ -32,7 +32,7 @@ bool manuelKoduMu(const QString &urunKodu)
     return urunKodu.trimmed().startsWith(QStringLiteral("MANUEL"), Qt::CaseInsensitive);
 }
 
-bool semaKolonuVarMi(QSqlDatabase &db, const QString &tablo, const QString &kolon)
+bool semaKolonuVarMi(const QSqlDatabase &db, const QString &tablo, const QString &kolon)
 {
     static QMutex kilit;
     static QHash<QString, bool> onbellek;
