@@ -5935,6 +5935,18 @@ namespace
         return deger > 0 ? QVariant(deger) : QVariant(QMetaType(QMetaType::Int));
     }
 
+    // Aramadaki belge numarasi: ekranda gorunen "SA-0012" / "TLP-0012" aynen
+    // yazilsa da bulunsun. On ek yoksa onekOut bos doner; numara degilse 0.
+    int belgeNoAyikla(const QString &arama, QString &onekOut)
+    {
+        static const QRegularExpression desen(
+            QStringLiteral("^\\s*(?:(SA|TLP)\\s*-?\\s*)?(\\d+)\\s*$"),
+            QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch m = desen.match(arama);
+        onekOut = m.hasMatch() ? m.captured(1).toUpper() : QString();
+        return m.hasMatch() ? m.captured(2).toInt() : 0;
+    }
+
     QVariantMap basarisizSonuc()
     {
         QVariantMap sonuc;
@@ -6170,8 +6182,8 @@ QVariantList Database::talepListesiGetir(const QString &durumFiltresi, const QSt
         filtre = QStringLiteral("1 = 1");
 
     const QString desen = likeDeseni(arama);
-    bool numaraMi = false;
-    const int aramaNo = arama.trimmed().toInt(&numaraMi);
+    QString onek;
+    const int aramaNo = belgeNoAyikla(arama, onek);
     QString aramaKosulu;
     if (!desen.isEmpty())
     {
@@ -6179,7 +6191,10 @@ QVariantList Database::talepListesiGetir(const QString &durumFiltresi, const QSt
             " AND (TalepNo = :aramaNo OR IsteyenKisi LIKE :desen1 ESCAPE '\\' "
             "      OR EXISTS (SELECT 1 FROM dbo.satinalma_talep_kalemleri a "
             "                 WHERE a.TalepId = x.TalepId "
-            "                   AND (a.KalemAdi LIKE :desen2 ESCAPE '\\' OR a.NeIcin LIKE :desen3 ESCAPE '\\')))");
+            "                   AND (a.KalemAdi LIKE :desen2 ESCAPE '\\' OR a.NeIcin LIKE :desen3 ESCAPE '\\')) "
+            // Tedarikci / site adiyla da: "X firmasina sorduklarim".
+            "      OR EXISTS (SELECT 1 FROM dbo.satinalma_teklif_firmalari f "
+            "                 WHERE f.TalepId = x.TalepId AND f.FirmaAdi LIKE :desen4 ESCAPE '\\'))");
     }
 
     QSqlQuery query(m_db);
@@ -6235,10 +6250,12 @@ QVariantList Database::talepListesiGetir(const QString &durumFiltresi, const QSt
              filtre, aramaKosulu, QString::fromUtf8(ACIK_SIPARIS_KOSULU)));
     if (!desen.isEmpty())
     {
-        query.bindValue(":aramaNo", numaraMi ? aramaNo : -1);
+        // "SA-…" siparis numarasidir, talep numarasi sayilmaz.
+        query.bindValue(":aramaNo", aramaNo > 0 && onek != QStringLiteral("SA") ? aramaNo : -1);
         query.bindValue(":desen1", desen);
         query.bindValue(":desen2", desen);
         query.bindValue(":desen3", desen);
+        query.bindValue(":desen4", desen);
     }
 
     if (!query.exec())
@@ -7247,8 +7264,8 @@ QVariantList Database::siparisListesiGetir(const QString &filtre, const QString 
         kosul = QStringLiteral("1 = 1");
 
     const QString desen = likeDeseni(arama);
-    bool numaraMi = false;
-    const int aramaNo = arama.trimmed().toInt(&numaraMi);
+    QString onek;
+    const int aramaNo = belgeNoAyikla(arama, onek);
     if (!desen.isEmpty())
     {
         kosul += QStringLiteral(
@@ -7299,8 +7316,9 @@ QVariantList Database::siparisListesiGetir(const QString &filtre, const QString 
                  : QStringLiteral("0")));
     if (!desen.isEmpty())
     {
-        query.bindValue(":aramaNo", numaraMi ? aramaNo : -1);
-        query.bindValue(":aramaNo2", numaraMi ? aramaNo : -1);
+        // On ekli numara yalnizca kendi turunde aranir; yalin sayi ikisinde de.
+        query.bindValue(":aramaNo", aramaNo > 0 && onek != QStringLiteral("TLP") ? aramaNo : -1);
+        query.bindValue(":aramaNo2", aramaNo > 0 && onek != QStringLiteral("SA") ? aramaNo : -1);
         query.bindValue(":desen1", desen);
         query.bindValue(":desen2", desen);
         query.bindValue(":desen3", desen);
@@ -7781,10 +7799,12 @@ QVariantMap Database::satinalmaDurumGuncelle(int satinalmaId, const QString &yen
     QString mevcutDurum;
     QString oncekiDurum;
     bool eksikKapatildi = false;
+    QString faturaNo;
     {
         QSqlQuery mevcut(m_db);
         mevcut.prepare(QStringLiteral(
-            "SELECT Durum, %1, %2 FROM dbo.satinalmalar WITH (UPDLOCK, ROWLOCK) WHERE SatinalmaId = :id")
+            "SELECT Durum, %1, %2, FaturaNo FROM dbo.satinalmalar WITH (UPDLOCK, ROWLOCK) "
+            "WHERE SatinalmaId = :id")
             .arg(oncekiDurumKolonu ? QStringLiteral("TeslimOncekiDurum") : QStringLiteral("CAST(NULL AS NVARCHAR(30))"),
                  eksikKolonu ? QStringLiteral("CASE WHEN EksikKapatmaTarihi IS NULL THEN 0 ELSE 1 END")
                              : QStringLiteral("0")));
@@ -7794,6 +7814,7 @@ QVariantMap Database::satinalmaDurumGuncelle(int satinalmaId, const QString &yen
         mevcutDurum = mevcut.value(0).toString();
         oncekiDurum = mevcut.value(1).toString();
         eksikKapatildi = mevcut.value(2).toInt() == 1;
+        faturaNo = mevcut.value(3).toString().trimmed();
     }
 
     // Gecis kurallari. Ekran yalnizca gecerli gecisleri sunar; bu denetim,
@@ -7817,6 +7838,12 @@ QVariantMap Database::satinalmaDurumGuncelle(int satinalmaId, const QString &yen
                               "\"Eksik Kapat\" kullanın.");
         if (!teslimOncesi)
             return hataylaDon(QString("\"%1\" durumundaki sipariş iptal edilemez.").arg(mevcutDurum));
+        // Iptal edilen sipariste fatura bilgisi artik duzeltilemez; muhasebeye
+        // gitmis bir fatura iptal kaydinda unutulmasin.
+        if (!faturaNo.isEmpty())
+            return hataylaDon(QString("Siparişin faturası girilmiş (Fatura No: %1); iptal edilemez. "
+                                      "Önce fatura bilgisini silin, iade gerekiyorsa muhasebeye bildirin.")
+                                  .arg(faturaNo));
     }
     else if (teslimiGeriAl)
     {

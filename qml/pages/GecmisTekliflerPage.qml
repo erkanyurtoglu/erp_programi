@@ -898,23 +898,45 @@ Item {
                         // Artan alani yutar; boylece teklif no + rozet sola yaslanir.
                         Item { Layout.fillWidth: true }
                     }
-                    KisalanMetin {
-                        text: satir.modelData.firmaAdi
-                        color: Theme.metinBirincil
-                        font.family: Theme.fontAilesi
-                        font.pixelSize: Theme.fontBoyutNormal
-                        Layout.fillWidth: true
-                        // ONEMLI: Layout.preferredWidth: 0 olmadan RowLayout, bu Text'in
+                    // Firma; arama bir urune uyduysa altinda o kalem ("etüv"
+                    // aranınca bu firmaya hangi etüvün verildigi).
+                    ColumnLayout {
+                        // ONEMLI: Layout.preferredWidth: 0 olmadan RowLayout, metnin
                         // (kirpilmemis) dogal genisligini "tercih edilen" boyut sayiyor ve
                         // uzun firma adlarinda satiri kendi genisliginin otesine tasiyor --
                         // bu da sonraki sutunlarin (tarih/kullanici/durum) satirdan satira
                         // farkli miktarda saga kaymis gibi gorunmesine yol aciyordu.
                         // preferredWidth: 0 RowLayout'a bu ogeyi kalan alana KISALTMASINI
                         // soyler, boylece elide gercekten calisir ve sutunlar hizali kalir.
+                        Layout.fillWidth: true
                         Layout.preferredWidth: 0
                         Layout.minimumWidth: root.firmaSutunuEnAz
                         Layout.horizontalStretchFactor: 2
-                        Layout.fillHeight: true
+                        Layout.alignment: Qt.AlignVCenter
+                        spacing: 1
+
+                        KisalanMetin {
+                            text: satir.modelData.firmaAdi
+                            color: Theme.metinBirincil
+                            font.family: Theme.fontAilesi
+                            font.pixelSize: Theme.fontBoyutNormal
+                            Layout.fillWidth: true
+                        }
+                        KisalanMetin {
+                            visible: text.length > 0
+                            text: {
+                                const urun = satir.modelData.eslesenUrun || ""
+                                if (urun.length === 0)
+                                    return ""
+                                const diger = (satir.modelData.eslesenSayi || 0) - 1
+                                return satir.modelData.eslesenAdet + " × " + urun
+                                       + (diger > 0 ? "  (+" + diger + " kalem)" : "")
+                            }
+                            color: Theme.vurguAcik
+                            font.family: Theme.fontAilesi
+                            font.pixelSize: Theme.fontBoyutKucuk
+                            Layout.fillWidth: true
+                        }
                     }
                     // Teklif -> kabul -> planlanan teslim -> gercek teslim -> uretim PDF.
                     // Bos tarihler "—" ile gosterilir.

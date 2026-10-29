@@ -86,7 +86,7 @@ Item {
             TemaMetinKutusu {
                 id: aramaKutusu
                 Layout.fillWidth: true
-                placeholderText: "Talep no, kişi, malzeme, cihaz ara..."
+                placeholderText: "Talep no, kişi, malzeme, cihaz, tedarikçi ara..."
                 onTextEdited: aramaZamanlayici.restart()
                 Timer {
                     id: aramaZamanlayici

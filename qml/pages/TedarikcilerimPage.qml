@@ -194,9 +194,9 @@ Item {
                 placeholderTextColor: Theme.metinCokSoluk
                 font.family: Theme.fontAilesi
                 font.pixelSize: Theme.fontBoyutNormal
-                // Arama artik telefon ve vergi numarasini da kapsiyor: bir
-                // firmayi siklikla elindeki telefon ya da fatura bilgisiyle ararsin.
-                placeholderText: "Firma adı, ilgili kişi, e-posta, telefon veya vergi no ara..."
+                // Arama telefon, vergi no ve alinan urunleri de kapsar: bir
+                // firmayi siklikla elindeki telefonla ya da ondan alinan parcayla ararsin.
+                placeholderText: "Firma adı, ilgili kişi, telefon, vergi no veya ürün ara..."
                 verticalAlignment: TextInput.AlignVCenter
                 onTextChanged: {
                     root.aramaMetni = text
@@ -279,16 +279,30 @@ Item {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             spacing: 6
-                            KisalanMetin {
-                                text: satir.modelData.firmaAdi
-                                color: Theme.metinBirincil
-                                font.family: Theme.fontAilesi
-                                font.bold: true
-                                font.pixelSize: Theme.fontBoyutNormal
+                            // Firma; arama bir urune uyduysa altinda o urun
+                            // (en son siparis edilen, yoksa fiyat alinan).
+                            ColumnLayout {
                                 Layout.fillWidth: true
-                                elide: Text.ElideRight
-                                Layout.fillHeight: true
-                                verticalAlignment: Text.AlignVCenter
+                                Layout.alignment: Qt.AlignVCenter
+                                spacing: 1
+                                KisalanMetin {
+                                    text: satir.modelData.firmaAdi
+                                    color: Theme.metinBirincil
+                                    font.family: Theme.fontAilesi
+                                    font.bold: true
+                                    font.pixelSize: Theme.fontBoyutNormal
+                                    Layout.fillWidth: true
+                                }
+                                KisalanMetin {
+                                    visible: (satir.modelData.eslesenUrun || "").length > 0
+                                    text: (satir.modelData.eslesenTur === "siparis" ? "Alındı: " : "Fiyat alındı: ")
+                                          + (satir.modelData.eslesenUrun || "")
+                                          + (satir.modelData.eslesenTarih ? "  ·  " + satir.modelData.eslesenTarih : "")
+                                    color: Theme.vurguAcik
+                                    font.family: Theme.fontAilesi
+                                    font.pixelSize: Theme.fontBoyutKucuk
+                                    Layout.fillWidth: true
+                                }
                             }
                             Rectangle {
                                 visible: !satir.aktifMi

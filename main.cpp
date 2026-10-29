@@ -32,7 +32,6 @@ int main(int argc, char *argv[])
     PdfOnizleyici pdfOnizleyici;
     qInfo() << "[olcum] acilis: PdfOnizleyici" << acilis.restart() << "ms";
 
-
     KurServisi kurServisi;
     kurServisi.yenile();
 

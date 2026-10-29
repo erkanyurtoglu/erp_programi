@@ -13,12 +13,8 @@ ApplicationWindow {
     title: "Liya ERP"
     color: Theme.arkaplan
 
-    // Giris yapan kullanicinin bilgileri (basarili girisYap() sonrasi doldurulur).
     property var oturum: null
 
-    // Sayfalardaki tum "ToolTip.text: ..." ipuclari tek bir paylasilan ToolTip
-    // ornegini kullanir; Basic stilin acik renkli kutusu yerine temaya uygun
-    // gorunumu burada bir kez veriyoruz.
     Component {
         id: ipucuArkaplani
         Rectangle {

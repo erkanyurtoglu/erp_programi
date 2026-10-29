@@ -542,6 +542,27 @@ QVariantMap tedarikciListesiSorgusu(QSqlDatabase &db, const QString &arama,
                                                   QStringLiteral("IlgiliKisiTelefonu"));
     const QString arsiv = arsivKosulu(db, QStringLiteral("dbo.tedarikciler"), QString(), arsivliDahil);
 
+    // Urunle arama: "etüv rezistansı kimden alindi / kimden fiyat alindi?"
+    // Kaynaklar: aktif siparislerin kalemleri ve talepte bu tedarikciden
+    // alinan fiyatlar. Satinalma betikleri (db/17, db/20) yoksa yalnizca
+    // firma bilgisinde aranir.
+    const bool urunleAra = !aramaTrim.isEmpty()
+        && semaKolonuVarMi(db, QStringLiteral("dbo.satinalma_kalemleri"), QStringLiteral("KalemAdi"))
+        && semaKolonuVarMi(db, QStringLiteral("dbo.satinalma_teklif_firmalari"), QStringLiteral("TedarikciId"));
+    const QString urunKaynagi = QStringLiteral(
+        "SELECT k.KalemAdi, s.SatinalmaTarihi AS Tarih, 1 AS Tur "
+        "FROM dbo.satinalmalar s "
+        "INNER JOIN dbo.satinalma_kalemleri k ON k.SatinalmaId = s.SatinalmaId "
+        "WHERE s.TedarikciId = tdr.TedarikciId AND s.Durum NOT IN (N'İptal', N'Reddedildi') "
+        "  AND k.KalemAdi LIKE :aramaLike ESCAPE N'\\' "
+        "UNION ALL "
+        "SELECT tk.KalemAdi, tl.TalepTarihi, 2 "
+        "FROM dbo.satinalma_teklif_firmalari f "
+        "INNER JOIN dbo.satinalma_teklif_fiyatlari fy ON fy.TeklifFirmaId = f.TeklifFirmaId "
+        "INNER JOIN dbo.satinalma_talep_kalemleri tk ON tk.TalepKalemId = fy.TalepKalemId "
+        "INNER JOIN dbo.satinalma_talepleri tl ON tl.TalepId = f.TalepId "
+        "WHERE f.TedarikciId = tdr.TedarikciId AND tk.KalemAdi LIKE :aramaLike ESCAPE N'\\'");
+
     QString aramaKosulu;
     if (!aramaTrim.isEmpty())
     {
@@ -550,11 +571,13 @@ QVariantMap tedarikciListesiSorgusu(QSqlDatabase &db, const QString &arama,
                       "OR Eposta LIKE :aramaLike ESCAPE N'\\' "
                       "OR Telefon LIKE :aramaLike ESCAPE N'\\' "
                       "OR VergiNumarasi LIKE :aramaLike ESCAPE N'\\'";
+        if (urunleAra)
+            aramaKosulu += QStringLiteral(" OR EXISTS (") + urunKaynagi + QStringLiteral(")");
     }
     const QString whereClause = whereBirlestir({arsiv, aramaKosulu});
 
     QSqlQuery sayimQuery(db);
-    sayimQuery.prepare(QString("SELECT COUNT(*) FROM dbo.tedarikciler %1").arg(whereClause));
+    sayimQuery.prepare(QString("SELECT COUNT(*) FROM dbo.tedarikciler tdr %1").arg(whereClause));
     if (!aramaTrim.isEmpty())
         sayimQuery.bindValue(":aramaLike", likeDeseni(aramaTrim));
 
@@ -571,16 +594,27 @@ QVariantMap tedarikciListesiSorgusu(QSqlDatabase &db, const QString &arama,
     int toplamSayfa = 1;
     sayfaNo = sayfayiSinirla(toplamKayit, sayfaBoyutu, sayfaNo, toplamSayfa);
 
+    // Arama bir urune uyduysa satirda o urun gosterilir: once en son
+    // siparis edilen, yoksa en son fiyat alinan.
+    const QString eslesenSutun = urunleAra
+        ? QStringLiteral(", es.KalemAdi AS EslesenUrun, es.Tarih AS EslesenTarih, es.Tur AS EslesenTur")
+        : QStringLiteral(", CAST(NULL AS NVARCHAR(10)) AS EslesenUrun, CAST(NULL AS DATE) AS EslesenTarih, "
+                         "CAST(NULL AS INT) AS EslesenTur");
+    const QString eslesenApply = urunleAra
+        ? QStringLiteral("OUTER APPLY (SELECT TOP 1 x.KalemAdi, x.Tarih, x.Tur FROM (")
+              + urunKaynagi + QStringLiteral(") x ORDER BY x.Tur, x.Tarih DESC) es ")
+        : QString();
+
     QSqlQuery veriQuery(db);
     veriQuery.prepare(QString(
         "SELECT TedarikciId, FirmaAdi, Adres, Telefon, Eposta, VergiDairesi, VergiNumarasi, IlgiliKisi, "
-        "       %1 AS IlgiliKisiTelefonu%2 "
-        "FROM dbo.tedarikciler %3 "
+        "       %1 AS IlgiliKisiTelefonu%2%3 "
+        "FROM dbo.tedarikciler tdr %4%5 "
         "ORDER BY FirmaAdi "
         "OFFSET :offset ROWS FETCH NEXT :sayfaBoyutu ROWS ONLY")
-        .arg(ilgiliTelKolonu ? QStringLiteral("IlgiliKisiTelefonu") : QStringLiteral("CAST(NULL AS NVARCHAR(50))"))
-        .arg(arsivKolonu ? QStringLiteral(", AktifMi") : QString())
-        .arg(whereClause));
+        .arg(ilgiliTelKolonu ? QStringLiteral("IlgiliKisiTelefonu") : QStringLiteral("CAST(NULL AS NVARCHAR(50))"),
+             arsivKolonu ? QStringLiteral(", AktifMi") : QString(),
+             eslesenSutun, eslesenApply, whereClause));
     if (!aramaTrim.isEmpty())
         veriQuery.bindValue(":aramaLike", likeDeseni(aramaTrim));
     veriQuery.bindValue(":offset", (sayfaNo - 1) * sayfaBoyutu);
@@ -606,6 +640,12 @@ QVariantMap tedarikciListesiSorgusu(QSqlDatabase &db, const QString &arama,
         m["ilgiliKisi"] = veriQuery.value("IlgiliKisi").toString();
         m["ilgiliKisiTelefonu"] = veriQuery.value("IlgiliKisiTelefonu").toString();
         m["aktifMi"] = aktifMiOku(veriQuery, arsivKolonu);
+        // Urun eslesmesi: "siparis" (alindi) ya da "teklif" (fiyat alindi).
+        m["eslesenUrun"] = veriQuery.value("EslesenUrun").toString();
+        m["eslesenTarih"] = veriQuery.value("EslesenTarih").isNull()
+            ? QString() : veriQuery.value("EslesenTarih").toDate().toString(QStringLiteral("dd.MM.yyyy"));
+        m["eslesenTur"] = veriQuery.value("EslesenTur").toInt() == 1 ? QStringLiteral("siparis")
+                                                                      : QStringLiteral("teklif");
         kayitlar << m;
     }
 
@@ -839,6 +879,26 @@ namespace
             : eskiKural;
     }
 
+    // Kolon aramaya uyuyor mu? Turkce buyuk/kucuk harf duyarsiz (i/İ, ı/I
+    // dogru eslesir) ama Turkish_CI_AS ile LIKE'tan ~7 kat hizli: iki taraf
+    // Turkce kurallarla buyutulup ikili (BIN2) karsilastirilir. 20 bin uzun
+    // kalem aciklamasinda Turkish_CI_AS LIKE tek basina ~450 ms suruyordu.
+    QString aramaUyar(const QString &kolon)
+    {
+        return QStringLiteral("UPPER(%1 COLLATE Turkish_CI_AS) COLLATE Latin1_General_100_BIN2 "
+                              "LIKE UPPER(CAST(:aramaLike AS NVARCHAR(400)) COLLATE Turkish_CI_AS) "
+                              "COLLATE Latin1_General_100_BIN2").arg(kolon);
+    }
+
+    // Aramanin teklif kalemine uydugu kosul (tk = teklif_kalemleri, u = urunler);
+    // listedeki "eslesen urun" bilgisi icin. Filtre ayni kurali parcali uygular.
+    QString kalemAramaKosulu()
+    {
+        return QStringLiteral("(%1 OR %2 OR %3 OR %4)")
+            .arg(aramaUyar(QStringLiteral("tk.UrunAciklamasi")), aramaUyar(QStringLiteral("u.UrunAciklamasi")),
+                 aramaUyar(QStringLiteral("u.UrunAciklamasiEn")), aramaUyar(QStringLiteral("u.UrunKodu")));
+    }
+
     // Tarih + arama + durum filtresi; COUNT, veri ve toplam sorgularinda AYNI
     // sekilde kullanilir (eski Database::whereKosullariniOlustur).
     void teklifWhereKosullari(QSqlDatabase &db,
@@ -896,24 +956,31 @@ namespace
             const bool noEslesiyorMu = noEslesmesi.hasMatch();
             const bool revizyonVarMi = noEslesiyorMu && !noEslesmesi.captured(2).isEmpty();
 
-            const QString noSql = teklifNoSqlIfadesi(db, QStringLiteral("t"));
-            QString aramaKosulu = "(";
+            // Eslesen teklifler kaynak basina AYRI bulunup birlestirilir (UNION):
+            // tek bir "firma OR personel OR EXISTS(kalem)" kosulu her teklif
+            // icin kalemleri yeniden tariyordu (etüv: 1,2 sn -> ~0,1 sn).
+            QStringList kaynaklar;
             if (noEslesiyorMu)
             {
-                aramaKosulu += revizyonVarMi
-                    ? QString("(%1 = :kokTeklifNo AND t.RevizyonNo = :revizyonNo) OR ").arg(noSql)
-                    : QString("%1 = :kokTeklifNo OR ").arg(noSql);
+                kaynaklar << QString("SELECT tn.TeklifId FROM dbo.teklifler tn WHERE %1 = :kokTeklifNo%2")
+                                 .arg(teklifNoSqlIfadesi(db, QStringLiteral("tn")),
+                                      revizyonVarMi ? QStringLiteral(" AND tn.RevizyonNo = :revizyonNo") : QString());
             }
-
-            aramaKosulu +=
-                "m.FirmaAdi LIKE :aramaLike OR "
-                "p.AdSoyad LIKE :aramaLike OR "
-                "EXISTS (SELECT 1 FROM dbo.teklif_kalemleri tk "
-                "        INNER JOIN dbo.urunler u ON u.UrunId = tk.UrunId "
-                "        WHERE tk.TeklifId = t.TeklifId "
-                "          AND (tk.UrunAciklamasi LIKE :aramaLike OR u.UrunAciklamasi LIKE :aramaLike "
-                "               OR u.UrunAciklamasiEn LIKE :aramaLike OR u.UrunKodu LIKE :aramaLike))"
-                ")";
+            kaynaklar << QStringLiteral("SELECT tm.TeklifId FROM dbo.teklifler tm "
+                                        "INNER JOIN dbo.musteriler mm ON mm.MusteriId = tm.MusteriId WHERE ")
+                             + aramaUyar(QStringLiteral("mm.FirmaAdi"))
+                      << QStringLiteral("SELECT tp.TeklifId FROM dbo.teklifler tp "
+                                        "INNER JOIN dbo.kullanicilar pp ON pp.KullaniciId = tp.KullaniciId WHERE ")
+                             + aramaUyar(QStringLiteral("pp.AdSoyad"))
+                      << QStringLiteral("SELECT tk.TeklifId FROM dbo.teklif_kalemleri tk WHERE ")
+                             + aramaUyar(QStringLiteral("tk.UrunAciklamasi"))
+                      << QStringLiteral("SELECT tk.TeklifId FROM dbo.teklif_kalemleri tk "
+                                        "WHERE tk.UrunId IN (SELECT u.UrunId FROM dbo.urunler u WHERE %1 OR %2 OR %3)")
+                             .arg(aramaUyar(QStringLiteral("u.UrunAciklamasi")),
+                                  aramaUyar(QStringLiteral("u.UrunAciklamasiEn")),
+                                  aramaUyar(QStringLiteral("u.UrunKodu")));
+            const QString aramaKosulu = QStringLiteral("t.TeklifId IN (")
+                                        + kaynaklar.join(QStringLiteral(" UNION ")) + QStringLiteral(")");
 
             kosullar << aramaKosulu;
             parametrelerOut[":aramaLike"] = "%" + aramaTrim + "%";
@@ -1001,6 +1068,25 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
         semaKolonuVarMi(db, QStringLiteral("dbo.sevk_bilgileri"), QStringLiteral("FaturaNo"))
             ? QStringLiteral("sbi.FaturaNo, sbi.IrsaliyeNo")
             : QStringLiteral("CAST(NULL AS NVARCHAR(50)) AS FaturaNo, CAST(NULL AS NVARCHAR(50)) AS IrsaliyeNo");
+    // Arama bir urune uyduysa satirda HANGI kalem yuzunden listelendigi
+    // gosterilir ("etüv" aranınca hangi etüvün satildigi). Yalnizca sayfadaki
+    // satirlar icin calisir; arama yoksa sorguya hic girmez.
+    const bool aramaVar = parametreler.contains(QStringLiteral(":aramaLike"));
+    const QString eslesenSutunlar = aramaVar
+        ? QStringLiteral("es.UrunAciklamasi AS EslesenUrun, es.Adet AS EslesenAdet, es.Sayi AS EslesenSayi")
+        : QStringLiteral("CAST(NULL AS NVARCHAR(10)) AS EslesenUrun, CAST(NULL AS INT) AS EslesenAdet, "
+                         "CAST(NULL AS INT) AS EslesenSayi");
+    const QString eslesenApply = aramaVar
+        ? QStringLiteral("OUTER APPLY ("
+                         "    SELECT TOP 1 tk.UrunAciklamasi, tk.Adet, COUNT(*) OVER () AS Sayi "
+                         "    FROM dbo.teklif_kalemleri tk "
+                         "    INNER JOIN dbo.urunler u ON u.UrunId = tk.UrunId "
+                         "    WHERE tk.TeklifId = t.TeklifId AND ")
+              + kalemAramaKosulu()
+              + QStringLiteral("    ORDER BY tk.TeklifKalemId"
+                               ") es ")
+        : QString();
+
     // ONCE SAYFALA, SONRA ZENGINLESTIR.
     //
     // Eskiden tek bir sorguda hem filtreleme hem de iki OUTER APPLY birlikte
@@ -1036,7 +1122,7 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
         // (ör. %1'siz birakmak) tum argumanlari kaydirir ve sorguyu bozar.
         "       t.MusteriNotu, t.UretimNotu, t.AnaTeklifId, t.RevizyonNo, %3 AS TeklifNo, %1, "
         "       son.TeklifId AS GuncelTeklifId, son.RevizyonNo AS GuncelRevizyonNo, "
-        "       t.ParaBirimi, tt.GenelToplam "
+        "       t.ParaBirimi, tt.GenelToplam, %5 "
         "FROM sayfa s "
         "INNER JOIN dbo.teklifler t ON t.TeklifId = s.TeklifId "
         "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
@@ -1057,13 +1143,15 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
         "       OR g.AnaTeklifId = ISNULL(t.AnaTeklifId, t.TeklifId) "
         "    ORDER BY g.RevizyonNo DESC"
         ") son "
+        "%6"
         // Filtre (ve sayfalama) zaten "sayfa" icinde uygulandi; burada yalnizca
         // satirlarin sirasi korunur.
         "ORDER BY t.OlusturmaTarihi DESC")
         // %1 = kopya sutunlari, %2 = kopya JOIN'i, %3 = Teklif No ifadesi,
-        // %4 = fatura sutunlari.
+        // %4 = fatura sutunlari, %5/%6 = eslesen kalem sutunlari / APPLY'i.
         // (Filtre artik burada degil, asagidaki "sayfa" CTE'sinin icinde.)
-        .arg(kopyaSutunu, kopyaJoin, teklifNoSqlIfadesi(db, QStringLiteral("t")), faturaSutunlari);
+        .arg(kopyaSutunu, kopyaJoin, teklifNoSqlIfadesi(db, QStringLiteral("t")), faturaSutunlari,
+             eslesenSutunlar, eslesenApply);
 
     const QString veriSorgusu =
         QStringLiteral("WITH sayfa AS (") + sayfaIdleri + QStringLiteral(") ") + veriGovdesi;
@@ -1131,6 +1219,12 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
         const QString pb = veriQuery.value("ParaBirimi").toString().trimmed();
         kayit["paraBirimi"] = pb.isEmpty() ? QStringLiteral("TL") : pb;
         kayit["genelToplam"] = veriQuery.value("GenelToplam").toDouble();
+        // Aramaya uyan ilk kalem (ilk satiri) ve kac kalemin uydugu; arama
+        // firma adina uyduysa bos.
+        kayit["eslesenUrun"] = veriQuery.value("EslesenUrun").toString()
+                                   .section(QLatin1Char('\n'), 0, 0).trimmed();
+        kayit["eslesenAdet"] = veriQuery.value("EslesenAdet").toInt();
+        kayit["eslesenSayi"] = veriQuery.value("EslesenSayi").toInt();
         kayitlar << kayit;
     }
 

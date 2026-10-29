@@ -311,15 +311,23 @@ Item {
                         tur: "tehlike"
                         kucuk: true
                         text: "Siparişi İptal Et"
-                        onClicked: onayDialogu.iste(
-                            "Siparişi İptal Et",
-                            SatinalmaBicim.siparisNo(detayDialogu.d.siparisNo) + " iptal edilecek."
-                            + (detayDialogu.d.talepNo > 0 ? " Kalemleri talepte yeniden açılır." : ""),
-                            "İptal Et", true,
-                            function() {
-                                root.islemSonucu(database.satinalmaDurumGuncelle(root.seciliId, "İptal"),
-                                                 "Sipariş iptal edildi.")
-                            })
+                        // Faturali siparis iptal edilmez (bkz. satinalmaDurumGuncelle).
+                        onClicked: {
+                            if (detayDialogu.faturaVar) {
+                                root.hata = "Siparişin faturası girilmiş; iptal etmeden önce Fatura kartından "
+                                            + "fatura bilgisini silin."
+                                return
+                            }
+                            onayDialogu.iste(
+                                "Siparişi İptal Et",
+                                SatinalmaBicim.siparisNo(detayDialogu.d.siparisNo) + " iptal edilecek."
+                                + (detayDialogu.d.talepNo > 0 ? " Kalemleri talepte yeniden açılır." : ""),
+                                "İptal Et", true,
+                                function() {
+                                    root.islemSonucu(database.satinalmaDurumGuncelle(root.seciliId, "İptal"),
+                                                     "Sipariş iptal edildi.")
+                                })
+                        }
                     }
                 }
             }

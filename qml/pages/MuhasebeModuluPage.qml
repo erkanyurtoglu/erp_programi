@@ -162,6 +162,12 @@ Item {
         const satirlar = ["Açıklama\tAdet\tBirim Fiyat\tTutar"]
         for (const k of (root.detay.kalemler || []))
             satirlar.push(root.kalemSatiriPano(k))
+        // Paketleme / tasima KDV matrahina dahildir; faturada ayri satir olur,
+        // yoksa yapistirilan tablonun toplami teklifle tutmaz.
+        for (const ek of [{ ad: "Paketleme", tutar: root.detay.paketlemeUcreti },
+                          { ad: "Taşıma", tutar: root.detay.tasimaUcreti }])
+            if (Number(ek.tutar || 0) > 0)
+                satirlar.push([ek.ad, 1, root.panoSayisi(ek.tutar), root.panoSayisi(ek.tutar)].join("\t"))
         return satirlar.join("\n")
     }
 
