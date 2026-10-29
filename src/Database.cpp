@@ -5958,7 +5958,11 @@ namespace
 
 bool Database::satinalmaSemasiHazirMi()
 {
-    return !m_db.record(QStringLiteral("dbo.satinalma_talepleri")).isEmpty()
+    // Eskiden tablo m_db.record() ile yoklaniyordu: QODBC bunu her cagrida
+    // sunucudaki sp_columns'a sorar ve SQL Server plan onbellegini bosalttikca
+    // ~250-400 ms surer. Her satinalma islemi (liste, kaydet, getir) bunu
+    // UI thread'inde odediginden semaKolonuVarMi'nin onbellekli yoklamasi kullanilir.
+    return semaKolonuVarMi(m_db, QStringLiteral("dbo.satinalma_talepleri"), QStringLiteral("TalepId"))
         && semaKolonuVarMi(m_db, QStringLiteral("dbo.satinalmalar"), QStringLiteral("TeslimatSekli"))
         && semaKolonuVarMi(m_db, QStringLiteral("dbo.satinalmalar"), QStringLiteral("SiteSiparisNo"));
 }

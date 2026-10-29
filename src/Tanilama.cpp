@@ -93,8 +93,11 @@ namespace
                 GetModuleFileNameA(modul, modulYolu, MAX_PATH);
             const QString modulAdi = QFileInfo(QString::fromLocal8Bit(modulYolu)).fileName();
 
+            // Uzunluk acikca verilir: Name "CHAR Name[1]" diye tanimli ve Qt 6
+            // diziyi boyutuyla (1) sinirlar -- adin yalnizca ilk harfi yaziliyordu.
             QString ad = semboller && SymFromAddr(GetCurrentProcess(), adresler[i], &kayma, sembol)
-                ? QString::fromLatin1(sembol->Name) : QStringLiteral("?");
+                ? QString::fromLatin1(sembol->Name, qsizetype(qMin(sembol->NameLen, sembol->MaxNameLen - 1)))
+                : QStringLiteral("?");
             IMAGEHLP_LINE64 satir{};
             satir.SizeOfStruct = sizeof(satir);
             DWORD satirKaymasi = 0;

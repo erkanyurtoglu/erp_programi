@@ -39,15 +39,36 @@ Item {
         return m !== null && m.duzenleyebilir === true
     }
 
+    // Acik sekmede kaydedilmemis degisiklik (rol, ayarlar, cihaz karti) varsa
+    // once onay ister. Sekmeye donuste sayfa yeniden yuklendigi ve Ana Menu
+    // sayfayi kapattigi icin aksi halde degisiklik sessizce kaybolurdu.
+    function sekmedenAyril(islem) {
+        const sira = icerikYiginlar.currentIndex
+        if (sira === 2 && root.rollerYetkilerPage && root.rollerYetkilerPage.degisti) {
+            root.rollerYetkilerPage.gecisYap(islem)
+            return
+        }
+        if (sira === 3 && root.sistemAyarlariPage && root.sistemAyarlariPage.degisti) {
+            cikisOnayi.iste("Kaydedilmemiş Değişiklikler",
+                            "Sistem ayarlarındaki değişiklikler kaydedilmedi. Vazgeçilsin mi?",
+                            "Vazgeç", true, islem)
+            return
+        }
+        if (sira === 5 && root.cihazMaliyetleriPage && root.cihazMaliyetleriPage.degisti) {
+            root.cihazMaliyetleriPage.gecisYap(function() { root.cihazMaliyetleriPage.formuKapat(); islem() })
+            return
+        }
+        islem()
+    }
+
+    function sekmeyiAc(sira) {
+        root.sekmedenAyril(function() { root.sekmeyiYukle(sira) })
+    }
+
     // Sekmeye gecer ve icerigini (yeniden) yukler. Sayfalar kendiliginden
     // yuklenmez (otomatikYukle: false): modul acilirken yalnizca gorunen
     // sekme sorgu atsin.
-    function sekmeyiAc(sira) {
-        // Cihaz kartinda kaydedilmemis degisiklik varsa once onay istenir.
-        if (icerikYiginlar.currentIndex === 5 && sira !== 5 && root.cihazMaliyetleriPage.degisti) {
-            root.cihazMaliyetleriPage.gecisYap(function() { root.cihazMaliyetleriPage.formuKapat(); root.sekmeyiAc(sira) })
-            return
-        }
+    function sekmeyiYukle(sira) {
         icerikYiginlar.currentIndex = sira
         if (sira === 0)
             root.yonetimOzetPage.sayfayiYukle()
@@ -175,7 +196,7 @@ Item {
                 YanMenuButonu {
                     metin: "◀ Ana Menü"
                     Layout.bottomMargin: 8
-                    onTiklandi: root.anaMenuyeDon()
+                    onTiklandi: root.sekmedenAyril(function() { root.anaMenuyeDon() })
                 }
 
                 YanMenuButonu {
@@ -281,4 +302,6 @@ Item {
             }
         }
     }
+
+    OnayDialog { id: cikisOnayi }
 }

@@ -5,6 +5,12 @@
 #include <QQuickImageProvider>
 #include <QElapsedTimer>
 #include <QDebug>
+#include <QFont>
+#include <QScopeGuard>
+#include <QTextLayout>
+#include <QThread>
+
+#include <memory>
 
 #include "src/Database.h"
 #include "src/PdfOnizleyici.h"
@@ -22,6 +28,25 @@ int main(int argc, char *argv[])
     const QString gunlukYolu = gunlugeYazmayaBasla();
     qInfo() << "Gunluk dosyasi:" << gunlukYolu;
     uiIzleyicisiniBaslat();
+
+    // Arayuzdeki semboller (◀ ✕ ✓ 🔒 ...) Segoe UI'da yok. Qt bunlar icin ilk
+    // seferde Windows'taki tum yedek yazi tiplerini tek tek okur (~300 ms,
+    // Debug'da daha uzun) ve bu, sembollu ilk sayfa (Teklif Ver, teklif
+    // listeleri) acilirken UI thread'ini donduruyordu. Sonuc tum thread'lerin
+    // paylastigi yazi tipi veritabanina yazildigi icin sorgu burada, acilisla
+    // paralel bir thread'de bir kez tetiklenir.
+    std::unique_ptr<QThread> yaziTipiIsitici(QThread::create([]() {
+        QElapsedTimer olcum;
+        olcum.start();
+        // Aile adi Theme.qml'deki fontAilesi ile ayni olmali.
+        QTextLayout yerlesim(QStringLiteral(u"◀✕✓"), QFont(QStringLiteral("Segoe UI")));
+        yerlesim.beginLayout();
+        yerlesim.createLine();
+        yerlesim.endLayout();
+        qInfo() << "[olcum] yedek yazi tipi isitmasi:" << olcum.elapsed() << "ms";
+    }));
+    yaziTipiIsitici->start();
+    const auto isiticiyiBekle = qScopeGuard([&]() { yaziTipiIsitici->wait(); });
 
     QElapsedTimer acilis;
     acilis.start();
