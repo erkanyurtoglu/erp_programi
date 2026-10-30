@@ -319,6 +319,12 @@ namespace
         return semaKolonuVarMi(db, QStringLiteral("dbo.kullanicilar"), QStringLiteral("SifreSifreli"));
     }
 
+    // Personel tema secimi (db/34_personel_tema.sql).
+    bool temaKolonuVarMi(QSqlDatabase &db)
+    {
+        return semaKolonuVarMi(db, QStringLiteral("dbo.kullanicilar"), QStringLiteral("KoyuTema"));
+    }
+
     void sifreliKopyaParametreleriniBagla(QSqlQuery &query, const QString &sifre)
     {
         query.bindValue(":sifreAnahtari", QString::fromLatin1(SIFRE_GORUNTULEME_ANAHTARI));
@@ -703,11 +709,13 @@ QVariantMap Database::girisYap(const QString &kullaniciAdi, const QString &sifre
     // calistirilmamissa sutun yoktur ve giris eski (tuzsuz) yolla isler.
     const bool tuzKolonu = semaKolonuVarMi(m_db, QStringLiteral("dbo.kullanicilar"),
                                            QStringLiteral("SifreSalt"));
+    const bool temaKolonu = temaKolonuVarMi(m_db);
 
     QSqlQuery query(m_db);
-    query.prepare(QString("SELECT KullaniciId, AdSoyad, KullaniciAdi, SifreHash, AktifMi%1 "
+    query.prepare(QString("SELECT KullaniciId, AdSoyad, KullaniciAdi, SifreHash, AktifMi%1%2 "
                           "FROM dbo.kullanicilar WHERE KullaniciAdi = :kullaniciAdi")
-                      .arg(tuzKolonu ? QStringLiteral(", SifreSalt") : QString()));
+                      .arg(tuzKolonu ? QStringLiteral(", SifreSalt") : QString(),
+                           temaKolonu ? QStringLiteral(", KoyuTema") : QString()));
     query.bindValue(":kullaniciAdi", kullaniciAdiTrim);
 
     if (!query.exec())
@@ -731,6 +739,9 @@ QVariantMap Database::girisYap(const QString &kullaniciAdi, const QString &sifre
     const QString adSoyad = query.value("AdSoyad").toString();
     const QString depolananSifre = query.value("SifreHash").toString();
     const bool aktifMi = query.value("AktifMi").toBool();
+    // Tema secilmemis (NULL) personel varsayilan koyu temayla acilir.
+    const QVariant temaDegeri = temaKolonu ? query.value("KoyuTema") : QVariant();
+    const bool koyuTema = temaDegeri.isNull() || temaDegeri.toBool();
 
     if (!aktifMi)
     {
@@ -818,7 +829,24 @@ QVariantMap Database::girisYap(const QString &kullaniciAdi, const QString &sifre
     sonuc["adSoyad"] = adSoyad;
     sonuc["kullaniciAdi"] = kullaniciAdiTrim;
     sonuc["moduller"] = kullaniciModulleriniGetir(kullaniciId);
+    if (temaKolonu)
+        sonuc["koyuTema"] = koyuTema;
     return sonuc;
+}
+
+void Database::temaTercihiKaydet(bool koyuTema)
+{
+    ERP_IZ("temaTercihiKaydet");
+    if (m_aktifKullaniciId <= 0 || !baglantiHazir() || !temaKolonuVarMi(m_db))
+        return;
+
+    // Personelin kendi gorunum tercihi; yetki ya da yonetici sifresi gerekmez.
+    QSqlQuery query(m_db);
+    query.prepare("UPDATE dbo.kullanicilar SET KoyuTema = :koyu WHERE KullaniciId = :id");
+    query.bindValue(":koyu", koyuTema);
+    query.bindValue(":id", m_aktifKullaniciId);
+    if (!query.exec())
+        qWarning() << "temaTercihiKaydet basarisiz:" << query.lastError().text();
 }
 
 bool Database::yoneticiSifresiDogrula(const QString &sifre)
@@ -3778,18 +3806,23 @@ QVariantMap Database::personelEkle(const QVariantMap &personel)
     const QString tuz = tuzKolonu ? yeniTuzUret() : QString();
     const QString sifre = personel.value("sifre").toString();
     const bool kopyaKolonu = sifreliKopyaKolonuVarMi(m_db);
+    const bool temaYaz = temaKolonuVarMi(m_db) && personel.contains("koyuTema");
 
     QSqlQuery ekle(m_db);
     ekle.prepare(QString(
-        "INSERT INTO dbo.kullanicilar (AdSoyad, KullaniciAdi, SifreHash, Telefon, Pozisyon, AktifMi%1%3) "
+        "INSERT INTO dbo.kullanicilar (AdSoyad, KullaniciAdi, SifreHash, Telefon, Pozisyon, AktifMi%1%3%5) "
         "OUTPUT INSERTED.KullaniciId "
-        "VALUES (:adSoyad, :kullaniciAdi, :sifreHash, :telefon, :pozisyon, 1%2%4)")
+        "VALUES (:adSoyad, :kullaniciAdi, :sifreHash, :telefon, :pozisyon, 1%2%4%6)")
         .arg(tuzKolonu ? QStringLiteral(", SifreSalt") : QString())
         .arg(tuzKolonu ? QStringLiteral(", :sifreTuz") : QString())
         .arg(kopyaKolonu ? QStringLiteral(", SifreSifreli") : QString())
-        .arg(kopyaKolonu ? QStringLiteral(", ") + QString::fromLatin1(SIFRELI_KOPYA_IFADESI) : QString()));
+        .arg(kopyaKolonu ? QStringLiteral(", ") + QString::fromLatin1(SIFRELI_KOPYA_IFADESI) : QString())
+        .arg(temaYaz ? QStringLiteral(", KoyuTema") : QString())
+        .arg(temaYaz ? QStringLiteral(", :koyuTema") : QString()));
     if (kopyaKolonu)
         sifreliKopyaParametreleriniBagla(ekle, sifre);
+    if (temaYaz)
+        ekle.bindValue(":koyuTema", personel.value("koyuTema").toBool());
     ekle.bindValue(":adSoyad", alan(personel, "adSoyad"));
     ekle.bindValue(":kullaniciAdi", alan(personel, "kullaniciAdi"));
     ekle.bindValue(":sifreHash", sifreyiHashle(sifre, tuz));
@@ -3916,9 +3949,12 @@ QVariantMap Database::personelGuncelle(int kullaniciId, const QVariantMap &perso
                                            QStringLiteral("SifreSalt"));
     const QString tuz = (sifreDegisiyor && tuzKolonu) ? yeniTuzUret() : QString();
     const bool kopyaKolonu = sifreDegisiyor && sifreliKopyaKolonuVarMi(m_db);
+    const bool temaYaz = temaKolonuVarMi(m_db) && personel.contains("koyuTema");
 
     QString sql = "UPDATE dbo.kullanicilar SET AdSoyad = :adSoyad, KullaniciAdi = :kullaniciAdi, "
                   "Telefon = :telefon, Pozisyon = :pozisyon";
+    if (temaYaz)
+        sql += ", KoyuTema = :koyuTema";
     if (sifreDegisiyor)
     {
         sql += ", SifreHash = :sifreHash";
@@ -3937,6 +3973,8 @@ QVariantMap Database::personelGuncelle(int kullaniciId, const QVariantMap &perso
     guncelle.bindValue(":kullaniciAdi", alan(personel, "kullaniciAdi"));
     guncelle.bindValue(":telefon", metinParametresi(alan(personel, "telefon")));
     guncelle.bindValue(":pozisyon", metinParametresi(alan(personel, "pozisyon")));
+    if (temaYaz)
+        guncelle.bindValue(":koyuTema", personel.value("koyuTema").toBool());
     if (sifreDegisiyor)
     {
         guncelle.bindValue(":sifreHash", sifreyiHashle(sifre, tuz));

@@ -46,7 +46,14 @@ public:
     //   "moduller" (QVariantList<QVariantMap{modulKodu, modulAdi, duzenleyebilir}>)
     //     -> kullanicinin GOREBILDIGI moduller; "duzenleyebilir" o modulde
     //        duzenleme yetkisi olup olmadigini belirtir (roller birlesik/OR'lanmis halde).
+    //   "koyuTema" (bool, yalnizca db/34 calistirilmissa) -> personelin temasi;
+    //        kayitta tema secilmemisse (NULL) varsayilan koyu.
     Q_INVOKABLE QVariantMap girisYap(const QString &kullaniciAdi, const QString &sifre);
+
+    // Oturumdaki kullanicinin kendi tema secimini (ekrandaki tema anahtari)
+    // kaydina yazar; bir sonraki giriste bu tema uygulanir. db/34 yoksa ya da
+    // oturum yoksa hicbir sey yapmaz.
+    Q_INVOKABLE void temaTercihiKaydet(bool koyuTema);
 
     // Giris yapmis kullanicinin id'si (giris yapilmamissa 0). Oturumu QML
     // tarafi da tutuyor (Main.qml "oturum"), ancak bazi is kurallari
@@ -495,7 +502,8 @@ public:
                                                   int sayfaBoyutu = 50, bool pasifDahil = true);
 
     // "personel" anahtarlari: adSoyad, kullaniciAdi, sifre (bos ise -- sadece
-    // guncellemede -- sifre degistirilmez), telefon, pozisyon, rolIdListesi (QVariantList<int>).
+    // guncellemede -- sifre degistirilmez), telefon, pozisyon, rolIdListesi (QVariantList<int>),
+    // koyuTema (bool; db/34 calistirilmamissa yok sayilir).
     //
     // EN AZ BIR ROL ZORUNLUDUR: rolsuz kullanici giris yapabiliyor ama hicbir
     // modul goremiyordu (kullaniciModulleriniGetir bos doner) -- kullanici

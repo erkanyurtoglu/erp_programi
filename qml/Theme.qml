@@ -3,7 +3,7 @@ import QtQuick
 import QtCore
 
 // Uygulama genelinde kullanilan ortak tasarim dili (renkler, tipografi, olcu birimleri).
-// Iki renk paleti vardir: acik (varsayilan) ve koyu. Koyu palet "Sliper" referans
+// Iki renk paleti vardir: koyu (varsayilan) ve acik. Koyu palet "Sliper" referans
 // projesinden alinmistir. Her renk "koyuMod ? koyu : acik" seklinde tanimlidir;
 // ekranlar yalnizca Theme.xxx kullandigi icin tema degisince hepsi kendiliginden
 // guncellenir. Her yeni ekran bu dosyadaki degerleri kullanmali, dogrudan hex renk
@@ -12,7 +12,9 @@ QtObject {
     id: theme
 
     // --- Tema secimi ---
-    // Kullanicinin secimi bilgisayarda kalici tutulur (QSettings). Tema anahtari
+    // Her personelin temasi veritabanindaki kaydindadir (Yonetim > Personellerim;
+    // bkz. db/34) ve giriste uygulanir. Burada (QSettings) ayrica bilgisayarda
+    // en son kullanilan tema tutulur: giris ekrani onunla acilir. Tema anahtari
     // (TemaDegistirici) dogrudan koyuModuAyarla cagirmaz, degistirmeIstendi'yi
     // yayar: Main.qml once ekranin anlik goruntusunu alir, sonra temayi degistirip
     // goruntuyu soldurur (yumusak gecis).
@@ -24,7 +26,7 @@ QtObject {
 
     readonly property Settings ayarlar: Settings {
         category: "Gorunum"
-        property bool koyuMod: false
+        property bool koyuMod: true
     }
 
     // --- Zeminler ---
@@ -60,6 +62,15 @@ QtObject {
     readonly property color tabloBaslikZemin: koyuMod ? "#12121a" : "#dde8fb"
     readonly property color tabloBaslikKenarlik: koyuMod ? "#1e2a3f" : "#c3d5f4"
     readonly property color tabloBaslikMetin: koyuMod ? "#4b5563" : "#3d5a8c"
+
+    // --- Grafik (Yonetim / Ozet) ---
+    // Iki seri rengi renk korlugune karsi dogrulanmis bir ciftir (mavi / turuncu),
+    // her tema icin kendi zeminine gore ayri adimdir. Ayni olcu her grafikte ayni
+    // rengi tasir: seri 1 = verilen teklif, seri 2 = kabul edilen.
+    readonly property color grafikSeri1: koyuMod ? "#3987e5" : "#2a78d6"
+    readonly property color grafikSeri2: koyuMod ? "#d95926" : "#eb6834"
+    readonly property color grafikIzgara: koyuMod ? "#1d2230" : "#e8edf5"   // yatay kilavuz cizgileri
+    readonly property color grafikEksen: koyuMod ? "#2d3447" : "#c6d1e2"    // taban cizgisi
 
     // --- Durum renkleri ---
     // "...Acik" renkler metin/simge rengidir: koyu temada parlak, acik temada

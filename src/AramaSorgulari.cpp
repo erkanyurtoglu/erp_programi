@@ -459,12 +459,17 @@ QVariantMap personelListesiSorgusu(QSqlDatabase &db, const QString &arama,
     int toplamSayfa = 1;
     sayfaNo = sayfayiSinirla(toplamKayit, sayfaBoyutu, sayfaNo, toplamSayfa);
 
+    // KoyuTema db/34 ile gelir; yoksa personel varsayilan (koyu) gorunur.
+    const bool temaKolonu = semaKolonuVarMi(db, QStringLiteral("dbo.kullanicilar"),
+                                            QStringLiteral("KoyuTema"));
+
     QSqlQuery veriQuery(db);
     veriQuery.prepare(QString(
-        "SELECT KullaniciId, AdSoyad, KullaniciAdi, Telefon, Pozisyon, AktifMi "
+        "SELECT KullaniciId, AdSoyad, KullaniciAdi, Telefon, Pozisyon, AktifMi%2 "
         "FROM dbo.kullanicilar %1 "
         "ORDER BY AdSoyad "
-        "OFFSET :offset ROWS FETCH NEXT :sayfaBoyutu ROWS ONLY").arg(whereClause));
+        "OFFSET :offset ROWS FETCH NEXT :sayfaBoyutu ROWS ONLY")
+        .arg(whereClause, temaKolonu ? QStringLiteral(", KoyuTema") : QString()));
     if (!aramaTrim.isEmpty())
         veriQuery.bindValue(":aramaLike", likeDeseni(aramaTrim));
     veriQuery.bindValue(":offset", (sayfaNo - 1) * sayfaBoyutu);
@@ -492,6 +497,8 @@ QVariantMap personelListesiSorgusu(QSqlDatabase &db, const QString &arama,
         p["telefon"] = veriQuery.value("Telefon").toString();
         p["pozisyon"] = veriQuery.value("Pozisyon").toString();
         p["aktifMi"] = veriQuery.value("AktifMi").toBool();
+        const QVariant tema = temaKolonu ? veriQuery.value("KoyuTema") : QVariant();
+        p["koyuTema"] = tema.isNull() || tema.toBool();
         personeller << p;
         idListesi << QString::number(kullaniciId);
     }
@@ -1448,8 +1455,107 @@ QVariantMap panoOzetiSorgusu(QSqlDatabase &db, const QString &donem,
         return x.value("kabul").toInt() > y.value("kabul").toInt();
     });
 
+    // ---- 3) Zaman serisi (Ozet ekranindaki "Teklif hareketi" grafigi) ----
+    // Verilen ve kabul sayilari ayni kurallarla, kovalara bolunerek. Kisa
+    // donem (<= 62 gun) gunluk, digerleri aylik; 36 aydan uzun seri ("Tümü")
+    // yillik toplanir. Bos kovalar 0 ile doldurulur ki eksen kesintisiz olsun.
+    const bool gunluk = baslangic.isValid() && baslangic.daysTo(bitis) <= 62;
+    const auto kovaSql = [&](const char *tur, const QString &sutun, const QString &kosul) {
+        const QString kova = gunluk
+            ? QStringLiteral("YEAR(%1), MONTH(%1), DAY(%1)").arg(sutun)
+            : QStringLiteral("YEAR(%1), MONTH(%1)").arg(sutun);
+        return QStringLiteral("SELECT '%1', %2%3, COUNT(*) FROM dbo.teklifler t WHERE %4 GROUP BY %2")
+            .arg(QLatin1String(tur), kova, gunluk ? QString() : QStringLiteral(", 1"), kosul);
+    };
+    QSqlQuery seriSorgusu(db);
+    if (!seriSorgusu.exec(kovaSql("v", QStringLiteral("t.OlusturmaTarihi"), verilen)
+                          + QStringLiteral(" UNION ALL ")
+                          + kovaSql("k", QStringLiteral("t.KabulTarihi"), kabul)))
+    {
+        qWarning() << "panoOzetiSorgusu (seri) basarisiz:" << seriSorgusu.lastError().text();
+        return QVariantMap();
+    }
+
+    QMap<QDate, QPair<int, int>> kovalar;   // kova basi -> (verilen, kabul)
+    while (seriSorgusu.next())
+    {
+        // Gocten gelen bazi kabullerde KabulTarihi bostur; seride yer almazlar.
+        if (seriSorgusu.value(1).isNull())
+            continue;
+        const QDate gun(seriSorgusu.value(1).toInt(), seriSorgusu.value(2).toInt(),
+                        seriSorgusu.value(3).toInt());
+        auto &k = kovalar[gun];
+        if (seriSorgusu.value(0).toString() == QStringLiteral("v"))
+            k.first += seriSorgusu.value(4).toInt();
+        else
+            k.second += seriSorgusu.value(4).toInt();
+    }
+
+    const QDate bugun = QDate::currentDate();
+    QDate seriBasi = baslangic, seriSonu = bitis.isValid() ? bitis.addDays(-1) : bugun;
+    if (!seriBasi.isValid())
+        seriBasi = kovalar.isEmpty() ? bugun : kovalar.firstKey();
+    if (!gunluk)
+    {
+        seriBasi = QDate(seriBasi.year(), seriBasi.month(), 1);
+        seriSonu = QDate(seriSonu.year(), seriSonu.month(), 1);
+    }
+    const int aySayisi = (seriSonu.year() - seriBasi.year()) * 12 + seriSonu.month() - seriBasi.month() + 1;
+    const bool yillik = !gunluk && aySayisi > 36;
+    const bool cokYil = seriBasi.year() != seriSonu.year();
+
+    static const char *const KISA_AYLAR[] = { "Oca", "Şub", "Mar", "Nis", "May", "Haz",
+                                             "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara" };
+    static const char *const AYLAR[] = { "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+                                        "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık" };
+
+    QVariantList seri;
+    for (QDate kova = yillik ? QDate(seriBasi.year(), 1, 1) : seriBasi; kova <= seriSonu;
+         kova = gunluk ? kova.addDays(1) : yillik ? kova.addYears(1) : kova.addMonths(1))
+    {
+        int v = 0, k = 0;
+        if (yillik)
+        {
+            for (auto it = kovalar.lowerBound(kova); it != kovalar.cend() && it.key().year() == kova.year(); ++it)
+            {
+                v += it.value().first;
+                k += it.value().second;
+            }
+        }
+        else
+        {
+            const auto it = kovalar.constFind(kova);
+            if (it != kovalar.cend())
+            {
+                v = it.value().first;
+                k = it.value().second;
+            }
+        }
+
+        QString etiket, ipucu;
+        if (gunluk)
+        {
+            etiket = QString::number(kova.day());
+            ipucu = kova.toString(QStringLiteral("dd.MM.yyyy"));
+        }
+        else if (yillik)
+        {
+            etiket = ipucu = QString::number(kova.year());
+        }
+        else
+        {
+            etiket = QString::fromUtf8(KISA_AYLAR[kova.month() - 1]);
+            if (cokYil)
+                etiket += QLatin1Char(' ') + kova.toString(QStringLiteral("yy"));
+            ipucu = QString::fromUtf8(AYLAR[kova.month() - 1]) + QLatin1Char(' ') + QString::number(kova.year());
+        }
+        seri << QVariantMap{ { "etiket", etiket }, { "ipucu", ipucu }, { "verilen", v }, { "kabul", k } };
+    }
+
     QVariantMap sonuc;
     sonuc["donem"] = donem;
+    sonuc["seri"] = seri;
+    sonuc["seriAdimi"] = gunluk ? QStringLiteral("gun") : yillik ? QStringLiteral("yil") : QStringLiteral("ay");
     // "tumu"de ikisi de bos.
     sonuc["baslangic"] = baslangic.isValid() ? baslangic.toString(QStringLiteral("dd.MM.yyyy")) : QString();
     sonuc["bitis"] = bitis.isValid() ? bitis.addDays(-1).toString(QStringLiteral("dd.MM.yyyy")) : QString();

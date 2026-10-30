@@ -468,6 +468,8 @@ Item {
             duzenlemeDialogu.sifreGorebilir = kayit !== null && database.sifreGoruntuleyebilirMi()
             telefonAlani.text = kayit ? kayit.telefon : ""
             pozisyonAlani.text = kayit ? kayit.pozisyon : ""
+            // Yeni personel varsayilan koyu temayla baslar.
+            duzenlemeDialogu.koyuTema = kayit ? kayit.koyuTema !== false : true
             // Secim artik kutularin kendisinden degil, bu listeden okunuyor
             // (bkz. secilenRoller) -- kutular ona BAGLI. Eskiden secim
             // rolCheckboxRepeater.itemAt(i).checked uzerinden okunup
@@ -482,6 +484,9 @@ Item {
 
         // Secili rol id'leri. Tek dogruluk kaynagi budur.
         property var secilenRoller: []
+
+        // Personelin programi kullanacagi tema; giris yapinca uygulanir.
+        property bool koyuTema: true
 
         // "Göster" ile PIN sorularak sunucudan okunan mevcut sifre. Satir yalnizca
         // sifreleri gorebilen tek kullaniciya gorunur (bkz.
@@ -522,6 +527,7 @@ Item {
                 sifre: sifreAlani.text,
                 telefon: telefonAlani.text.trim(),
                 pozisyon: pozisyonAlani.text.trim(),
+                koyuTema: duzenlemeDialogu.koyuTema,
                 rolIdListesi: secilenRolIdListesi()
             }
         }
@@ -564,6 +570,9 @@ Item {
             hataMesaji.text = ""
             duzenlemeDialogu.close()
             root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
+            // Yonetici kendi temasini degistirdiyse beklemeden uygulanir.
+            if (duzenlemeDialogu.kullaniciId === database.aktifKullaniciId() && veri.koyuTema !== Theme.koyuMod)
+                Theme.degistirmeIstendi()
         }
 
         contentItem: ColumnLayout {
@@ -636,6 +645,59 @@ Item {
                 spacing: 10
                 EtiketliAlan { id: telefonAlani; etiket: "TELEFON" }
                 EtiketliAlan { id: pozisyonAlani; etiket: "POZİSYON" }
+            }
+
+            Label { text: "TEMA"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.topMargin: 4 }
+
+            RowLayout {
+                spacing: 8
+
+                Repeater {
+                    model: [
+                        { ad: "Koyu", ikon: "ay", koyu: true },
+                        { ad: "Açık", ikon: "gunes", koyu: false }
+                    ]
+
+                    delegate: Rectangle {
+                        id: temaSecenegi
+                        required property var modelData
+                        readonly property bool secili: duzenlemeDialogu.koyuTema === modelData.koyu
+
+                        Layout.preferredWidth: 110
+                        Layout.preferredHeight: 36
+                        radius: Theme.radiusKucuk
+                        color: secili ? Theme.vurguZeminSoluk : (temaSecenegiAlani.containsMouse ? Theme.panelHover : Theme.arkaplan)
+                        border.width: 1
+                        border.color: secili ? Theme.kenarlikVurgu : Theme.kenarlik
+
+                        RowLayout {
+                            anchors.centerIn: parent
+                            spacing: 8
+                            ModulIkonu {
+                                Layout.preferredWidth: 16
+                                Layout.preferredHeight: 16
+                                tur: temaSecenegi.modelData.ikon
+                                renk: temaSecenegi.secili ? Theme.vurgu : Theme.metinSoluk
+                            }
+                            Label {
+                                text: temaSecenegi.modelData.ad
+                                color: temaSecenegi.secili ? Theme.metinBirincil : Theme.metinIkincil
+                                font.family: Theme.fontAilesi
+                                font.pixelSize: Theme.fontBoyutNormal
+                                font.bold: temaSecenegi.secili
+                            }
+                        }
+
+                        MouseArea {
+                            id: temaSecenegiAlani
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            enabled: root.duzenleyebilir
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: duzenlemeDialogu.koyuTema = temaSecenegi.modelData.koyu
+                        }
+                    }
+                }
             }
 
             Label { text: "ROLLER *"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.topMargin: 4 }

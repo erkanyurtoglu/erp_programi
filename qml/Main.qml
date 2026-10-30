@@ -174,6 +174,12 @@ ApplicationWindow {
     // Tema degisimi: once ekranin anlik goruntusu alinip ustte birakilir, renkler
     // altta tek karede degisir ve goruntu soldurulur -- boylece tum ekran iki tema
     // arasinda yumusakca gecer. Goruntu alinamazsa tema dogrudan degistirilir.
+    // Giris yapilmissa yeni tema personelin kaydina da yazilir (bir sonraki
+    // giriste o uygulanir; bkz. Database::temaTercihiKaydet).
+    function temayiCevir() {
+        Theme.koyuModuAyarla(!Theme.koyuMod)
+        database.temaTercihiKaydet(Theme.koyuMod)
+    }
     Connections {
         target: Theme
         function onDegistirmeIstendi() {
@@ -182,11 +188,11 @@ ApplicationWindow {
                 temaGecisi.goruntu = sonuc
                 temaGecisi.source = sonuc.url
                 temaGecisi.opacity = 1
-                Theme.koyuModuAyarla(!Theme.koyuMod)
+                pencere.temayiCevir()
                 temaGecisAnimasyonu.restart()
             }, Qt.size(icerik.width * Screen.devicePixelRatio, icerik.height * Screen.devicePixelRatio))
             if (!alindi)
-                Theme.koyuModuAyarla(!Theme.koyuMod)
+                pencere.temayiCevir()
         }
     }
 
@@ -217,6 +223,9 @@ ApplicationWindow {
         GirisPage {
             onGirisBasarili: (sonuc) => {
                 pencere.oturum = sonuc;
+                // Personelin kendi temasi (db/34 yoksa alan gelmez, tema degismez).
+                if (sonuc.koyuTema !== undefined)
+                    Theme.koyuModuAyarla(sonuc.koyuTema);
                 yiginGorunumu.replace(anaMenuBileseni);
             }
         }
