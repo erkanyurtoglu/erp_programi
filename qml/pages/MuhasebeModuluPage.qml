@@ -445,6 +445,17 @@ Item {
                 anchors.margins: 16
                 spacing: 4
 
+                Image {
+                    source: "qrc:/qt/qml/erp_programi/logo.png"
+                    sourceSize.height: 48
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                    mipmap: true
+                    Layout.preferredHeight: 48
+                    Layout.bottomMargin: 12
+                    Layout.alignment: Qt.AlignHCenter
+                }
+
                 Label {
                     text: "MUHASEBE"
                     color: Theme.metinCokSoluk
@@ -470,6 +481,10 @@ Item {
                     onTiklandi: root.sekmeyiAc("faturalanan")
                 }
                 Item { Layout.fillHeight: true }
+
+                TemaDegistirici {
+                    Layout.alignment: Qt.AlignHCenter
+                }
             }
         }
 
@@ -1004,7 +1019,7 @@ Item {
         width: Math.min(bildirimMetni.implicitWidth + 32, parent.width - 48)
         height: bildirimMetni.implicitHeight + 16
         radius: Theme.radiusNormal
-        color: bildirim.hata ? Qt.rgba(0.14, 0.08, 0.09, 0.97) : Qt.rgba(0.07, 0.14, 0.10, 0.97)
+        color: bildirim.hata ? Theme.bildirimHataZemin : Theme.bildirimBasariZemin
         border.width: 1
         border.color: bildirim.hata ? Theme.tehlikeAcik : Theme.basariAcik
 

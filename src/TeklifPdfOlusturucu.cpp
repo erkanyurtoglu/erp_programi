@@ -660,7 +660,9 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
     const QString ilgiliKisiEposta = veri.value("ilgiliKisiEposta").toString();
     const QString teslimatSekli = veri.value("teslimatSekli").toString();
     const QString teslimatYeri = veri.value("teslimatYeri").toString();
-    const QString personelAdSoyad = veri.value("personelAdSoyad").toString();
+    // Musteriye giden teklifte personelin adi soyadi degil kullanici adi
+    // (ör. "EÖ") basilir.
+    const QString personelKullaniciAdi = veri.value("personelKullaniciAdi").toString();
     const QString personelTelefon = veri.value("personelTelefon").toString();
     const QString paraBirimi = veri.value("paraBirimi").toString();
     const QString olusturmaTarihi = veri.value("olusturmaTarihi").toString();
@@ -754,8 +756,8 @@ QVariantMap TeklifPdfOlusturucu::teklifPdfUret(int teklifId, const QString &firm
 
     QString sagBlokHtml = QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkTeklifTarihi, olusturmaTarihi);
     sagBlokHtml += QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkTeklifNo, teklifNoMetni(teklifId, veri));
-    if (!personelAdSoyad.trimmed().isEmpty())
-        sagBlokHtml += QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkTeklifiYapan, personelAdSoyad.toHtmlEscaped());
+    if (!personelKullaniciAdi.trimmed().isEmpty())
+        sagBlokHtml += QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkTeklifiYapan, personelKullaniciAdi.toHtmlEscaped());
     if (!personelTelefon.trimmed().isEmpty())
         sagBlokHtml += QStringLiteral("<div><b>%1:</b> %2</div>").arg(etkPersonelTelefon, personelTelefon.toHtmlEscaped());
 

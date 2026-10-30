@@ -1,5 +1,6 @@
 #include <QCoreApplication>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickImageProvider>
@@ -24,21 +25,16 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
     app.setOrganizationName("Liya");
     app.setApplicationName("Liya Teklif Programi (Qt)");
+    app.setWindowIcon(QIcon(QStringLiteral(":/qt/qml/erp_programi/logo.png")));
 
     const QString gunlukYolu = gunlugeYazmayaBasla();
     qInfo() << "Gunluk dosyasi:" << gunlukYolu;
     uiIzleyicisiniBaslat();
 
-    // Arayuzdeki semboller (◀ ✕ ✓ 🔒 ...) Segoe UI'da yok. Qt bunlar icin ilk
-    // seferde Windows'taki tum yedek yazi tiplerini tek tek okur (~300 ms,
-    // Debug'da daha uzun) ve bu, sembollu ilk sayfa (Teklif Ver, teklif
-    // listeleri) acilirken UI thread'ini donduruyordu. Sonuc tum thread'lerin
-    // paylastigi yazi tipi veritabanina yazildigi icin sorgu burada, acilisla
-    // paralel bir thread'de bir kez tetiklenir.
     std::unique_ptr<QThread> yaziTipiIsitici(QThread::create([]() {
         QElapsedTimer olcum;
         olcum.start();
-        // Aile adi Theme.qml'deki fontAilesi ile ayni olmali.
+
         QTextLayout yerlesim(QStringLiteral(u"◀✕✓"), QFont(QStringLiteral("Segoe UI")));
         yerlesim.beginLayout();
         yerlesim.createLine();

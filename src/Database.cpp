@@ -921,7 +921,6 @@ QVariantMap Database::gecmisTekliflerGetir(const QString &arama,
         bos["toplamKayit"] = 0;
         bos["toplamSayfa"] = 1;
         bos["mevcutSayfa"] = 1;
-        bos["paraBirimiToplamlari"] = QVariantList();
         return bos;
     }
     return teklifListesiSorgusu(m_db, arama, tarihFiltresi, baslangicTarihi, bitisTarihi,
@@ -4166,7 +4165,8 @@ bool Database::pdfVerisiniOku(int teklifId, QString &firmaAdiOut, QVariantMap &v
         "       t.SatisSozlesmesiMetni, t.UretimNotu, t.TeslimatTarihi, t.KabulTarihi, "
         "       t.AnaTeklifId, t.RevizyonNo, %1 AS TeklifNo, %2 AS GecerlilikGunu, "
         "       m.FirmaAdi, m.FirmaAdresi, "
-        "       k.AdSoyad AS PersonelAdSoyad, k.Telefon AS PersonelTelefon, "
+        "       k.AdSoyad AS PersonelAdSoyad, k.KullaniciAdi AS PersonelKullaniciAdi, "
+        "       k.Telefon AS PersonelTelefon, "
         "       tt.IndirimliToplam, tt.KdvTutari, tt.GenelToplam, tt.PaketlemeUcreti, tt.TasimaUcreti "
         "FROM dbo.teklifler t "
         "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
@@ -4194,6 +4194,7 @@ bool Database::pdfVerisiniOku(int teklifId, QString &firmaAdiOut, QVariantMap &v
     veri["teslimatSekli"] = basQuery.value("TeslimatSekli").toString();
     veri["teslimatYeri"] = basQuery.value("TeslimatYeri").toString();
     veri["personelAdSoyad"] = basQuery.value("PersonelAdSoyad").toString();
+    veri["personelKullaniciAdi"] = basQuery.value("PersonelKullaniciAdi").toString();
     veri["personelTelefon"] = basQuery.value("PersonelTelefon").toString();
     veri["dil"] = basQuery.value("Dil").toString();
     veri["paraBirimi"] = basQuery.value("ParaBirimi").toString();
@@ -9009,10 +9010,11 @@ QVariantList Database::cihazUrunAra(const QString &arama)
     q.prepare(QStringLiteral(
         "SELECT TOP 20 UrunId, UrunKodu, LEFT(UrunAciklamasi, 200), BirimFiyat, ParaBirimi "
         "FROM dbo.urunler "
-        "WHERE (UrunKodu LIKE :d1 ESCAPE N'\\' OR UrunAciklamasi LIKE :d2 ESCAPE N'\\') "
+        "WHERE (%2 LIKE :d1 ESCAPE N'\\' OR UrunAciklamasi LIKE :d2 ESCAPE N'\\') "
         "  AND ISNULL(UrunKodu, N'') NOT LIKE N'MANUEL%' %1 "
-        "ORDER BY UrunKodu").arg(aktifSutunu ? QStringLiteral("AND AktifMi = 1") : QString()));
-    q.bindValue(":d1", likeDeseni(t));
+        "ORDER BY UrunKodu").arg(aktifSutunu ? QStringLiteral("AND AktifMi = 1") : QString(),
+                                 urunKoduSqlIfadesi(QStringLiteral("UrunKodu"))));
+    q.bindValue(":d1", urunKoduDeseni(t));
     q.bindValue(":d2", likeDeseni(t));
     if (!q.exec())
     {

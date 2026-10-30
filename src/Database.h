@@ -84,9 +84,7 @@ public:
     // numaraya gore bulunur: "1203" kok teklifi ve tum revizyonlarini getirir.
     // "toplamKayit" (int), "toplamSayfa" (int), "mevcutSayfa" (int).
     // Her kayitta ayrica "paraBirimi" (string) ve "genelToplam" (double, KDV dahil,
-    // teklifin kendi para biriminde) bulunur. durumFiltresi doluysa (Alınan/Biten)
-    // "paraBirimiToplamlari" (QVariantList<{paraBirimi, toplam}>) filtreye uyan
-    // TUM kayitlarin para birimi bazinda genel toplamini tasir; bossa liste bostur.
+    // teklifin kendi para biriminde) bulunur.
     // SENKRON yol: sorgu suresince UI thread'i bloke olur. Ekranlar bunun
     // yerine gecmisTekliflerGetirBaslat'i kullanir (asagiya bkz.).
     Q_INVOKABLE QVariantMap gecmisTekliflerGetir(const QString &arama,

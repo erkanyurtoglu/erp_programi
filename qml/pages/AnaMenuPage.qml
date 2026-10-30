@@ -17,9 +17,9 @@ Rectangle {
 
     readonly property var modulGorunumleri: ({
         "SATIS":      { baslik: "Satış / Teklif", aciklama: "Teklif oluştur, ürün ekle, PDF indir", ikon: "belge",  renk: Theme.vurgu,  aktif: true },
-        "SATINALMA":  { baslik: "Satınalma",      aciklama: "Tedarikçi ve sipariş yönetimi",        ikon: "sepet",  renk: "#14b8a6",    aktif: true },
-        "MUHASEBE":   { baslik: "Muhasebe",       aciklama: "Faturalanacak teklifler, fatura ve irsaliye no", ikon: "cuzdan", renk: "#f59e0b", aktif: true },
-        "YONETIM":    { baslik: "Yönetim",        aciklama: "Personel, rol ve sistem ayarları",     ikon: "disli",  renk: "#8b5cf6",    aktif: true }
+        "SATINALMA":  { baslik: "Satınalma",      aciklama: "Tedarikçi ve sipariş yönetimi",        ikon: "sepet",  renk: Theme.koyuMod ? "#14b8a6" : "#0d9488", aktif: true },
+        "MUHASEBE":   { baslik: "Muhasebe",       aciklama: "Faturalanacak teklifler, fatura ve irsaliye no", ikon: "cuzdan", renk: Theme.uyari, aktif: true },
+        "YONETIM":    { baslik: "Yönetim",        aciklama: "Personel, rol ve sistem ayarları",     ikon: "disli",  renk: Theme.koyuMod ? "#8b5cf6" : "#7c3aed", aktif: true }
     })
 
     ColumnLayout {
@@ -33,6 +33,16 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true
+            spacing: 14
+
+            Image {
+                source: "qrc:/qt/qml/erp_programi/logo.png"
+                sourceSize.height: 48
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+                mipmap: true
+                Layout.preferredHeight: 48
+            }
 
             ColumnLayout {
                 spacing: 2
@@ -54,6 +64,10 @@ Rectangle {
 
             Item { Layout.fillWidth: true }
 
+            TemaDegistirici {
+                Layout.rightMargin: 4
+            }
+
             Button {
                 id: cikisButonu
                 text: "Çıkış Yap"
@@ -62,7 +76,7 @@ Rectangle {
                 Layout.preferredHeight: 38
                 background: Rectangle {
                     radius: Theme.radiusKucuk
-                    color: cikisButonu.hovered ? "#3a1414" : "transparent"
+                    color: cikisButonu.hovered ? Theme.tehlikeZemin : "transparent"
                     border.color: Theme.tehlike
                     border.width: 1
                 }
@@ -236,8 +250,12 @@ Rectangle {
                             Layout.preferredHeight: 96
                             Layout.alignment: Qt.AlignHCenter
                             radius: 48
-                            color: kart.gorunum.renk
-                            opacity: kart.vurgulu ? 0.22 : (kart.gorunum.aktif ? 0.14 : 0.07)
+                            // Koyu temada daire (ve icindeki ikon) toptan soluklastirilir; acik
+                            // temada bu ikonu da silik gosterdigi icin yalnizca dolgu saydamdir.
+                            readonly property real dolguOpakligi: kart.vurgulu ? 0.22 : (kart.gorunum.aktif ? 0.14 : 0.07)
+                            color: Theme.koyuMod ? kart.gorunum.renk
+                                                 : Qt.rgba(kart.gorunum.renk.r, kart.gorunum.renk.g, kart.gorunum.renk.b, dolguOpakligi)
+                            opacity: Theme.koyuMod ? dolguOpakligi : 1
                             scale: kart.vurgulu ? 1.08 : 1.0
 
                             Behavior on opacity { NumberAnimation { duration: 180 } }

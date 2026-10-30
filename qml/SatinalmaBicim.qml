@@ -90,7 +90,7 @@ QtObject {
         switch (durum) {
         case "Patron Onayı Bekliyor": return Theme.uyariAcik
         case "Sipariş Verildi":       return Theme.vurgu
-        case "Kargoda":               return "#38bdf8"
+        case "Kargoda":               return Theme.bilgi
         case "Kısmi Teslim":          return Theme.uyariAcik
         case "Teslim Alındı":         return Theme.basariAcik
         case "Reddedildi":            return Theme.tehlikeAcik

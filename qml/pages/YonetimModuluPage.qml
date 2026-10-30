@@ -139,6 +139,17 @@ Item {
                 anchors.margins: 16
                 spacing: 4
 
+                Image {
+                    source: "qrc:/qt/qml/erp_programi/logo.png"
+                    sourceSize.height: 48
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                    mipmap: true
+                    Layout.preferredHeight: 48
+                    Layout.bottomMargin: 12
+                    Layout.alignment: Qt.AlignHCenter
+                }
+
                 Label {
                     text: "YÖNETİM"
                     color: Theme.metinCokSoluk
@@ -236,6 +247,10 @@ Item {
                 }
 
                 Item { Layout.fillHeight: true }
+
+                TemaDegistirici {
+                    Layout.alignment: Qt.AlignHCenter
+                }
             }
         }
 

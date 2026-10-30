@@ -53,7 +53,7 @@ public:
 
     // "veri" anahtarlari (Database::teklifPdfOlustur tarafindan doldurulur):
     //   firmaAdresi, ilgiliKisi, ilgiliKisiTelefonu, ilgiliKisiEposta,
-    //   teslimatSekli, teslimatYeri, personelAdSoyad, personelTelefon,
+    //   teslimatSekli, teslimatYeri, personelAdSoyad, personelKullaniciAdi, personelTelefon,
     //   dil (TR/EN), paraBirimi (string: TL/USD/EUR), olusturmaTarihi (string, dd.MM.yyyy),
     //   teklifTarihi (QDate): sozlesmedeki {{TARIH}}/{{GECERLILIK_TARIHI}} bu tarihten
     //             hesaplanir -- PDF ne zaman yeniden basilirsa basilsin gecerlilik

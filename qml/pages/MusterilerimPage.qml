@@ -213,21 +213,21 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 40
-            color: Theme.panel
+            color: Theme.tabloBaslikZemin
             radius: Theme.radiusKucuk
             border.width: 1
-            border.color: Theme.kenarlik
+            border.color: Theme.tabloBaslikKenarlik
 
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 12
                 anchors.rightMargin: 12
 
-                Label { text: "NO"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 56 }
-                Label { text: "FİRMA ADI"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.fillWidth: true }
-                Label { text: "TELEFON"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 140 }
-                Label { text: "E-POSTA"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 200 }
-                Label { text: "İŞLEMLER"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 196 }
+                Label { text: "NO"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 56 }
+                Label { text: "FİRMA ADI"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.fillWidth: true }
+                Label { text: "TELEFON"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 140 }
+                Label { text: "E-POSTA"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 200 }
+                Label { text: "İŞLEMLER"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; Layout.preferredWidth: 196 }
             }
         }
 

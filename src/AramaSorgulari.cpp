@@ -184,10 +184,12 @@ QVariantList urunAraSorgusu(QSqlDatabase &db, const QString &arama, int limit, c
             "ORDER BY u.UrunKodu")
             .arg(limit)
             .arg(whereBirlestir({manuelHaric, arsiv,
-                                 "UrunKodu LIKE :aramaLike ESCAPE N'\\' "
+                                 urunKoduSqlIfadesi(QStringLiteral("UrunKodu")) +
+                                 " LIKE :kodLike ESCAPE N'\\' "
                                  "OR UrunAciklamasi LIKE :aramaLike ESCAPE N'\\' "
                                  "OR UrunAciklamasiEn LIKE :aramaLike ESCAPE N'\\'"}))
             .arg(dovizFiyatSutunlari(db, QStringLiteral("u"))));
+        query.bindValue(":kodLike", urunKoduDeseni(aramaTrim));
         query.bindValue(":aramaLike", likeDeseni(aramaTrim));
     }
 
@@ -327,7 +329,8 @@ QVariantMap urunListesiSorgusu(QSqlDatabase &db, const QString &arama,
     QString aramaKosulu;
     if (!aramaTrim.isEmpty())
     {
-        aramaKosulu = "UrunKodu LIKE :aramaLike ESCAPE N'\\' "
+        aramaKosulu = urunKoduSqlIfadesi(QStringLiteral("UrunKodu")) +
+                      " LIKE :kodLike ESCAPE N'\\' "
                       "OR UrunAciklamasi LIKE :aramaLike ESCAPE N'\\' "
                       "OR UrunAciklamasiEn LIKE :aramaLike ESCAPE N'\\' "
                       "OR Kategori LIKE :aramaLike ESCAPE N'\\'";
@@ -337,7 +340,10 @@ QVariantMap urunListesiSorgusu(QSqlDatabase &db, const QString &arama,
     QSqlQuery sayimQuery(db);
     sayimQuery.prepare(QString("SELECT COUNT(*) FROM dbo.urunler %1").arg(whereClause));
     if (!aramaTrim.isEmpty())
+    {
+        sayimQuery.bindValue(":kodLike", urunKoduDeseni(aramaTrim));
         sayimQuery.bindValue(":aramaLike", likeDeseni(aramaTrim));
+    }
 
     if (!sayimQuery.exec())
     {
@@ -376,7 +382,10 @@ QVariantMap urunListesiSorgusu(QSqlDatabase &db, const QString &arama,
         .arg(whereClause)
         .arg(dovizFiyatSutunlari(db, QStringLiteral("u"))));
     if (!aramaTrim.isEmpty())
+    {
+        veriQuery.bindValue(":kodLike", urunKoduDeseni(aramaTrim));
         veriQuery.bindValue(":aramaLike", likeDeseni(aramaTrim));
+    }
     veriQuery.bindValue(":offset", (sayfaNo - 1) * sayfaBoyutu);
     veriQuery.bindValue(":sayfaBoyutu", sayfaBoyutu);
 
@@ -1010,13 +1019,12 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
                                  const QString &durumFiltresi)
 {
     QVariantMap sonuc = bosListeSonucu();
-    sonuc["paraBirimiToplamlari"] = QVariantList();
 
-    // Sorgu UC parcadan olusuyor (sayim / veri / para birimi toplami). Hangisinin
-    // yavasladigi gunlukten dogrudan okunabilsin diye her biri ayri olculur.
+    // Sorgu iki parcadan olusuyor (sayim / veri). Hangisinin yavasladigi
+    // gunlukten dogrudan okunabilsin diye her biri ayri olculur.
     QElapsedTimer olcum;
     olcum.start();
-    qint64 sayimMs = 0, veriMs = 0, toplamMs = 0;
+    qint64 sayimMs = 0, veriMs = 0;
 
     QString whereClause;
     QVariantMap parametreler;
@@ -1228,47 +1236,10 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
         kayitlar << kayit;
     }
 
-    // Sekme toplami (Alinan/Biten Tekliflerim): filtreye uyan TUM kayitlarin
-    // genel toplami, para birimi bazinda. Giden Tekliflerim'de (durum filtresi
-    // yok) revize/red surumler de listede oldugu icin toplam anlamsizdir.
-    QVariantList paraBirimiToplamlari;
-    if (!durumFiltresi.trimmed().isEmpty())
-    {
-        QSqlQuery toplamQuery(db);
-        toplamQuery.prepare(QString(
-            "SELECT ISNULL(NULLIF(LTRIM(RTRIM(t.ParaBirimi)), ''), 'TL') AS PB, "
-            "       SUM(ISNULL(tt.GenelToplam, 0)) AS Toplam "
-            "FROM dbo.teklifler t "
-            "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
-            "LEFT JOIN dbo.kullanicilar p ON p.KullaniciId = t.KullaniciId "
-            "LEFT JOIN dbo.teklif_toplamlari tt ON tt.TeklifId = t.TeklifId "
-            "%1 "
-            "GROUP BY ISNULL(NULLIF(LTRIM(RTRIM(t.ParaBirimi)), ''), 'TL') "
-            "ORDER BY PB DESC").arg(whereClause));
-        for (auto it = parametreler.constBegin(); it != parametreler.constEnd(); ++it)
-            toplamQuery.bindValue(it.key(), it.value());
-        if (toplamQuery.exec())
-        {
-            while (toplamQuery.next())
-            {
-                QVariantMap satir;
-                satir["paraBirimi"] = toplamQuery.value("PB").toString();
-                satir["toplam"] = toplamQuery.value("Toplam").toDouble();
-                paraBirimiToplamlari << satir;
-            }
-        }
-        else
-        {
-            qWarning() << "Teklif toplam sorgusu basarisiz:" << toplamQuery.lastError().text();
-        }
-        toplamMs = olcum.restart();
-    }
-
     qInfo().nospace() << "[olcum] teklif listesi parcalari -- sayim: " << sayimMs
-                      << " ms, veri: " << veriMs << " ms, para birimi toplami: " << toplamMs
+                      << " ms, veri: " << veriMs
                       << " ms (durum=" << durumFiltresi << ", kayit=" << toplamKayit << ")";
 
-    sonuc["paraBirimiToplamlari"] = paraBirimiToplamlari;
     sonuc["kayitlar"] = kayitlar;
     sonuc["toplamKayit"] = toplamKayit;
     sonuc["toplamSayfa"] = toplamSayfa;

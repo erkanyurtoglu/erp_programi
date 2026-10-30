@@ -152,6 +152,17 @@ Item {
                 anchors.margins: 16
                 spacing: 4
 
+                Image {
+                    source: "qrc:/qt/qml/erp_programi/logo.png"
+                    sourceSize.height: 48
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                    mipmap: true
+                    Layout.preferredHeight: 48
+                    Layout.bottomMargin: 12
+                    Layout.alignment: Qt.AlignHCenter
+                }
+
                 Label {
                     text: "SATIŞ / TEKLİF"
                     color: Theme.metinCokSoluk
@@ -162,21 +173,34 @@ Item {
                     Layout.bottomMargin: 8
                 }
 
+                // Acik temada secili madde ana menudeki "Yeni Teklif" seridi gibi
+                // dolu mavi degradedir (beyaz yazi); koyu temada soluk zemin + sol cizgi.
                 component YanMenuButonu: Rectangle {
                     id: buton
                     property string metin: ""
+                    property string ikon: ""
                     property bool secili: false
                     signal tiklandi()
+
+                    readonly property bool doluSecim: secili && !Theme.koyuMod
 
                     Layout.fillWidth: true
                     Layout.preferredHeight: 42
                     radius: Theme.radiusKucuk
                     color: secili ? Theme.panelVurgu : (alan.containsMouse ? Theme.panelHover : "transparent")
-                    border.width: secili ? 1 : 0
+                    gradient: doluSecim ? doluSecimGradyani : null
+                    border.width: secili && !doluSecim ? 1 : 0
                     border.color: Theme.kenarlikVurgu
 
+                    Gradient {
+                        id: doluSecimGradyani
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0.0; color: Theme.vurgu }
+                        GradientStop { position: 1.0; color: "#3b82f6" }
+                    }
+
                     Rectangle {
-                        visible: buton.secili
+                        visible: buton.secili && !buton.doluSecim
                         width: 3
                         anchors.left: parent.left
                         anchors.top: parent.top
@@ -186,15 +210,27 @@ Item {
                         color: Theme.vurgu
                     }
 
-                    Label {
+                    RowLayout {
                         anchors.left: parent.left
-                        anchors.leftMargin: buton.secili ? 20 : 14
+                        anchors.leftMargin: buton.secili && !buton.doluSecim ? 20 : 14
                         anchors.verticalCenter: parent.verticalCenter
-                        text: buton.metin
-                        color: buton.secili ? Theme.metinBirincil : Theme.metinIkincil
-                        font.family: Theme.fontAilesi
-                        font.pixelSize: Theme.fontBoyutNormal
-                        font.bold: buton.secili
+                        spacing: 10
+
+                        ModulIkonu {
+                            visible: buton.ikon.length > 0
+                            Layout.preferredWidth: 18
+                            Layout.preferredHeight: 18
+                            tur: buton.ikon
+                            renk: buton.doluSecim ? "#ffffff" : (buton.secili ? Theme.vurgu : Theme.metinSoluk)
+                        }
+
+                        Label {
+                            text: buton.metin
+                            color: buton.doluSecim ? "#ffffff" : (buton.secili ? Theme.metinBirincil : Theme.metinIkincil)
+                            font.family: Theme.fontAilesi
+                            font.pixelSize: Theme.fontBoyutNormal
+                            font.bold: buton.secili
+                        }
                     }
 
                     MouseArea {
@@ -207,13 +243,15 @@ Item {
                 }
 
                 YanMenuButonu {
-                    metin: "◀ Ana Menü"
+                    metin: "Ana Menü"
+                    ikon: "ev"
                     Layout.bottomMargin: 8
                     onTiklandi: root.anaMenuyeDon()
                 }
 
                 YanMenuButonu {
                     metin: "Teklif Ver"
+                    ikon: "kalem"
                     visible: root.satisDuzenleyebilir
                     secili: icerikYiginlar.currentIndex === 0
                     onTiklandi: icerikYiginlar.currentIndex = 0
@@ -223,6 +261,7 @@ Item {
                 // baglamda oldugunu kaybetmesin diye.
                 YanMenuButonu {
                     metin: "Giden Tekliflerim"
+                    ikon: "gonder"
                     secili: icerikYiginlar.currentIndex === 1
                             || (icerikYiginlar.currentIndex === root.revizyonSekmesi && root.revizyonKaynakSekme === 1)
                     onTiklandi: {
@@ -232,6 +271,7 @@ Item {
                 }
                 YanMenuButonu {
                     metin: "Alınan Tekliflerim"
+                    ikon: "onay"
                     secili: icerikYiginlar.currentIndex === 2
                             || (icerikYiginlar.currentIndex === root.revizyonSekmesi && root.revizyonKaynakSekme === 2)
                     onTiklandi: {
@@ -241,6 +281,7 @@ Item {
                 }
                 YanMenuButonu {
                     metin: "Biten Tekliflerim"
+                    ikon: "bayrak"
                     secili: icerikYiginlar.currentIndex === 3
                             || (icerikYiginlar.currentIndex === root.revizyonSekmesi && root.revizyonKaynakSekme === 3)
                     onTiklandi: {
@@ -253,6 +294,7 @@ Item {
 
                 YanMenuButonu {
                     metin: "Müşterilerim"
+                    ikon: "kisiler"
                     secili: icerikYiginlar.currentIndex === 4
                     onTiklandi: {
                         icerikYiginlar.currentIndex = 4
@@ -261,6 +303,7 @@ Item {
                 }
                 YanMenuButonu {
                     metin: "Ürünlerim"
+                    ikon: "kutu"
                     secili: icerikYiginlar.currentIndex === 5
                     onTiklandi: {
                         icerikYiginlar.currentIndex = 5
@@ -268,6 +311,10 @@ Item {
                     }
                 }
                 Item { Layout.fillHeight: true }
+
+                TemaDegistirici {
+                    Layout.alignment: Qt.AlignHCenter
+                }
             }
         }
 

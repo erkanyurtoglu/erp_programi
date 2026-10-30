@@ -29,7 +29,7 @@ Item {
     // Tarih sutunlarinin basligi: dar sutuna sigmayan basliklar iki satira sarilir.
     // (KisalanMetin: iki satira da sigmayip kirpilirsa tam baslik ipucunda cikar.)
     component TarihBasligi: KisalanMetin {
-        color: Theme.metinCokSoluk
+        color: Theme.tabloBaslikMetin
         font.family: Theme.fontAilesi
         font.pixelSize: Theme.fontBoyutKucuk
         wrapMode: Text.WordWrap
@@ -98,9 +98,6 @@ Item {
     // Teklif / Kabul / Planlanan Teslim / Teslim / Uretim PDF tarihlerinin her biri.
     // "08.10.2026" bu font boyutunda ~62px; 72 tam sigar (5 sutun x 8px kazanc).
     readonly property int sutunTarih: 72
-    // Icerik personelin kisa kullanici adidir ("EÖ"); sutunu belirleyen sey
-    // basligin kendisiydi, o yuzden baslik "TEKLİFİ YAPAN" -> "PERSONEL" oldu.
-    readonly property int sutunPersonel: 72
     // Genel toplam (KDV dahil, teklifin kendi para biriminde): "15.600,00 ₺".
     readonly property int sutunTutar: 104
 
@@ -109,12 +106,6 @@ Item {
     }
     function tutarMetni(tutar, pb) {
         return Number(tutar || 0).toLocaleString(Qt.locale("tr_TR"), 'f', 2) + " " + root.paraSembolu(pb)
-    }
-    // Alınan/Biten Tekliflerim basligindaki sekme toplami: para birimi bazinda
-    // ("12.500,00 ₺ · 3.200,00 $"); farkli para birimleri toplanmaz.
-    readonly property string sekmeToplamiMetni: {
-        const liste = root.sayfaSonucu.paraBirimiToplamlari || []
-        return liste.map(t => root.tutarMetni(t.toplam, t.paraBirimi)).join("  ·  ")
     }
     // Durum rozeti artik tiklanabilir bir menu acicisi oldugu icin icinde bir de
     // "▾" isareti tasiyor; sutun ona gore bir miktar genisletildi.
@@ -142,9 +133,6 @@ Item {
     // zaman pencereyi tasirip son butonu ("İrsaliye") kirpmaz.
     readonly property bool ikincilTarihSutunlariGoster: root.width >= 1200
 
-    // Aciklamalar sutunu yalnizca yer oldugunda gosterilir; dar ekranda Firma Adi
-    // sutunu ezilmesin diye gizlenir (icerik yine satirin tooltip'inde okunur).
-    readonly property bool aciklamaSutunuGoster: root.width >= 1360
 
     // "Üretim" (uretim PDF'i) butonu: siparis kesinlesmis teklifler icin anlamli
     // oldugundan Alınan ve Biten Tekliflerim'de gosterilir.
@@ -418,21 +406,8 @@ Item {
         }
         root.pdfMesaji = "Teklif " + root.teklifNo(teklifId) + " sevk bilgileri kaydedildi."
         root.pdfMesajiHata = false
-        // AÇIKLAMALAR sutunu bu kayittan beslendigi icin (bkz. aciklamaMetni)
-        // listeyi yenileyip yeni aciklamayi hemen gosteriyoruz.
+        // Irsaliye butonunun rengi fatura durumunu gosterdigi icin liste yenilenir.
         root.sayfayiYukle(root.sayfaSonucu.mevcutSayfa)
-    }
-
-    // Aciklamalar sutunu: sevk kaydinin aciklamasi ("İrsaliye" penceresindeki
-    // AÇIKLAMALAR alani; eski programdan gocen kayitlarda da ayni alan). Notlar
-    // burada metin olarak yer kaplamaz; Teklif No hucresindeki not ikonuyla gosterilir.
-    // Faturalanmis teklifte fatura no basa eklenir.
-    function aciklamaMetni(kayit) {
-        const aciklama = (kayit.aciklamalar || "").trim()
-        const faturaNo = (kayit.faturaNo || "").trim()
-        if (faturaNo.length === 0 || !root.irsaliyeButonuGoster)
-            return aciklama
-        return "Fatura " + faturaNo + (aciklama.length > 0 ? "  ·  " + aciklama : "")
     }
 
     // Satirda gosterilecek not, sekmeye gore tek bir tanedir.
@@ -546,7 +521,6 @@ Item {
                 }
                 Label {
                     text: root.sayfaSonucu.toplamKayit + " kayıt"
-                          + (root.sekmeToplamiMetni.length > 0 ? "   —   Toplam (KDV dahil): " + root.sekmeToplamiMetni : "")
                     font.family: Theme.fontAilesi
                     font.pixelSize: Theme.fontBoyutKucuk
                     color: Theme.metinSoluk
@@ -696,10 +670,10 @@ Item {
             Layout.fillWidth: true
             // "PLANLANAN TESLİM" gibi uzun tarih basliklari dar sutunda iki satira sarilir.
             height: 44
-            color: Theme.panel
+            color: Theme.tabloBaslikZemin
             radius: Theme.radiusKucuk
             border.width: 1
-            border.color: Theme.kenarlik
+            border.color: Theme.tabloBaslikKenarlik
 
             RowLayout {
                 anchors.fill: parent
@@ -711,18 +685,16 @@ Item {
                 // icin maximumWidth ile sinirliyoruz; aksi halde "TEKLİFİ YAPAN" gibi
                 // uzun bir baslik metni kendi dogal genisligiyle sutunu sisirip veri
                 // satirlariyla arasinda kayma olusturabiliyor.
-                KisalanMetin { text: "TEKLİF NO"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunTeklifNo; Layout.maximumWidth: root.sutunTeklifNo }
-                KisalanMetin { text: "FİRMA ADI"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.fillWidth: true; Layout.horizontalStretchFactor: 2; Layout.preferredWidth: 0; Layout.minimumWidth: root.firmaSutunuEnAz }
+                KisalanMetin { text: "TEKLİF NO"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunTeklifNo; Layout.maximumWidth: root.sutunTeklifNo }
+                KisalanMetin { text: "FİRMA ADI"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.fillWidth: true; Layout.horizontalStretchFactor: 2; Layout.preferredWidth: 0; Layout.minimumWidth: root.firmaSutunuEnAz }
                 TarihBasligi { text: "TEKLİF TARİHİ" }
                 TarihBasligi { text: "KABUL TARİHİ" }
                 TarihBasligi { text: "PLANLANAN TESLİM"; visible: root.ikincilTarihSutunlariGoster }
                 TarihBasligi { text: "TESLİM TARİHİ" }
                 TarihBasligi { text: "ÜRETİM PDF"; visible: root.ikincilTarihSutunlariGoster }
-                KisalanMetin { text: "PERSONEL"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunPersonel; Layout.maximumWidth: root.sutunPersonel }
-                KisalanMetin { text: "TUTAR"; horizontalAlignment: Text.AlignRight; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunTutar; Layout.maximumWidth: root.sutunTutar }
-                KisalanMetin { text: "DURUM"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunDurum; Layout.maximumWidth: root.sutunDurum }
-                KisalanMetin { visible: root.aciklamaSutunuGoster; text: "AÇIKLAMALAR"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.fillWidth: true; Layout.horizontalStretchFactor: 1; Layout.preferredWidth: 0 }
-                KisalanMetin { text: "İŞLEMLER"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunIslemler; Layout.maximumWidth: root.sutunIslemler }
+                KisalanMetin { text: "TUTAR"; horizontalAlignment: Text.AlignRight; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunTutar; Layout.maximumWidth: root.sutunTutar }
+                KisalanMetin { text: "DURUM"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunDurum; Layout.maximumWidth: root.sutunDurum }
+                KisalanMetin { text: "İŞLEMLER"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunIslemler; Layout.maximumWidth: root.sutunIslemler }
             }
         }
 
@@ -945,22 +917,6 @@ Item {
                     TarihHucresi { deger: satir.modelData.teslimatTarihi; visible: root.ikincilTarihSutunlariGoster }
                     TarihHucresi { deger: satir.modelData.teslimTarihi }
                     TarihHucresi { deger: satir.modelData.uretimPdfTarihi; visible: root.ikincilTarihSutunlariGoster }
-                    KisalanMetin {
-                        text: satir.modelData.personelKullaniciAdi
-                        // Hucrede personelin kisa kullanici adi ("EÖ") yazar; tam
-                        // adi ipucunda okunur, bu yuzden kirpilmasa da gosterilir.
-                        ipucuMetni: (satir.modelData.personelAdSoyad || "").length > 0
-                                    ? satir.modelData.personelAdSoyad
-                                    : satir.modelData.personelKullaniciAdi
-                        ipucuHepGoster: true
-                        color: Theme.metinIkincil
-                        font.family: Theme.fontAilesi
-                        font.pixelSize: Theme.fontBoyutNormal
-                        Layout.preferredWidth: root.sutunPersonel
-                        Layout.maximumWidth: root.sutunPersonel
-                        Layout.fillHeight: true
-                        clip: true
-                    }
                     // Genel toplam (KDV dahil), teklifin kendi para biriminde.
                     KisalanMetin {
                         text: root.tutarMetni(satir.modelData.genelToplam, satir.modelData.paraBirimi)
@@ -1156,19 +1112,6 @@ Item {
                                 }
                             }
                         }
-                    }
-
-                    // Aciklamalar (sevk aciklamasi). Tam metin tooltip'te.
-                    KisalanMetin {
-                        visible: root.aciklamaSutunuGoster
-                        text: root.aciklamaMetni(satir.modelData)
-                        color: Theme.metinIkincil
-                        font.family: Theme.fontAilesi
-                        font.pixelSize: Theme.fontBoyutKucuk + 1
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 0
-                        Layout.horizontalStretchFactor: 1
-                        Layout.fillHeight: true
                     }
 
                     RowLayout {

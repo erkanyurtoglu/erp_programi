@@ -30,6 +30,17 @@ qt_add_executable(erp_programi
     src/KurServisi.cpp
 )
 
+# Exe dosyasinin (Gezgin / masaustu kisayolu) simgesi.
+if(WIN32)
+    target_sources(erp_programi PRIVATE assets/erp_programi.rc)
+endif()
+
+# Logo tek kaynaktan (PDF sablonlarindaki dosya) okunur; QML'de ve pencere
+# simgesinde "qrc:/qt/qml/erp_programi/logo.png" olarak kullanilir.
+set_source_files_properties(pdf_sablonlari/assets/logo.png PROPERTIES
+    QT_RESOURCE_ALIAS logo.png
+)
+
 target_compile_definitions(erp_programi PRIVATE
     $<$<CONFIG:Debug>:PDF_SABLON_KAYNAK_DIZINI="${CMAKE_SOURCE_DIR}/pdf_sablonlari">
 )
@@ -112,6 +123,7 @@ qt_add_qml_module(erp_programi
         qml/components/TemaOnayKutusu.qml
         qml/components/PdfOnizlemeDialog.qml
         qml/components/TemaButon.qml
+        qml/components/TemaDegistirici.qml
         qml/components/TemaMetinKutusu.qml
         qml/components/SayiKutusu.qml
         qml/components/OneriliMetinKutusu.qml
@@ -120,6 +132,8 @@ qt_add_qml_module(erp_programi
         qml/components/SuzgecHapi.qml
         qml/components/SiparisEylemleri.qml
         qml/components/SiparisPencereleri.qml
+    RESOURCES
+        pdf_sablonlari/assets/logo.png
 )
 
 target_link_libraries(erp_programi PRIVATE

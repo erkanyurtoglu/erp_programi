@@ -18,6 +18,13 @@ QString likeIcinKacir(const QString &metin);
 // Aramada kullanilan "%...%" deseni (jokerler kacirilmis, bosluklar kirpilmis).
 QString likeDeseni(const QString &arama);
 
+// Urun kodu aramasinda ayiricilar ('-', ' ', '.', '/', '_') yok sayilir:
+// "LT-G0200" kodu "lt g0200", "ltg0200" ya da "lt-g0200" yazilarak bulunur.
+// urunKoduSqlIfadesi sutunun ayiricisiz halini veren SQL ifadesi,
+// urunKoduDeseni ise ona karsi kullanilacak LIKE desenidir (ESCAPE N'\').
+QString urunKoduSqlIfadesi(const QString &sutun);
+QString urunKoduDeseni(const QString &arama);
+
 // "MANUEL-<teklifId>" kodlu satirlar, sepete manuel eklenen kalemler icin
 // FOREIGN KEY zorunlulugu yuzunden dbo.urunler'e yazilan, teklife ozel GECICI
 // kayitlardir; urun katalogu liste ve aramalarindan filtrelenirler. Bu yuzden

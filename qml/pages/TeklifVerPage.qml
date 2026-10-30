@@ -1245,13 +1245,13 @@ Item {
     }
 
     // Detay ekraninda acik (kayitli) teklifin PDF'ini veya uretim PDF'ini
-    // onizlemede acar (indirmek kullaniciya birakilir).
+    // onizleme acmadan klasore indirir ve PDF goruntuleyicide acar.
     function kayitliPdfAc(uretim) {
         const teklifId = root.duzenlenenKaynakTeklifId
         if (teklifId <= 0)
             return
-        PdfOnizleme.ac(uretim ? "uretim" : "teklif", teklifId,
-                       (uretim ? "Üretim · Teklif " : "Teklif ") + root.duzenlenenTeklifNo)
+        PdfOnizleme.indir(uretim ? "uretim" : "teklif", teklifId,
+                          (uretim ? "Üretim · Teklif " : "Teklif ") + root.duzenlenenTeklifNo, true)
     }
 
     // Sepet dizisi her degisiklikte yenisiyle degistirilir; ListView de model
@@ -1477,7 +1477,7 @@ Item {
         anchors.topMargin: 24
         anchors.rightMargin: 24
         radius: Theme.radiusNormal
-        color: bilgiMesaji.color === Theme.tehlikeAcik ? Qt.rgba(0.14, 0.08, 0.09, 0.97) : Qt.rgba(0.07, 0.14, 0.10, 0.97)
+        color: bilgiMesaji.color === Theme.tehlikeAcik ? Theme.bildirimHataZemin : Theme.bildirimBasariZemin
         border.width: 1
         border.color: bilgiMesaji.color === Theme.tehlikeAcik ? Theme.tehlikeAcik : Theme.basariAcik
 
@@ -2449,19 +2449,19 @@ Item {
                             // Satir tasima (▲/▼) sutununun basligi -- bos, sadece
                             // sepet satirlariyla hizayi korumak icin.
                             Label { text: ""; Layout.preferredWidth: 18 }
-                            Label { text: "KOD"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 60 }
-                            Label { text: "AÇIKLAMA"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.fillWidth: true; Layout.preferredWidth: 0; Layout.minimumWidth: 0 }
-                            Label { text: "ADET"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 58; horizontalAlignment: Text.AlignHCenter }
-                            Label { text: "MALİYET " + (root.maliyetKuruVar ? root.paraBirimiSembol(paraBirimiCombo.currentText) : "₺"); color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignLeft }
-                            Label { text: "FİYAT " + root.paraBirimiSembol(paraBirimiCombo.currentText); color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignLeft }
-                            Label { text: "İNDİRİMLİ"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 96; horizontalAlignment: Text.AlignLeft }
-                            Label { text: "TOPLAM"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 112; horizontalAlignment: Text.AlignLeft }
+                            Label { text: "KOD"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 60 }
+                            Label { text: "AÇIKLAMA"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.fillWidth: true; Layout.preferredWidth: 0; Layout.minimumWidth: 0 }
+                            Label { text: "ADET"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 58; horizontalAlignment: Text.AlignHCenter }
+                            Label { text: "MALİYET " + (root.maliyetKuruVar ? root.paraBirimiSembol(paraBirimiCombo.currentText) : "₺"); color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignLeft }
+                            Label { text: "FİYAT " + root.paraBirimiSembol(paraBirimiCombo.currentText); color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 80; horizontalAlignment: Text.AlignLeft }
+                            Label { text: "İNDİRİMLİ"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 96; horizontalAlignment: Text.AlignLeft }
+                            Label { text: "TOPLAM"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 112; horizontalAlignment: Text.AlignLeft }
                             // Satir bazli uretim takibi sutunu (✓ kutusu + not
                             // butonu); yalnizca kayitli teklif acikken gorunur.
                             Label {
                                 visible: root.uretimTakibiGorunur
                                 text: "ÜRETİM"
-                                color: Theme.metinCokSoluk
+                                color: Theme.tabloBaslikMetin
                                 font.family: Theme.fontAilesi
                                 font.pixelSize: 10
                                 font.letterSpacing: 1
@@ -3236,9 +3236,18 @@ Item {
                     Layout.preferredHeight: 44
                     Layout.alignment: Qt.AlignVCenter
                     radius: Theme.radiusNormal
+                    // Acik temada ana menudeki "Yeni Teklif" seridi gibi dolu mavi degrade.
                     color: Theme.vurguZeminSoluk
-                    border.width: 1
+                    gradient: Theme.koyuMod ? null : genelToplamGradyani
+                    border.width: Theme.koyuMod ? 1 : 0
                     border.color: Theme.kenarlikVurguSoluk
+
+                    Gradient {
+                        id: genelToplamGradyani
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0.0; color: Theme.vurgu }
+                        GradientStop { position: 1.0; color: "#3b82f6" }
+                    }
 
                     RowLayout {
                         id: genelToplamIcerik
@@ -3246,7 +3255,7 @@ Item {
                         spacing: 8
                         Label {
                             text: "GENEL TOPLAM"
-                            color: Theme.metinSoluk
+                            color: Theme.koyuMod ? Theme.metinSoluk : "#dbe6fd"
                             font.family: Theme.fontAilesi
                             font.pixelSize: 9
                             font.bold: true
@@ -3254,7 +3263,7 @@ Item {
                         }
                         Label {
                             text: root.tutarMetni(root.gosterilenGenelToplam)
-                            color: Theme.vurguAcik
+                            color: Theme.koyuMod ? Theme.vurguAcik : "#ffffff"
                             font.family: Theme.fontAilesi
                             font.pixelSize: Theme.fontBoyutBaslik
                             font.bold: true
@@ -3515,7 +3524,7 @@ Item {
     TemaDialog {
         id: kaydetSecimDialogu
         baslik: "Teklif " + root.duzenlenenTeklifNo
-                + (kaydetSecimDialogu.sadeceRevizyon ? " — Yeni revizyon" : " — Nasıl kaydedilsin?")
+                + (kaydetSecimDialogu.sadeceRevizyon ? " — Revizyon" : " — Kaydet")
         onayMetni: kaydetSecimDialogu.secim === "duzeltme" ? "Düzeltmeyi Kaydet"
                  : kaydetSecimDialogu.secim === "revizyon" ? "Revizyon Oluştur"
                  : "Kaydet"
@@ -3553,10 +3562,8 @@ Item {
                     kaydetSecimDialogu.secim = "duzeltme"
                     duzeltmeSebebiGirisi.forceActiveFocus()
                 }
-                baslik: "Düzeltme — hatayı düzelt"
-                aciklama: "Yanlış girilmiş bilgiyi (firma, ilgili kişi, KDV, indirim, fiyat…) düzeltir. "
-                          + "Teklif " + root.duzenlenenTeklifNo + " aynı numarayla güncellenir, revizyon oluşmaz. "
-                          + "Önceki hali sebebiyle birlikte teklif geçmişinde saklanır."
+                baslik: "Düzeltme"
+                aciklama: "Aynı numarayla güncellenir. Müşteriye gönderilmemiş teklifler için."
             }
 
             ColumnLayout {
@@ -3597,12 +3604,10 @@ Item {
                     kaydetSecimDialogu.secim = "revizyon"
                     revizyonSebebiGirisi.forceActiveFocus()
                 }
-                baslik: "Yeni revizyon — teklifin yeni sürümü"
-                aciklama: "Teklif müşteriye gönderildiyse ve fiyat, miktar ya da şartlar değiştiyse. "
-                          + "Yeni bir revizyon (…/Rev.N) oluşur, Teklif " + root.duzenlenenTeklifNo
-                          + " \"Revize Edildi\" olarak işaretlenir. Sebep her iki teklifin geçmişinde görünür."
+                baslik: "Revizyon"
+                aciklama: "Yeni revizyon numarasıyla kaydedilir. Müşteriye gönderilmiş teklifler için."
                           + (root.teklifDurumu === "Kabul Edildi"
-                             ? " Bu teklif kabul edilmişti: yeni revizyon Beklemede olarak açılır ve yeniden kabul edilmelidir."
+                             ? " Yeni revizyon Beklemede açılır, yeniden kabul edilmelidir."
                              : "")
             }
 
@@ -3637,17 +3642,6 @@ Item {
                     }
                     onAccepted: if (kaydetSecimDialogu.onayEtkin) kaydetSecimDialogu.accept()
                 }
-            }
-
-            Label {
-                visible: !kaydetSecimDialogu.sadeceRevizyon
-                Layout.fillWidth: true
-                Layout.topMargin: 2
-                text: "İpucu: Teklif müşteriye henüz gönderilmediyse düzeltme, gönderildiyse revizyon seçin."
-                color: Theme.metinSoluk
-                font.family: Theme.fontAilesi
-                font.pixelSize: Theme.fontBoyutKucuk
-                wrapMode: Text.WordWrap
             }
         }
     }

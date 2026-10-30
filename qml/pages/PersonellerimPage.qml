@@ -311,7 +311,7 @@ Item {
                                 width: 70
                                 height: 24
                                 radius: 5
-                                color: satir.modelData.aktifMi ? "#0f2417" : "#1e2a3f"
+                                color: satir.modelData.aktifMi ? Theme.basariZemin : Theme.kenarlik
                                 border.width: 1
                                 border.color: satir.modelData.aktifMi ? Theme.basari : Theme.kenarlik
                                 Text {
@@ -619,11 +619,9 @@ Item {
                 spacing: 10
                 EtiketliAlan {
                     id: sifreAlani
-                    // Yeni kayitta zorunlu, duzenlemede bos birakilirsa
-                    // mevcut sifre korunur -- etiket bunu acikca soyluyor
-                    // (eskiden placeholder imperatif olarak eziliyordu).
+
                     etiket: duzenlemeDialogu.kullaniciId > 0
-                            ? "YENİ ŞİFRE (BOŞ = DEĞİŞMEZ)" : "ŞİFRE *"
+                            ? "YENİ ŞİFRE" : "ŞİFRE *"
                     echoMode: TextInput.Password
                 }
                 EtiketliAlan {

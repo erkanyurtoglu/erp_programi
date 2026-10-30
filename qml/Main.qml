@@ -144,7 +144,7 @@ ApplicationWindow {
         width: Math.min(pdfMesajMetni.implicitWidth + 24, pencere.width - 48)
         height: pdfMesajMetni.height + 16
         radius: Theme.radiusNormal
-        color: pdfIndirici.hata ? Qt.rgba(0.14, 0.08, 0.09, 0.97) : Qt.rgba(0.07, 0.14, 0.10, 0.97)
+        color: pdfIndirici.hata ? Theme.bildirimHataZemin : Theme.bildirimBasariZemin
         border.width: 1
         border.color: pdfIndirici.hata ? Theme.tehlikeAcik : Theme.basariAcik
 
@@ -167,6 +167,47 @@ ApplicationWindow {
             onClicked: {
                 Qt.openUrlExternally("file:///" + pdfIndirici.dosyaYolu)
                 pdfIndirici.visible = false
+            }
+        }
+    }
+
+    // Tema degisimi: once ekranin anlik goruntusu alinip ustte birakilir, renkler
+    // altta tek karede degisir ve goruntu soldurulur -- boylece tum ekran iki tema
+    // arasinda yumusakca gecer. Goruntu alinamazsa tema dogrudan degistirilir.
+    Connections {
+        target: Theme
+        function onDegistirmeIstendi() {
+            const icerik = pencere.contentItem
+            const alindi = icerik.grabToImage(function (sonuc) {
+                temaGecisi.goruntu = sonuc
+                temaGecisi.source = sonuc.url
+                temaGecisi.opacity = 1
+                Theme.koyuModuAyarla(!Theme.koyuMod)
+                temaGecisAnimasyonu.restart()
+            }, Qt.size(icerik.width * Screen.devicePixelRatio, icerik.height * Screen.devicePixelRatio))
+            if (!alindi)
+                Theme.koyuModuAyarla(!Theme.koyuMod)
+        }
+    }
+
+    Image {
+        id: temaGecisi
+        property var goruntu: null   // grabToImage sonucu; yasadigi surece url gecerli
+        anchors.fill: parent
+        z: 2000
+        opacity: 0
+        visible: opacity > 0
+
+        NumberAnimation {
+            id: temaGecisAnimasyonu
+            target: temaGecisi
+            property: "opacity"
+            to: 0
+            duration: 320
+            easing.type: Easing.OutCubic
+            onFinished: {
+                temaGecisi.source = ""
+                temaGecisi.goruntu = null
             }
         }
     }

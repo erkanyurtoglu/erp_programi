@@ -14,10 +14,20 @@ Rectangle {
     signal girisBasarili(var sonuc)
 
     gradient: Gradient {
-        GradientStop { position: 0.0; color: "#15121a" }
-        GradientStop { position: 0.55; color: "#0c0b0e" }
+        GradientStop { position: 0.0; color: Theme.koyuMod ? "#15121a" : "#d9e4f5" }
+        GradientStop { position: 0.55; color: Theme.koyuMod ? "#0c0b0e" : "#e4ecf8" }
         GradientStop { position: 1.0; color: Theme.arkaplan }
     }
+
+    TemaDegistirici {
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: 24
+        z: 1
+    }
+
+    // Golge halkalari acik zeminde fazla kirli durmasin diye hafifletilir.
+    readonly property real golgeOpakligi: Theme.koyuMod ? 1.0 : 0.18
 
     // Kartin arkasinda hafif bir mavi hale, sade zemine derinlik katmak icin.
     Rectangle {
@@ -39,6 +49,7 @@ Rectangle {
         height: kart.height + 48
         radius: 28
         color: "#18000000"
+        opacity: kok.golgeOpakligi
     }
 
     Rectangle {
@@ -47,6 +58,7 @@ Rectangle {
         height: kart.height + 32
         radius: 24
         color: "#25000000"
+        opacity: kok.golgeOpakligi
     }
 
     Rectangle {
@@ -55,6 +67,7 @@ Rectangle {
         height: kart.height + 18
         radius: 20
         color: "#35000000"
+        opacity: kok.golgeOpakligi
     }
 
     Rectangle {
@@ -63,6 +76,7 @@ Rectangle {
         height: kart.height + 8
         radius: 18
         color: "#45000000"
+        opacity: kok.golgeOpakligi
     }
 
     Rectangle {
@@ -102,13 +116,12 @@ Rectangle {
                 spacing: 4
                 Layout.alignment: Qt.AlignHCenter
 
-                Label {
-                    text: "LIYA"
-                    font.family: Theme.fontAilesi
-                    font.pixelSize: Theme.fontBoyutBuyukBaslik
-                    font.bold: true
-                    font.letterSpacing: 2
-                    color: Theme.metinBirincil
+                Image {
+                    source: "qrc:/qt/qml/erp_programi/logo.png"
+                    sourceSize.height: 84
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                    Layout.preferredHeight: 84
                     Layout.alignment: Qt.AlignHCenter
                 }
                 Label {
@@ -321,13 +334,14 @@ Rectangle {
                     radius: 8
                     gradient: Gradient {
                         orientation: Gradient.Horizontal
-                        GradientStop { position: 0.0; color: girisButonu.pressed ? "#1d4ed8" : (girisButonu.hovered ? Theme.vurguAcik : Theme.vurgu) }
-                        GradientStop { position: 1.0; color: girisButonu.pressed ? "#1e3a8a" : (girisButonu.hovered ? Theme.vurguHover : "#1d4ed8") }
+                        // Koyu temada uzerine gelince acilir (koyu yazi), acik temada koyulasir (beyaz yazi).
+                        GradientStop { position: 0.0; color: girisButonu.pressed ? "#1d4ed8" : (girisButonu.hovered ? (Theme.koyuMod ? Theme.vurguAcik : Theme.vurguHover) : Theme.vurgu) }
+                        GradientStop { position: 1.0; color: girisButonu.pressed ? "#1e3a8a" : (girisButonu.hovered ? (Theme.koyuMod ? Theme.vurguHover : "#1e40af") : "#1d4ed8") }
                     }
                 }
                 contentItem: Text {
                     text: girisButonu.text
-                    color: "#1e2a3f"
+                    color: Theme.koyuMod ? "#1e2a3f" : "#ffffff"
                     font.family: Theme.fontAilesi
                     font.bold: true
                     font.pixelSize: Theme.fontBoyutNormal

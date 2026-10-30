@@ -27,6 +27,29 @@ QString likeDeseni(const QString &arama)
     return QStringLiteral("%") + likeIcinKacir(arama.trimmed()) + QStringLiteral("%");
 }
 
+namespace
+{
+    const QString urunKoduAyiricilari = QStringLiteral("- ./_");
+}
+
+QString urunKoduSqlIfadesi(const QString &sutun)
+{
+    QString ifade = sutun;
+    for (const QChar c : urunKoduAyiricilari)
+        ifade = QStringLiteral("REPLACE(%1, N'%2', N'')").arg(ifade, c);
+    return ifade;
+}
+
+QString urunKoduDeseni(const QString &arama)
+{
+    QString sade = arama;
+    for (const QChar c : urunKoduAyiricilari)
+        sade.remove(c);
+    // Yalnizca ayiricidan olusan arama ("-") bos desene, yani her seye
+    // eslesmesin: ayiricisiz kodda bulunamayan orijinal desen kullanilir.
+    return sade.isEmpty() ? likeDeseni(arama) : likeDeseni(sade);
+}
+
 bool manuelKoduMu(const QString &urunKodu)
 {
     return urunKodu.trimmed().startsWith(QStringLiteral("MANUEL"), Qt::CaseInsensitive);
