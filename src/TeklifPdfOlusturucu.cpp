@@ -22,6 +22,7 @@
 #include <QUrl>
 #include <QFileInfo>
 #include <QCryptographicHash>
+#include <QSettings>
 
 #include <cmath>
 
@@ -42,9 +43,13 @@ TeklifPdfOlusturucu::TeklifPdfOlusturucu(QObject *parent) : QObject(parent)
     }
 }
 
-QString TeklifPdfOlusturucu::kayitKlasoru()
+QString TeklifPdfOlusturucu::sonKayitKlasoru()
 {
-    return QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/Liya ERP Teklifler";
+    const QString klasor = QSettings().value(QStringLiteral("pdf/sonKayitKlasoru")).toString();
+    if (!klasor.isEmpty() && QFileInfo(klasor).isDir())
+        return klasor;
+    // Ilk kayit (ya da son klasor silinmis/ag surucusu bagli degil): Indirilenler.
+    return QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
 }
 
 QString TeklifPdfOlusturucu::onizlemeKlasoru()
@@ -63,23 +68,30 @@ static bool onizlemeKlasorundeMi(const QString &yol)
     return ust.compare(klasor, Qt::CaseInsensitive) == 0;
 }
 
-QVariantMap TeklifPdfOlusturucu::onizlemeyiKaydet(const QString &onizlemeYolu, const QString &dosyaAdi)
+QVariantMap TeklifPdfOlusturucu::onizlemeyiKaydet(const QString &onizlemeYolu, const QString &hedefYol)
 {
     QVariantMap sonuc;
     sonuc["basarili"] = false;
     sonuc["dosyaYolu"] = QString();
-    sonuc["klasor"] = kayitKlasoru();
+    sonuc["klasor"] = QString();
     sonuc["hata"] = QString();
 
-    const QString ad = dosyaAdiTemizle(QFileInfo(dosyaAdi).fileName());
-    if (!onizlemeKlasorundeMi(onizlemeYolu) || !QFileInfo::exists(onizlemeYolu) || ad.isEmpty())
+    // Varsayilan klasor yok: yalnizca kullanicinin "Farkli Kaydet"te sectigi yere.
+    if (hedefYol.isEmpty())
+    {
+        sonuc["hata"] = QStringLiteral("Kayıt yeri seçilmedi.");
+        return sonuc;
+    }
+    if (!onizlemeKlasorundeMi(onizlemeYolu) || !QFileInfo::exists(onizlemeYolu))
     {
         sonuc["hata"] = QStringLiteral("Önizleme dosyası bulunamadı, PDF'i yeniden açıp tekrar deneyin.");
         return sonuc;
     }
-
-    QDir().mkpath(kayitKlasoru());
-    const QString hedef = kayitKlasoru() + "/" + ad;
+    QString hedef = QFileInfo(hedefYol).absoluteFilePath();
+    if (QFileInfo(hedef).suffix().compare(QLatin1String("pdf"), Qt::CaseInsensitive) != 0)
+        hedef += QStringLiteral(".pdf");
+    const QString ad = QFileInfo(hedef).fileName();
+    sonuc["klasor"] = QFileInfo(hedef).absolutePath();
     // QFile::copy var olan dosyanin uzerine yazmaz. Silinemiyorsa dosya buyuk
     // ihtimalle bir PDF okuyucuda acik (Windows kilitliyor).
     if (QFileInfo::exists(hedef) && !QFile::remove(hedef))
@@ -92,6 +104,9 @@ QVariantMap TeklifPdfOlusturucu::onizlemeyiKaydet(const QString &onizlemeYolu, c
         sonuc["hata"] = QStringLiteral("PDF klasöre kopyalanamadı: %1").arg(hedef);
         return sonuc;
     }
+
+    // Bir sonraki "Farkli Kaydet" penceresi bu klasorde acilir.
+    QSettings().setValue(QStringLiteral("pdf/sonKayitKlasoru"), QFileInfo(hedef).absolutePath());
 
     sonuc["basarili"] = true;
     sonuc["dosyaYolu"] = hedef;
@@ -409,7 +424,11 @@ QString TeklifPdfOlusturucu::sozlesmeMetniniHtmleCevir(const QString &metin)
         // Ilk satir alt madde isaretiyle basliyorsa (ustunde ana madde yok)
         // isareti atip normal madde gibi yaziyoruz -- yapisi bozuk metin de
         // PDF'i bozmasin.
-        const QString icerik = altMadde ? satir.mid(2).trimmed() : satir;
+        QString icerik = altMadde ? satir.mid(2).trimmed() : satir;
+        // Metinde elle yazilmis "1. " / "2) " numarasi <ol>'un kendi numarasiyla
+        // cift gorunmesin diye atilir ("10 yil ..." gibi satirlar etkilenmez).
+        static const QRegularExpression numaraDeseni(QStringLiteral("^\\d{1,3}\\s*[.)]\\s+"));
+        icerik.remove(numaraDeseni);
         html += QStringLiteral("<li>%1").arg(icerik.toHtmlEscaped());
         maddeAcikMi = true;
     }

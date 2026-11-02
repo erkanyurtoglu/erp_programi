@@ -1,0 +1,17 @@
+; Programin baglanacagi veritabani. Bu dosyayi "baglanti.ini" adiyla kopyalayin:
+;   - gelistirirken proje klasorune,
+;   - kurulum yapilan bilgisayarda exe'nin yanina.
+; Hangi blok aciksa ona baglanilir; digerinin satirlari ";" ile kapali kalmali.
+; Kullanici yazilmazsa Windows kimlik dogrulamasi kullanilir.
+
+[Veritabani]
+
+; --- 1) Yerel SQL Server, Windows kimligiyle ---
+Sunucu=EXCALIBUR\SQLEXPRESS
+Ad=LiyaErpVeriTabani
+
+; --- 2) Sirket sunucusu, SQL kullanicisiyla ---
+;Sunucu=192.168.1.11,1433
+;Ad=LiyaErpVeriTabani
+;Kullanici=...
+;Sifre=...

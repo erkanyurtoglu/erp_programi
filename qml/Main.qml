@@ -76,34 +76,68 @@ ApplicationWindow {
             pdfOnizlemeDialogu.ac(tur, teklifId, baslik)
         }
         function onIndirIstendi(tur, teklifId, baslik, acilsin) {
-            pdfIndirici.bekleyenler.push({ tur: tur, teklifId: teklifId, baslik: baslik, acilsin: acilsin })
+            // Ayni PDF zaten uretiliyor ya da sirada bekliyorsa ikinci kez uretilmez.
+            const ayniMi = function (b) { return b && b.tur === tur && b.teklifId === teklifId }
+            const siradaMi = (pdfIndirici.uretiyor && ayniMi(pdfIndirici.uretilen))
+                || pdfIndirici.bekleyenler.some(ayniMi)
+            if (!siradaMi)
+                pdfIndirici.bekleyenler.push({ tur: tur, teklifId: teklifId, baslik: baslik, acilsin: acilsin })
+            gizlemeZamanlayici.stop()
+            pdfIndirici.visible = true
+            // Uretim surerken mesaja dokunulmaz; sira gelince zamanlayici
+            // kendini yeniden kurar (bkz. onTriggered).
+            if (pdfIndirici.uretiyor)
+                return
             pdfIndirici.mesaj = baslik + " PDF hazırlanıyor…"
             pdfIndirici.hata = false
             pdfIndirici.dosyaYolu = ""
-            gizlemeZamanlayici.stop()
-            pdfIndirici.visible = true
             indirmeZamanlayici.restart()
         }
     }
 
-    // PdfOnizleme.indir: onizleme acmadan PDF'i uretip klasore kaydeder ve
+    // PdfOnizleme.indir: onizleme acmadan PDF'i uretip "Farkli Kaydet"te
+    // secilen yere kaydeder ve
     // sonucu sag altta gecici bir bildirimle gosterir. Uretim arayuzu birkac
     // saniye mesgul ettigi icin once bildirimin cizilmesine firsat verilir.
     Timer {
         id: indirmeZamanlayici
         interval: 60
         onTriggered: {
+            // PDF uretilirken olaylar islenmeye devam eder (TeklifPdfOlusturucu::
+            // htmlyiPdfeBas). Bu sirada gelen yeni istek zamanlayiciyi yeniden
+            // tetiklerse buraya ic ice girilir ve ikinci istek "Başka bir PDF
+            // hazırlanıyor" hatasiyla dusuyordu; ozellikle Chromium'un ilk
+            // acilisinin uzun surdugu bilgisayarlarda. Istek sirada kalir.
+            if (pdfIndirici.uretiyor)
+                return
             const istek = pdfIndirici.bekleyenler.shift()
             if (!istek)
                 return
+            pdfIndirici.mesaj = istek.baslik + " PDF hazırlanıyor…"
+            pdfIndirici.hata = false
+            pdfIndirici.dosyaYolu = ""
+            pdfIndirici.uretilen = istek
+            pdfIndirici.uretiyor = true
             const pdf = istek.tur === "uretim"
                 ? database.uretimPdfOlustur(istek.teklifId)
                 : database.teklifPdfOlustur(istek.teklifId)
             if (!pdf.basarili) {
                 pdfIndirici.hata = true
                 pdfIndirici.mesaj = istek.baslik + " PDF oluşturulamadı: " + pdf.hata
-            } else {
-                const kayit = database.pdfKaydet(pdf)
+                pdfIndirici.istekBitti()
+                return
+            }
+            // Nereye kaydedilecegi sorulur; cevap gelene kadar istek "uretiliyor"
+            // sayilir ki siradaki PDF'in penceresi bunun ustune acilmasin.
+            pdfIndirici.mesaj = istek.baslik + " PDF için kayıt yeri seçiliyor…"
+            pdfKayitYeri.sor(pdf.dosyaAdi, function (hedef) {
+                if (!hedef || hedef.toString().length === 0) {
+                    database.pdfOnizlemesiniSil(pdf.dosyaYolu)
+                    pdfIndirici.mesaj = istek.baslik + " PDF kaydedilmedi."
+                    pdfIndirici.istekBitti()
+                    return
+                }
+                const kayit = database.pdfKaydet(pdf, hedef)
                 database.pdfOnizlemesiniSil(pdf.dosyaYolu)
                 if (kayit.basarili) {
                     pdfIndirici.hata = false
@@ -116,12 +150,12 @@ ApplicationWindow {
                     pdfIndirici.hata = true
                     pdfIndirici.mesaj = istek.baslik + " PDF kaydedilemedi: " + kayit.hata
                 }
-            }
-            if (pdfIndirici.bekleyenler.length > 0)
-                indirmeZamanlayici.restart()
-            else
-                gizlemeZamanlayici.restart()
+                pdfIndirici.istekBitti()
+            })
         }
+    }
+    PdfKayitYeriDialog {
+        id: pdfKayitYeri
     }
     Timer {
         id: gizlemeZamanlayici
@@ -132,7 +166,19 @@ ApplicationWindow {
     Rectangle {
         id: pdfIndirici
         property var bekleyenler: []
+        property bool uretiyor: false
+        property var uretilen: null   // uretiyor iken o anki istek
         property string mesaj: ""
+
+        // Istek (basarili/basarisiz/vazgecildi) sonuclaninca: siradakine gecilir.
+        function istekBitti() {
+            pdfIndirici.uretiyor = false
+            pdfIndirici.uretilen = null
+            if (pdfIndirici.bekleyenler.length > 0)
+                indirmeZamanlayici.restart()
+            else
+                gizlemeZamanlayici.restart()
+        }
         property string dosyaYolu: ""
         property bool hata: false
 

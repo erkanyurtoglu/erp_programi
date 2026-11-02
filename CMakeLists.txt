@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
-project(erp_programi VERSION 0.1 LANGUAGES CXX)
+# Surum kurulum dosyasinin adina ve "Programlar ve Ozellikler"e de yansir
+# (kurulum/kurulum_olustur.ps1 buradan okur).
+project(erp_programi VERSION 1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -30,19 +32,26 @@ qt_add_executable(erp_programi
     src/KurServisi.cpp
 )
 
-# Exe dosyasinin (Gezgin / masaustu kisayolu) simgesi.
+# Exe dosyasinin (Gezgin / masaustu kisayolu) simgesi. liya.ico,
+# pdf_sablonlari/assets/ikon.png'den kurulum/ikon_olustur.py ile uretilir.
 if(WIN32)
     target_sources(erp_programi PRIVATE assets/erp_programi.rc)
 endif()
 
-# Logo tek kaynaktan (PDF sablonlarindaki dosya) okunur; QML'de ve pencere
-# simgesinde "qrc:/qt/qml/erp_programi/logo.png" olarak kullanilir.
+# Logo tek kaynaktan (PDF sablonlarindaki dosya) okunur; QML'de
+# "qrc:/qt/qml/erp_programi/logo.png" olarak kullanilir.
 set_source_files_properties(pdf_sablonlari/assets/logo.png PROPERTIES
     QT_RESOURCE_ALIAS logo.png
+)
+# Pencere / gorev cubugu simgesi: ":/qt/qml/erp_programi/ikon.png" (main.cpp).
+set_source_files_properties(pdf_sablonlari/assets/ikon.png PROPERTIES
+    QT_RESOURCE_ALIAS ikon.png
 )
 
 target_compile_definitions(erp_programi PRIVATE
     $<$<CONFIG:Debug>:PDF_SABLON_KAYNAK_DIZINI="${CMAKE_SOURCE_DIR}/pdf_sablonlari">
+    # exe'nin yaninda baglanti.ini yoksa proje klasorundeki okunur (bkz. Database.cpp).
+    BAGLANTI_INI_KAYNAK="${CMAKE_SOURCE_DIR}/baglanti.ini"
 )
 
 add_custom_command(TARGET erp_programi POST_BUILD
@@ -122,6 +131,7 @@ qt_add_qml_module(erp_programi
         qml/components/KisalanMetin.qml
         qml/components/TemaOnayKutusu.qml
         qml/components/PdfOnizlemeDialog.qml
+        qml/components/PdfKayitYeriDialog.qml
         qml/components/TemaButon.qml
         qml/components/TemaDegistirici.qml
         qml/components/TemaMetinKutusu.qml
@@ -134,6 +144,7 @@ qt_add_qml_module(erp_programi
         qml/components/SiparisPencereleri.qml
     RESOURCES
         pdf_sablonlari/assets/logo.png
+        pdf_sablonlari/assets/ikon.png
 )
 
 target_link_libraries(erp_programi PRIVATE

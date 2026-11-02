@@ -25,7 +25,7 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
     app.setOrganizationName("Liya");
     app.setApplicationName("Liya Teklif Programi (Qt)");
-    app.setWindowIcon(QIcon(QStringLiteral(":/qt/qml/erp_programi/logo.png")));
+    app.setWindowIcon(QIcon(QStringLiteral(":/qt/qml/erp_programi/ikon.png")));
 
     const QString gunlukYolu = gunlugeYazmayaBasla();
     qInfo() << "Gunluk dosyasi:" << gunlukYolu;

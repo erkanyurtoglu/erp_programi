@@ -18,9 +18,9 @@ class QWebEnginePage;
 //
 // ONIZLEME / INDIRME: *Uret fonksiyonlari PDF'i kullanicinin klasorune DEGIL,
 // gecici onizleme klasorune (onizlemeKlasoru) basar. Kullanici onizleme
-// penceresinde "İndir"e basarsa onizlemeyiKaydet ile kayitKlasoru'ne
-// kopyalanir; basmazsa pencere kapanirken onizlemeyiSil ile silinir. Boylece
-// her PDF goruntulemesi Belgelerim'e dosya birakmaz.
+// penceresinde "İndir"e basip "Farkli Kaydet"te yer secerse onizlemeyiKaydet
+// ile oraya kopyalanir; basmazsa pencere kapanirken onizlemeyiSil ile silinir.
+// Boylece her PDF goruntulemesi diske dosya birakmaz.
 class TeklifPdfOlusturucu : public QObject
 {
     Q_OBJECT
@@ -36,17 +36,19 @@ public:
     // tum PDF'lerde tekrar kullanilir. Cagrilmasa da htmlyiPdfeBas kendisi cagirir.
     void motoruHazirla() const;
 
-    // Indirilen PDF'lerin klasoru: Belgelerim/Liya ERP Teklifler.
-    static QString kayitKlasoru();
+    // "Farkli Kaydet" penceresinin acilacagi klasor: en son PDF kaydedilen
+    // klasor (QSettings), yoksa/artik erisilemiyorsa Indirilenler.
+    static QString sonKayitKlasoru();
 
     // Onizleme icin basilan gecici PDF'lerin klasoru (%TEMP%/LiyaERP_Onizleme).
     static QString onizlemeKlasoru();
 
-    // Onizleme PDF'ini (*Uret'in dondurdugu dosyaYolu) kayitKlasoru'ne
-    // "dosyaAdi" adiyla kopyalar; ayni adda dosya varsa uzerine yazar.
-    // Kaynak onizleme klasorunun disindaysa reddeder.
+    // Onizleme PDF'ini (*Uret'in dondurdugu dosyaYolu) kullanicinin "Farkli
+    // Kaydet"te sectigi "hedefYol"a kopyalar (bossa reddeder; varsayilan klasor
+    // yok); ayni adda dosya varsa uzerine yazar. Basariliysa klasoru
+    // sonKayitKlasoru olarak hatirlar. Kaynak onizleme klasorunun disindaysa reddeder.
     // Donen: {basarili (bool), dosyaYolu (kaydedilen yol), klasor, hata}.
-    static QVariantMap onizlemeyiKaydet(const QString &onizlemeYolu, const QString &dosyaAdi);
+    static QVariantMap onizlemeyiKaydet(const QString &onizlemeYolu, const QString &hedefYol);
 
     // Onizleme PDF'ini siler (onizleme klasoru disindaki yollara dokunmaz).
     static void onizlemeyiSil(const QString &onizlemeYolu);

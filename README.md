@@ -44,9 +44,27 @@ Her derlemeden sonra `windeployqt` gereken Qt DLL'lerini, CMake de
 İki durumda da tüm çıktı şu dosyaya da yazılır:
 `%LOCALAPPDATA%\Liya\Liya Teklif Programi (Qt)\erp_gunluk.txt`
 
+## Kurulum dosyası (setup)
+
+`kurulum\kurulum_olustur.bat`'a çift tıklayın. Gerekenler: yukarıdakiler,
+ek olarak [Inno Setup 6](https://jrsoftware.org/isdl.php) ve Pillow'lu Python.
+Betik sırasıyla:
+
+1. `pdf_sablonlari/assets/ikon.png`'den `assets/liya.ico`'yu üretir (exe,
+   kısayol ve setup simgesi; pencere simgesi de aynı PNG'dir),
+2. programı Release derler,
+3. `kurulum\cikti\LiyaERP_Kurulum_<sürüm>.exe` dosyasını oluşturur.
+
+Sürüm `CMakeLists.txt`'deki `project(... VERSION x.y)` satırından alınır; yeni
+dağıtımda bunu artırın. Kurulum programı `C:\Program Files\Liya ERP`'ye kurar,
+Başlat menüsüne ve masaüstüne kısayol koyar, gerekirse Visual C++ çalışma
+zamanını yükler. Proje klasöründeki `baglanti.ini` de kuruluma eklenir, ancak
+yalnızca ilk kurulumda konur. O bilgisayarda değiştirilmişse güncelleme ona
+dokunmaz.
+
 ## Veritabanı bağlantısı
 
-Program, Windows kimlik doğrulamasıyla (kullanıcı adı/şifre yok) QODBC üzerinden
+Program QODBC üzerinden, varsayılan olarak Windows kimlik doğrulamasıyla
 bağlanır. Sırasıyla "ODBC Driver 18", "17" ve Windows'ta her zaman bulunan
 "SQL Server" sürücüsü denenir.
 
@@ -57,6 +75,18 @@ Başka bir sunucuya bağlanmak için exe'nin yanına `baglanti.ini` dosyası koy
 [Veritabani]
 Sunucu=BASKA-PC\SQLEXPRESS
 Ad=LiyaErpVeriTabani
+```
+
+Sunucu Windows kimliğiyle bağlanmaya izin vermiyorsa (şirket sunucusu
+`192.168.1.11,1433` gibi), SQL Server kullanıcısı da yazılır. `Kullanici`
+yoksa Windows kimlik doğrulaması kullanılır:
+
+```ini
+[Veritabani]
+Sunucu=192.168.1.11,1433
+Ad=LiyaErpVeriTabani
+Kullanici=liya_erp
+Sifre=...
 ```
 
 Bağlantı kurulamazsa ekranın üstünde kırmızı bir uyarı şeridi çıkar. Asıl ODBC
@@ -73,6 +103,8 @@ ve önkoşulu yazar. Çoğu birden fazla kez çalıştırılabilir.
 - `03`–`31` — sonradan eklenen alanlar, tablolar ve veri düzeltmeleri
   (`28`: silinen tekliflerin izi; çalıştırılmadan teklif silinemez;
   `30`: fatura/irsaliye no takibi; `31`: Muhasebe kartı ve rolü)
+- `35` — geçiş günü: eski programda göçten sonra yapılan işleri aktarır, yeni
+  programda açılmış test tekliflerini siler (önce önizleme, sonra `@Uygula = 1`)
 
 Program, bir betik henüz çalıştırılmamışsa ilgili alanı atlayarak çalışmaya devam
 eder. Eksik betik gereken bir işlemde hangi betiğin çalıştırılması gerektiğini söyler.
@@ -89,5 +121,6 @@ qml/components/     Ortak bileşenler (tema butonu, tarih seçici, onay pencerel
 qml/Theme.qml       Renk, yazı tipi ve ölçüler
 pdf_sablonlari/     Teklif PDF şablonları
 db/                 Veritabanı betikleri
+kurulum/            Setup üretimi (Inno Setup betiği, simge dönüştürücü)
 code_export/        Kodların PDF dökümü için yardımcı betik
 ```

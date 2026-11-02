@@ -8,8 +8,8 @@ import erp_programi
 // PDF onizleme penceresi. database.teklifPdfOlustur / uretimPdfOlustur PDF'i
 // gecici onizleme klasorune basar; bu pencere sayfalari pdfOnizleyici
 // (Windows'un PDF motoru, bkz. src/PdfOnizleyici.h) ile resim olarak cizip
-// alt alta gosterir. Dosya kullanicinin klasorune (Belgelerim/Liya ERP
-// Teklifler) ANCAK "İndir"e basilinca kopyalanir (database.pdfKaydet);
+// alt alta gosterir. Dosya ANCAK "İndir"e basilip "Farkli Kaydet"te yer
+// secilince oraya kopyalanir (database.pdfKaydet);
 // pencere kapanirken gecici dosya silinir.
 //
 // Main.qml'de tek ornek olarak durur, sayfalar PdfOnizleme.ac(...) ile acar.
@@ -120,15 +120,25 @@ Dialog {
     }
 
     function indir() {
-        const sonuc = database.pdfKaydet(kok.pdf)
-        if (sonuc.basarili) {
-            kok.kaydedilenYol = sonuc.dosyaYolu
-            kok.kaydedilenKlasor = sonuc.klasor
-            kok.hataMetni = ""
-            PdfOnizleme.kaydedildi(kok.pdf, sonuc.dosyaYolu)
-        } else {
-            kok.hataMetni = sonuc.hata
-        }
+        const pdf = kok.pdf
+        kayitYeri.sor(pdf.dosyaAdi, function (hedef) {
+            // Vazgecildiyse ya da pencere bu arada baska bir PDF'e gectiyse.
+            if (!hedef || hedef.toString().length === 0 || kok.pdf !== pdf)
+                return
+            const sonuc = database.pdfKaydet(pdf, hedef)
+            if (sonuc.basarili) {
+                kok.kaydedilenYol = sonuc.dosyaYolu
+                kok.kaydedilenKlasor = sonuc.klasor
+                kok.hataMetni = ""
+                PdfOnizleme.kaydedildi(pdf, sonuc.dosyaYolu)
+            } else {
+                kok.hataMetni = sonuc.hata
+            }
+        })
+    }
+
+    PdfKayitYeriDialog {
+        id: kayitYeri
     }
 
     modal: true

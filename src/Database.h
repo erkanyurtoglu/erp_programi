@@ -8,6 +8,7 @@
 #include <QElapsedTimer>
 #include <QThread>
 #include <QPointer>
+#include <QUrl>
 #include <atomic>
 
 #include "TeklifPdfOlusturucu.h"
@@ -679,10 +680,15 @@ public:
     Q_INVOKABLE QVariantMap uretimPdfOlustur(int teklifId);
 
     // Onizleme penceresindeki "İndir": *PdfOlustur'un dondurdugu haritayi alir,
-    // onizleme PDF'ini Belgelerim/Liya ERP Teklifler'e kopyalar. tur "uretim" ise
+    // onizleme PDF'ini kullanicinin "Farkli Kaydet"te sectigi "hedef"e kopyalar
+    // (varsayilan klasor yok). tur "uretim" ise
     // teklifin UretimPdfTarihi alani simdiki zamanla doldurulur -- bu alan SADECE
     // burada yazilir. Donen: {basarili, dosyaYolu (kaydedilen), klasor, hata}.
-    Q_INVOKABLE QVariantMap pdfKaydet(const QVariantMap &pdf);
+    Q_INVOKABLE QVariantMap pdfKaydet(const QVariantMap &pdf, const QUrl &hedef);
+
+    // "Farkli Kaydet" penceresi icin: {klasor (url), dosya (url)} -- son kayit
+    // klasoru ve onun icinde onerilen dosya adi.
+    Q_INVOKABLE QVariantMap pdfKayitYeriOner(const QString &dosyaAdi) const;
 
     // Onizleme penceresi kapanirken gecici PDF'i siler.
     Q_INVOKABLE void pdfOnizlemesiniSil(const QString &onizlemeYolu);

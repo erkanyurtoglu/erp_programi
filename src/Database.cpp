@@ -21,38 +21,67 @@
 #include <QGuiApplication>
 #include <QClipboard>
 #include <QFile>
+#include <QFileInfo>
 #include <cmath>
 #include <algorithm>
 #include <utility>
 
 namespace
 {
-    // Yeni ERP semasi: ayni SQL Server ornegi (EXCALIBUR\SQLEXPRESS) uzerinde,
-    // eski LiyaTeklifVeriTabani'nden bagimsiz, yeniden tasarlanmis veritabani.
-    // Baska bir sunucuda calistirmak icin exe'nin yanina baglanti.ini konur:
+    // Yeni ERP semasi: eski LiyaTeklifVeriTabani'nden bagimsiz, yeniden
+    // tasarlanmis veritabani. Hangi sunucuya baglanilacagi baglanti.ini'den
+    // okunur (eski programdaki App.config'in karsiligi):
     //     [Veritabani]
-    //     Sunucu=BASKA-PC\SQLEXPRESS
+    //     Sunucu=192.168.1.11,1433
     //     Ad=LiyaErpVeriTabani
-    // Dosya ya da anahtar yoksa asagidaki varsayilanlar kullanilir.
+    //     Kullanici=sa           (istege bagli: SQL Server kimlik dogrulamasi)
+    //     Sifre=...
+    // ";" ya da "#" ile baslayan satirlar yok sayilir; iki secenek ayni dosyada
+    // durup biri yorum satiri yapilarak gecis yapilabilir.
+    //
+    // Dosya sirayla aranir:
+    //   1) exe'nin yaninda           -- kurulum yapilan bilgisayarlar
+    //   2) proje klasorunde          -- gelistirme (BAGLANTI_INI_KAYNAK, CMake);
+    //                                   degistirip programi yeniden acmak yeter,
+    //                                   derleme gerekmez
+    // Dosya ya da anahtar yoksa asagidaki varsayilanlar kullanilir. Kullanici
+    // yoksa Windows kimlik dogrulamasiyla (Trusted_Connection) baglanilir.
     struct BaglantiAyari
     {
         QString sunucu;
         QString veritabani;
+        QString kullanici;
+        QString sifre;
     };
+
+    QString baglantiIniYolu()
+    {
+        const QString exeYani = QCoreApplication::applicationDirPath() + QStringLiteral("/baglanti.ini");
+        if (QFile::exists(exeYani))
+            return exeYani;
+#ifdef BAGLANTI_INI_KAYNAK
+        if (QFile::exists(QStringLiteral(BAGLANTI_INI_KAYNAK)))
+            return QStringLiteral(BAGLANTI_INI_KAYNAK);
+#endif
+        return QString();
+    }
 
     const BaglantiAyari &baglantiAyari()
     {
         static const BaglantiAyari ayar = [] {
-            const QString yol = QCoreApplication::applicationDirPath() + QStringLiteral("/baglanti.ini");
+            const QString yol = baglantiIniYolu();
             BaglantiAyari a;
             // QSettings kullanilmiyor: INI bicimindeki "\" kacis karakteri sayilir
             // ve "PC\SQLEXPRESS" -> "PCQLEXPRESS" okunur. Satirlar elle ayrilir.
             QFile dosya(yol);
-            if (dosya.open(QIODevice::ReadOnly | QIODevice::Text))
+            if (!yol.isEmpty() && dosya.open(QIODevice::ReadOnly | QIODevice::Text))
             {
                 const QStringList satirlar = QString::fromUtf8(dosya.readAll()).split(QLatin1Char('\n'));
                 for (const QString &satir : satirlar)
                 {
+                    const QString temiz = satir.trimmed();
+                    if (temiz.startsWith(QLatin1Char(';')) || temiz.startsWith(QLatin1Char('#')))
+                        continue;
                     const int esittir = satir.indexOf(QLatin1Char('='));
                     if (esittir <= 0)
                         continue;
@@ -62,14 +91,21 @@ namespace
                         a.sunucu = deger;
                     else if (anahtar.compare(QLatin1String("Ad"), Qt::CaseInsensitive) == 0)
                         a.veritabani = deger;
+                    else if (anahtar.compare(QLatin1String("Kullanici"), Qt::CaseInsensitive) == 0)
+                        a.kullanici = deger;
+                    else if (anahtar.compare(QLatin1String("Sifre"), Qt::CaseInsensitive) == 0)
+                        a.sifre = deger;
                 }
             }
             if (a.sunucu.isEmpty())
                 a.sunucu = QStringLiteral(R"(EXCALIBUR\SQLEXPRESS)");
             if (a.veritabani.isEmpty())
                 a.veritabani = QStringLiteral("LiyaErpVeriTabani");
+            // Sifre gunluge yazilmaz.
             qInfo() << "Baglanti ayari:" << a.sunucu << "/" << a.veritabani
-                    << (QFile::exists(yol) ? "(baglanti.ini)" : "(varsayilan)");
+                    << (a.kullanici.isEmpty() ? QStringLiteral("(Windows kimligi)")
+                                              : QStringLiteral("(SQL kullanicisi: %1)").arg(a.kullanici))
+                    << (yol.isEmpty() ? QStringLiteral("(varsayilan)") : yol);
             return a;
         }();
         return ayar;
@@ -562,6 +598,14 @@ bool Database::baglantiAc(QSqlDatabase &db, const QString &baglantiAdi, QString 
     const QString &SUNUCU = baglantiAyari().sunucu;
     const QString &VERITABANI = baglantiAyari().veritabani;
 
+    // SQL kullanicisi verilmisse UID/PWD, verilmemisse Windows kimligi. Sifre
+    // ";" ya da "}" icerebilir: ODBC'de deger {...} icine alinir, "}" ikilenir.
+    const QString kimlik = baglantiAyari().kullanici.isEmpty()
+        ? QStringLiteral("Trusted_Connection=Yes;")
+        : QStringLiteral("UID=%1;PWD={%2};")
+              .arg(baglantiAyari().kullanici,
+                   QString(baglantiAyari().sifre).replace(QLatin1Char('}'), QStringLiteral("}}")));
+
     for (const QString &surucu : surucuAdaylari)
     {
         db = QSqlDatabase::addDatabase("QODBC", baglantiAdi);
@@ -570,17 +614,17 @@ bool Database::baglantiAc(QSqlDatabase &db, const QString &baglantiAdi, QString 
         if (surucu == "SQL Server")
         {
             // Windows'ta her zaman hazir gelen eski (ama guvenilir) surucu.
-            baglantiDizesi = QString("DRIVER={%1};SERVER=%2;DATABASE=%3;Trusted_Connection=Yes;")
-                                  .arg(surucu, SUNUCU, VERITABANI);
+            baglantiDizesi = QString("DRIVER={%1};SERVER=%2;DATABASE=%3;%4")
+                                  .arg(surucu, SUNUCU, VERITABANI, kimlik);
         }
         else
         {
             // Yeni ODBC suruculeri varsayilan olarak sifreli baglanti bekleyip
             // yerel/self-signed sertifikada hata verebiliyor; TrustServerCertificate
             // ile App.config'daki TrustServerCertificate=True ayarinin esdegerini kuruyoruz.
-            baglantiDizesi = QString("DRIVER={%1};SERVER=%2;DATABASE=%3;"
-                                      "Trusted_Connection=Yes;TrustServerCertificate=Yes;Encrypt=Yes;")
-                                  .arg(surucu, SUNUCU, VERITABANI);
+            baglantiDizesi = QString("DRIVER={%1};SERVER=%2;DATABASE=%3;%4"
+                                      "TrustServerCertificate=Yes;Encrypt=Yes;")
+                                  .arg(surucu, SUNUCU, VERITABANI, kimlik);
         }
 
         db.setDatabaseName(baglantiDizesi);
@@ -4382,11 +4426,20 @@ QVariantMap Database::uretimPdfOlustur(int teklifId)
     return sonuc;
 }
 
-QVariantMap Database::pdfKaydet(const QVariantMap &pdf)
+QVariantMap Database::pdfKayitYeriOner(const QString &dosyaAdi) const
+{
+    const QString klasor = TeklifPdfOlusturucu::sonKayitKlasoru();
+    QVariantMap sonuc;
+    sonuc["klasor"] = QUrl::fromLocalFile(klasor);
+    sonuc["dosya"] = QUrl::fromLocalFile(klasor + "/" + QFileInfo(dosyaAdi).fileName());
+    return sonuc;
+}
+
+QVariantMap Database::pdfKaydet(const QVariantMap &pdf, const QUrl &hedef)
 {
     ERP_IZ("pdfKaydet");
     QVariantMap sonuc = TeklifPdfOlusturucu::onizlemeyiKaydet(pdf.value("dosyaYolu").toString(),
-                                                              pdf.value("dosyaAdi").toString());
+                                                              hedef.toLocalFile());
     if (!sonuc.value("basarili").toBool())
         return sonuc;
 

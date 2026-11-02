@@ -37,3 +37,9 @@ build/
 # CMake build klasoru (gercek ad: build-msvc)
 build-msvc/
 out/
+
+# Uretilen kurulum dosyalari (kurulum_olustur.ps1)
+kurulum/cikti/
+
+# Veritabani baglantisi (sifre icerir); ornegi baglanti.ini.ornek
+baglanti.ini
