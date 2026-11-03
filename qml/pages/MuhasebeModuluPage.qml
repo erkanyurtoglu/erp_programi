@@ -269,7 +269,7 @@ Item {
     // Bilesenler
     // ======================================================================
 
-    // Etiket + deger + kopyala dugmesi.
+    // Etiket + tiklaninca kopyalanan deger.
     component KopyaSatiri: RowLayout {
         id: kopyaSatiri
         property string etiket: ""
@@ -286,25 +286,14 @@ Item {
             Layout.alignment: Qt.AlignTop
             topPadding: 4
         }
-        TextEdit {
+        KopyaHucresi {
             text: kopyaSatiri.deger
-            readOnly: true
-            selectByMouse: true
-            wrapMode: TextEdit.Wrap
-            color: Theme.metinBirincil
-            selectionColor: Theme.vurgu
-            font.family: Theme.fontAilesi
-            font.pixelSize: Theme.fontBoyutNormal
+            ne: kopyaSatiri.etiket
+            wrapMode: Text.Wrap
             Layout.fillWidth: true
-            Layout.alignment: Qt.AlignTop
+            Layout.maximumWidth: implicitWidth
             topPadding: 3
-        }
-        TemaButon {
-            tur: "sade"
-            kucuk: true
-            text: "Kopyala"
-            Layout.alignment: Qt.AlignTop
-            onClicked: root.kopyala(kopyaSatiri.deger, kopyaSatiri.etiket)
+            bottomPadding: 3
         }
     }
 
@@ -864,7 +853,6 @@ Item {
                                     Label { text: "ADET"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 50; horizontalAlignment: Text.AlignRight }
                                     Label { text: root.indirimVar ? "İND. BİRİM FİYAT" : "BİRİM FİYAT"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 120; horizontalAlignment: Text.AlignRight }
                                     Label { text: "TUTAR"; color: Theme.metinCokSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1; Layout.preferredWidth: 120; horizontalAlignment: Text.AlignRight }
-                                    Item { Layout.preferredWidth: 70 }
                                 }
 
                                 Repeater {
@@ -920,14 +908,6 @@ Item {
                                             Layout.preferredWidth: 120
                                             horizontalAlignment: Text.AlignRight
                                         }
-                                        TemaButon {
-                                            tur: "sade"
-                                            kucuk: true
-                                            text: "Kopyala"
-                                            Layout.preferredWidth: 70
-                                            Layout.alignment: Qt.AlignTop
-                                            onClicked: root.kopyala(root.kalemSatiriPano(kalemSatiri.modelData), "Kalem")
-                                        }
                                     }
                                 }
 
@@ -974,16 +954,6 @@ Item {
                                             Layout.preferredWidth: 120
                                             horizontalAlignment: Text.AlignRight
                                         }
-                                        TemaButon {
-                                            tur: "sade"
-                                            kucuk: true
-                                            text: "Kopyala"
-                                            Layout.preferredWidth: 70
-                                            visible: toplamSatiri.modelData.tutar !== undefined
-                                            onClicked: root.kopyala(root.panoSayisi(toplamSatiri.modelData.tutar),
-                                                                    toplamSatiri.modelData.ad)
-                                        }
-                                        Item { Layout.preferredWidth: 70; visible: toplamSatiri.modelData.tutar === undefined }
                                     }
                                 }
                             }

@@ -111,13 +111,17 @@ public:
     // pencere "Yanıt Vermiyor" durumuna dusuyordu.
     // Donen istek numarasi sonuc sinyalinde aynen geri gelir; ekran YALNIZCA
     // en son verdigi numarayla donen sonucu basar (bkz. *ListesiGetirBaslat).
+    // Siralama sutun basligina tiklayarak secilir; anahtarlar icin bkz.
+    // teklifListesiSorgusu (AramaSorgulari.h).
     Q_INVOKABLE int gecmisTekliflerGetirBaslat(const QString &arama,
                                                 const QString &tarihFiltresi,
                                                 const QString &baslangicTarihi,
                                                 const QString &bitisTarihi,
                                                 int sayfaNo,
                                                 int sayfaBoyutu = 50,
-                                                const QString &durumFiltresi = QString());
+                                                const QString &durumFiltresi = QString(),
+                                                const QString &siralamaSutunu = QString(),
+                                                bool artan = false);
 
     // TEKLIF NO: kullanicinin gordugu tek numara. Musteriye giden PDF'teki,
     // listedeki ve mesajlardaki numara hep budur: orijinal teklifte "1203",
@@ -692,6 +696,12 @@ public:
 
     // Onizleme penceresi kapanirken gecici PDF'i siler.
     Q_INVOKABLE void pdfOnizlemesiniSil(const QString &onizlemeYolu);
+
+    // Kaydedilen PDF'i (ya da klasorunu) Windows'un varsayilan programinda
+    // acar. Yol yoksa hicbir sey acilmaz ve false doner. QML'de
+    // "file:///" + yol ile adres kurmak ag klasorlerinde (\\sunucu\...) ve
+    // adinda '#'/'%' gecen dosyalarda yanlis yeri aciyordu.
+    Q_INVOKABLE bool dosyayiAc(const QString &yol);
 
     // PDF motorunu (Chromium) simdiden ayaga kaldirir; bkz.
     // TeklifPdfOlusturucu::motoruHazirla. SU AN CAGRILMIYOR: motor ilk PDF

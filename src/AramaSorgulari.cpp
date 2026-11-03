@@ -1018,12 +1018,50 @@ namespace
     }
 }
 
+namespace
+{
+    // Teklif listesinin siralamasi (basliga tiklayarak). Sutun adlari SQL'e
+    // dogrudan gomuldugu icin yalnizca buradaki bilinen anahtarlar kabul edilir;
+    // bilinmeyen anahtar varsayilana (teklif tarihi) duser. Bos degerler
+    // (kabul edilmemis teklifin kabul tarihi vb.) yon ne olursa olsun sona
+    // atilir. Son iki olcut esitlerde sirayi sabitler; boylece sayfalar arasinda
+    // satir kaymaz.
+    QString teklifSiralamaIfadesi(QSqlDatabase &db, const QString &sutun, bool artan)
+    {
+        const QString yon = artan ? QStringLiteral("ASC") : QStringLiteral("DESC");
+        const auto bosSonda = [&yon](const QString &ifade) {
+            return QStringLiteral("CASE WHEN %1 IS NULL THEN 1 ELSE 0 END, %1 %2").arg(ifade, yon);
+        };
+        QString ana;
+        if (sutun == QLatin1String("teklifNo"))
+            ana = QStringLiteral("%1 %2, t.RevizyonNo %2").arg(teklifNoSqlIfadesi(db, QStringLiteral("t")), yon);
+        else if (sutun == QLatin1String("firma"))
+            ana = QStringLiteral("m.FirmaAdi %1").arg(yon);
+        else if (sutun == QLatin1String("kabulTarihi"))
+            ana = bosSonda(QStringLiteral("t.KabulTarihi"));
+        else if (sutun == QLatin1String("teslimatTarihi"))
+            ana = bosSonda(QStringLiteral("t.TeslimatTarihi"));
+        else if (sutun == QLatin1String("teslimTarihi"))
+            ana = bosSonda(QStringLiteral("t.TeslimTarihi"));
+        else if (sutun == QLatin1String("uretimPdfTarihi"))
+            ana = bosSonda(QStringLiteral("t.UretimPdfTarihi"));
+        else if (sutun == QLatin1String("tutar"))
+            ana = bosSonda(QStringLiteral("tt.GenelToplam"));
+        else if (sutun == QLatin1String("durum"))
+            ana = QStringLiteral("t.Durum %1").arg(yon);
+        else
+            ana = QStringLiteral("t.OlusturmaTarihi %1").arg(yon);
+        return ana + QStringLiteral(", t.OlusturmaTarihi DESC, t.TeklifId DESC");
+    }
+}
+
 QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
                                  const QString &tarihFiltresi,
                                  const QString &baslangicTarihi,
                                  const QString &bitisTarihi,
                                  int sayfaNo, int sayfaBoyutu,
-                                 const QString &durumFiltresi)
+                                 const QString &durumFiltresi,
+                                 const QString &siralamaSutunu, bool artan)
 {
     QVariantMap sonuc = bosListeSonucu();
 
@@ -1046,7 +1084,12 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
         "LEFT JOIN dbo.kullanicilar p ON p.KullaniciId = t.KullaniciId "
         "%1").arg(whereClause);
 
+    // ForwardOnly: QODBC aksi halde kaydirilabilir (static) imlec acar ve her
+    // satiri sunucudan ayri bir gidis-donusle okur. Veritabani agdaki sunucuya
+    // tasindiktan sonra 50 satirlik sayfanin okunmasi bu yuzden 1-3 sn suruyordu
+    // (SQL'in kendisi ~100 ms).
     QSqlQuery sayimQuery(db);
+    sayimQuery.setForwardOnly(true);
     sayimQuery.prepare(sayimSorgusu);
     for (auto it = parametreler.constBegin(); it != parametreler.constEnd(); ++it)
         sayimQuery.bindValue(it.key(), it.value());
@@ -1061,6 +1104,8 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
     int toplamKayit = 0;
     if (sayimQuery.next())
         toplamKayit = sayimQuery.value(0).toInt();
+    // Ayni baglantida ikinci sorgu acilmadan once imlec kapatilir (MARS yok).
+    sayimQuery.finish();
 
     int toplamSayfa = 1;
     sayfaNo = sayfayiSinirla(toplamKayit, sayfaBoyutu, sayfaNo, toplamSayfa);
@@ -1114,14 +1159,23 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
     //
     // Artik once SADECE id'ler sayfalanir (ucuz: filtre + siralama + OFFSET),
     // pahali APPLY/JOIN'ler ise yalnizca o 50 satir icin calisir.
+    //
+    // Secilen siralama "Sira" olarak tasinir; disaridaki sorgu ayni ifadeyi
+    // tekrar hesaplamak yerine yalnizca ona gore dizer. Tutar toplamlar
+    // tablosundan geldigi icin o JOIN yalnizca tutara gore siralarken eklenir.
+    const QString tutarJoin = siralamaSutunu == QLatin1String("tutar")
+        ? QStringLiteral("LEFT JOIN dbo.teklif_toplamlari tt ON tt.TeklifId = t.TeklifId ")
+        : QString();
     const QString sayfaIdleri = QString(
-        "SELECT t.TeklifId, t.OlusturmaTarihi "
+        "SELECT t.TeklifId, ROW_NUMBER() OVER (ORDER BY %3) AS Sira "
         "FROM dbo.teklifler t "
         "INNER JOIN dbo.musteriler m ON m.MusteriId = t.MusteriId "
         "LEFT JOIN dbo.kullanicilar p ON p.KullaniciId = t.KullaniciId "
+        "%2"
         "%1 "
-        "ORDER BY t.OlusturmaTarihi DESC "
-        "OFFSET :offset ROWS FETCH NEXT :sayfaBoyutu ROWS ONLY").arg(whereClause);
+        "ORDER BY Sira "
+        "OFFSET :offset ROWS FETCH NEXT :sayfaBoyutu ROWS ONLY")
+        .arg(whereClause, tutarJoin, teklifSiralamaIfadesi(db, siralamaSutunu, artan));
 
     // Govde once doldurulur, CTE SONRA basa eklenir: boylece filtre metni
     // (whereClause) arg() tarafindan hic yorumlanmaz.
@@ -1161,7 +1215,7 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
         "%6"
         // Filtre (ve sayfalama) zaten "sayfa" icinde uygulandi; burada yalnizca
         // satirlarin sirasi korunur.
-        "ORDER BY t.OlusturmaTarihi DESC")
+        "ORDER BY s.Sira")
         // %1 = kopya sutunlari, %2 = kopya JOIN'i, %3 = Teklif No ifadesi,
         // %4 = fatura sutunlari, %5/%6 = eslesen kalem sutunlari / APPLY'i.
         // (Filtre artik burada degil, asagidaki "sayfa" CTE'sinin icinde.)
@@ -1172,6 +1226,7 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
         QStringLiteral("WITH sayfa AS (") + sayfaIdleri + QStringLiteral(") ") + veriGovdesi;
 
     QSqlQuery veriQuery(db);
+    veriQuery.setForwardOnly(true);
     veriQuery.prepare(veriSorgusu);
     for (auto it = parametreler.constBegin(); it != parametreler.constEnd(); ++it)
         veriQuery.bindValue(it.key(), it.value());
@@ -1242,9 +1297,10 @@ QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
         kayit["eslesenSayi"] = veriQuery.value("EslesenSayi").toInt();
         kayitlar << kayit;
     }
+    const qint64 okumaMs = olcum.elapsed();
 
     qInfo().nospace() << "[olcum] teklif listesi parcalari -- sayim: " << sayimMs
-                      << " ms, veri: " << veriMs
+                      << " ms, veri: " << veriMs << " ms, okuma: " << okumaMs
                       << " ms (durum=" << durumFiltresi << ", kayit=" << toplamKayit << ")";
 
     sonuc["kayitlar"] = kayitlar;

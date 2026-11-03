@@ -22,6 +22,8 @@
 #include <QClipboard>
 #include <QFile>
 #include <QFileInfo>
+#include <QDir>
+#include <QDesktopServices>
 #include <cmath>
 #include <algorithm>
 #include <utility>
@@ -1005,7 +1007,9 @@ int Database::gecmisTekliflerGetirBaslat(const QString &arama,
                                           const QString &bitisTarihi,
                                           int sayfaNo,
                                           int sayfaBoyutu,
-                                          const QString &durumFiltresi)
+                                          const QString &durumFiltresi,
+                                          const QString &siralamaSutunu,
+                                          bool artan)
 {
     const int istekNo = ++m_listeIstekSayaci;
     if (!m_teklifWorker)
@@ -1018,7 +1022,8 @@ int Database::gecmisTekliflerGetirBaslat(const QString &arama,
                               Q_ARG(int, istekNo), Q_ARG(QString, arama),
                               Q_ARG(QString, tarihFiltresi), Q_ARG(QString, baslangicTarihi),
                               Q_ARG(QString, bitisTarihi), Q_ARG(int, sayfaNo),
-                              Q_ARG(int, sayfaBoyutu), Q_ARG(QString, durumFiltresi));
+                              Q_ARG(int, sayfaBoyutu), Q_ARG(QString, durumFiltresi),
+                              Q_ARG(QString, siralamaSutunu), Q_ARG(bool, artan));
     return istekNo;
 }
 
@@ -4462,6 +4467,22 @@ void Database::pdfOnizlemesiniSil(const QString &onizlemeYolu)
 {
     ERP_IZ("pdfOnizlemesiniSil");
     TeklifPdfOlusturucu::onizlemeyiSil(onizlemeYolu);
+}
+
+bool Database::dosyayiAc(const QString &yol)
+{
+    ERP_IZ("dosyayiAc");
+    const QFileInfo bilgi(yol);
+    if (yol.trimmed().isEmpty() || !bilgi.exists())
+    {
+        qWarning() << "[dosya] acilacak yol bulunamadi:" << yol;
+        return false;
+    }
+    const QUrl adres = QUrl::fromLocalFile(bilgi.absoluteFilePath());
+    const bool acildi = QDesktopServices::openUrl(adres);
+    qInfo() << "[dosya] aciliyor:" << QDir::toNativeSeparators(bilgi.absoluteFilePath())
+            << (acildi ? "tamam" : "BASARISIZ");
+    return acildi;
 }
 
 QString Database::varsayilanSozlesmeMetni(const QString &dil)

@@ -3,7 +3,7 @@ import QtQuick
 // Modul kartlarinda kullanilan sade, tek renkli cizgi ikonlar (emoji yerine).
 // "tur" ile hangi sekil cizilecegi secilir: belge, sepet, kutu, cuzdan, disli;
 // tema anahtari icin gunes ve ay; yan menu icin ev, kalem, gonder, onay, bayrak,
-// kisiler.
+// kisiler, menu (yan menuyu daraltma dugmesi).
 Canvas {
     id: ikon
     property string tur: "belge"
@@ -201,6 +201,17 @@ Canvas {
             ctx.lineTo(w * 0.66, h * 0.34);
             ctx.lineTo(w * 0.82, h * 0.54);
             ctx.lineTo(w * 0.22, h * 0.54);
+            ctx.stroke();
+            break;
+
+        case "menu":
+            ctx.beginPath();
+            ctx.moveTo(w * 0.16, h * 0.26);
+            ctx.lineTo(w * 0.84, h * 0.26);
+            ctx.moveTo(w * 0.16, h * 0.50);
+            ctx.lineTo(w * 0.84, h * 0.50);
+            ctx.moveTo(w * 0.16, h * 0.74);
+            ctx.lineTo(w * 0.84, h * 0.74);
             ctx.stroke();
             break;
 

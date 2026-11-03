@@ -187,7 +187,8 @@ void AramaWorker::teklifListesiCalistir(int istekNo, const QString &arama,
                                         const QString &tarihFiltresi,
                                         const QString &baslangicTarihi,
                                         const QString &bitisTarihi, int sayfaNo,
-                                        int sayfaBoyutu, const QString &durumFiltresi)
+                                        int sayfaBoyutu, const QString &durumFiltresi,
+                                        const QString &siralamaSutunu, bool artan)
 {
     if (!baglantiHazir())
     {
@@ -197,7 +198,8 @@ void AramaWorker::teklifListesiCalistir(int istekNo, const QString &arama,
     QElapsedTimer olcum;
     olcum.start();
     const QVariantMap sonuc = teklifListesiSorgusu(m_db, arama, tarihFiltresi, baslangicTarihi,
-                                                   bitisTarihi, sayfaNo, sayfaBoyutu, durumFiltresi);
+                                                   bitisTarihi, sayfaNo, sayfaBoyutu, durumFiltresi,
+                                                   siralamaSutunu, artan);
     qInfo() << "[olcum] teklif listesi arama=" << arama << "durum=" << durumFiltresi
             << "sorgu:" << olcum.elapsed() << "ms, toplam:" << sonuc.value("toplamKayit").toInt();
     emit teklifListesiHazir(istekNo, sonuc);

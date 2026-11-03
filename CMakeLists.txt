@@ -134,6 +134,7 @@ qt_add_qml_module(erp_programi
         qml/components/PdfKayitYeriDialog.qml
         qml/components/TemaButon.qml
         qml/components/TemaDegistirici.qml
+        qml/components/YanMenuDaraltici.qml
         qml/components/TemaMetinKutusu.qml
         qml/components/SayiKutusu.qml
         qml/components/OneriliMetinKutusu.qml

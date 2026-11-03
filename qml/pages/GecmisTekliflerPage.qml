@@ -26,12 +26,25 @@ import erp_programi
 Item {
     id: root
 
-    // Tarih sutunlarinin basligi: dar sutuna sigmayan basliklar iki satira sarilir.
-    // (KisalanMetin: iki satira da sigmayip kirpilirsa tam baslik ipucunda cikar.)
-    component TarihBasligi: KisalanMetin {
+    // Tiklaninca listeyi o sutuna gore siralayan baslik. Ayni basliga tekrar
+    // tiklamak yonu cevirir. Baslikta yon isareti gosterilmez (kullanici istemedi).
+    component SiraliBaslik: KisalanMetin {
+        property string baslik: ""
+        property string anahtar: ""
+        text: baslik
         color: Theme.tabloBaslikMetin
         font.family: Theme.fontAilesi
         font.pixelSize: Theme.fontBoyutKucuk
+        font.letterSpacing: 1
+        elide: Text.ElideRight
+        HoverHandler { cursorShape: Qt.PointingHandCursor }
+        TapHandler { onTapped: root.siralamayiDegistir(anahtar) }
+    }
+
+    // Tarih sutunlarinin basligi: dar sutuna sigmayan basliklar iki satira sarilir.
+    // (KisalanMetin: iki satira da sigmayip kirpilirsa tam baslik ipucunda cikar.)
+    component TarihBasligi: SiraliBaslik {
+        font.letterSpacing: 0
         wrapMode: Text.WordWrap
         maximumLineCount: 2
         elide: Text.ElideRight
@@ -307,6 +320,20 @@ Item {
     property string listeHatasi: ""
 
     property string aramaMetni: ""
+    // Siralama tum kayitlar uzerinde (SQL'de) yapilir, yalnizca bu sayfada degil.
+    property string siralamaSutunu: "teklifTarihi"
+    property bool siralamaArtan: false
+
+    function siralamayiDegistir(anahtar) {
+        if (root.siralamaSutunu === anahtar) {
+            root.siralamaArtan = !root.siralamaArtan
+        } else {
+            root.siralamaSutunu = anahtar
+            root.siralamaArtan = true
+        }
+        root.sayfayiYukle(1)
+    }
+
     property string secilenTarihFiltresi: "Hepsi"
     property string baslangicTarihi: ""
     property string bitisTarihi: ""
@@ -442,7 +469,8 @@ Item {
         root.yukleniyor = true
         root.bekleyenIstek = database.gecmisTekliflerGetirBaslat(
             root.aramaMetni, root.secilenTarihFiltresi, root.baslangicTarihi,
-            root.bitisTarihi, sayfaNo, root.sayfaBoyutu, root.durumFiltresi)
+            root.bitisTarihi, sayfaNo, root.sayfaBoyutu, root.durumFiltresi,
+            root.siralamaSutunu, root.siralamaArtan)
         zamanAsimiZamanlayici.restart()
     }
 
@@ -685,15 +713,15 @@ Item {
                 // icin maximumWidth ile sinirliyoruz; aksi halde "TEKLİFİ YAPAN" gibi
                 // uzun bir baslik metni kendi dogal genisligiyle sutunu sisirip veri
                 // satirlariyla arasinda kayma olusturabiliyor.
-                KisalanMetin { text: "TEKLİF NO"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunTeklifNo; Layout.maximumWidth: root.sutunTeklifNo }
-                KisalanMetin { text: "FİRMA ADI"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.fillWidth: true; Layout.horizontalStretchFactor: 2; Layout.preferredWidth: 0; Layout.minimumWidth: root.firmaSutunuEnAz }
-                TarihBasligi { text: "TEKLİF TARİHİ" }
-                TarihBasligi { text: "KABUL TARİHİ" }
-                TarihBasligi { text: "PLANLANAN TESLİM"; visible: root.ikincilTarihSutunlariGoster }
-                TarihBasligi { text: "TESLİM TARİHİ" }
-                TarihBasligi { text: "ÜRETİM PDF"; visible: root.ikincilTarihSutunlariGoster }
-                KisalanMetin { text: "TUTAR"; horizontalAlignment: Text.AlignRight; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunTutar; Layout.maximumWidth: root.sutunTutar }
-                KisalanMetin { text: "DURUM"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunDurum; Layout.maximumWidth: root.sutunDurum }
+                SiraliBaslik { baslik: "TEKLİF NO"; anahtar: "teklifNo"; Layout.preferredWidth: root.sutunTeklifNo; Layout.maximumWidth: root.sutunTeklifNo }
+                SiraliBaslik { baslik: "FİRMA ADI"; anahtar: "firma"; Layout.fillWidth: true; Layout.horizontalStretchFactor: 2; Layout.preferredWidth: 0; Layout.minimumWidth: root.firmaSutunuEnAz }
+                TarihBasligi { baslik: "TEKLİF TARİHİ"; anahtar: "teklifTarihi" }
+                TarihBasligi { baslik: "KABUL TARİHİ"; anahtar: "kabulTarihi" }
+                TarihBasligi { baslik: "PLANLANAN TESLİM"; anahtar: "teslimatTarihi"; visible: root.ikincilTarihSutunlariGoster }
+                TarihBasligi { baslik: "TESLİM TARİHİ"; anahtar: "teslimTarihi" }
+                TarihBasligi { baslik: "ÜRETİM PDF"; anahtar: "uretimPdfTarihi"; visible: root.ikincilTarihSutunlariGoster }
+                SiraliBaslik { baslik: "TUTAR"; anahtar: "tutar"; horizontalAlignment: Text.AlignRight; Layout.preferredWidth: root.sutunTutar; Layout.maximumWidth: root.sutunTutar }
+                SiraliBaslik { baslik: "DURUM"; anahtar: "durum"; Layout.preferredWidth: root.sutunDurum; Layout.maximumWidth: root.sutunDurum }
                 KisalanMetin { text: "İŞLEMLER"; color: Theme.tabloBaslikMetin; font.family: Theme.fontAilesi; font.pixelSize: Theme.fontBoyutKucuk; font.letterSpacing: 1; elide: Text.ElideRight; Layout.preferredWidth: root.sutunIslemler; Layout.maximumWidth: root.sutunIslemler }
             }
         }

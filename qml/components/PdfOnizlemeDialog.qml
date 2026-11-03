@@ -368,12 +368,12 @@ Dialog {
             PencereButonu {
                 visible: kok.kaydedilenYol.length > 0
                 text: "Dosyayı Aç"
-                onClicked: Qt.openUrlExternally("file:///" + kok.kaydedilenYol)
+                onClicked: database.dosyayiAc(kok.kaydedilenYol)
             }
             PencereButonu {
                 visible: kok.kaydedilenKlasor.length > 0
                 text: "Klasörü Aç"
-                onClicked: Qt.openUrlExternally("file:///" + kok.kaydedilenKlasor)
+                onClicked: database.dosyayiAc(kok.kaydedilenKlasor)
             }
             PencereButonu {
                 text: "Kapat"

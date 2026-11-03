@@ -133,11 +133,18 @@ Item {
         spacing: 0
 
         // ---- Sol yan menu ----
+        // Daraltilinca (Theme.yanMenuDar) yalnizca ikonlar kalir; icerik
+        // alani (ozellikle Teklif Ver'deki Urun Ara + sepet) genisler.
         Rectangle {
-            Layout.preferredWidth: 220
+            id: yanMenu
+            readonly property bool dar: Theme.yanMenuDar
+            Layout.preferredWidth: dar ? Theme.yanMenuDarGenislik : 220
             Layout.fillHeight: true
             color: Theme.arkaplanIkincil
             border.width: 0
+            clip: true
+
+            Behavior on Layout.preferredWidth { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
             Rectangle {
                 anchors.right: parent.right
@@ -149,21 +156,36 @@ Item {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 16
+                anchors.margins: yanMenu.dar ? 10 : 16
                 spacing: 4
 
-                Image {
-                    source: "qrc:/qt/qml/erp_programi/logo.png"
-                    sourceSize.height: 48
-                    fillMode: Image.PreserveAspectFit
-                    smooth: true
-                    mipmap: true
+                // Logo ve daraltma dugmesi; dar menude yalnizca dugme kalir.
+                Item {
+                    Layout.fillWidth: true
                     Layout.preferredHeight: 48
                     Layout.bottomMargin: 12
-                    Layout.alignment: Qt.AlignHCenter
+
+                    Image {
+                        visible: !yanMenu.dar
+                        anchors.centerIn: parent
+                        source: "qrc:/qt/qml/erp_programi/logo.png"
+                        sourceSize.height: 48
+                        height: 48
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                        mipmap: true
+                    }
+
+                    YanMenuDaraltici {
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.right: yanMenu.dar ? undefined : parent.right
+                        anchors.horizontalCenter: yanMenu.dar ? parent.horizontalCenter : undefined
+                        anchors.rightMargin: -8
+                    }
                 }
 
                 Label {
+                    visible: !yanMenu.dar
                     text: "SATIŞ / TEKLİF"
                     color: Theme.metinCokSoluk
                     font.family: Theme.fontAilesi
@@ -211,8 +233,9 @@ Item {
                     }
 
                     RowLayout {
-                        anchors.left: parent.left
-                        anchors.leftMargin: buton.secili && !buton.doluSecim ? 20 : 14
+                        // Dar menude ikon ortalanir, ad ipucunda gorunur.
+                        x: yanMenu.dar ? (buton.width - width) / 2
+                                       : (buton.secili && !buton.doluSecim ? 20 : 14)
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: 10
 
@@ -225,6 +248,7 @@ Item {
                         }
 
                         Label {
+                            visible: !yanMenu.dar
                             text: buton.metin
                             color: buton.doluSecim ? "#ffffff" : (buton.secili ? Theme.metinBirincil : Theme.metinIkincil)
                             font.family: Theme.fontAilesi
@@ -232,6 +256,10 @@ Item {
                             font.bold: buton.secili
                         }
                     }
+
+                    ToolTip.visible: yanMenu.dar && alan.containsMouse
+                    ToolTip.delay: 300
+                    ToolTip.text: buton.metin
 
                     MouseArea {
                         id: alan
@@ -313,6 +341,7 @@ Item {
                 Item { Layout.fillHeight: true }
 
                 TemaDegistirici {
+                    visible: !yanMenu.dar
                     Layout.alignment: Qt.AlignHCenter
                 }
             }

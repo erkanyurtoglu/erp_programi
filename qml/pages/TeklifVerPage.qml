@@ -1791,8 +1791,8 @@ Item {
 
                         }
 
-                        // Telefon / Ilgili Kisi / Ilgili Kisi E-posta -- Firma'nin
-                        // altinda, ucu esit genislikte 3 kutu.
+                        // Ilgili Kisi / Telefon / Ilgili Kisi E-posta -- Firma'nin
+                        // altinda 3 kutu.
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 10
@@ -1802,16 +1802,16 @@ Item {
                                 Layout.minimumWidth: 150
                                 Layout.maximumWidth: 150
                                 spacing: 4
-                                Label { text: "TELEFON"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                                Label { text: "İLGİLİ KİŞİ"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
                                 Rectangle {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: Theme.girdiYuksekligi
                                     radius: Theme.radiusKucuk
                                     color: Theme.arkaplan
                                     border.width: 1
-                                    border.color: ilgiliKisiTelAlani.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
+                                    border.color: ilgiliKisiAlani.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
                                     TextField {
-                                        id: ilgiliKisiTelAlani
+                                        id: ilgiliKisiAlani
                                         readOnly: root.formKilitli
                                         onTextChanged: if (!activeFocus) cursorPosition = 0
                                         onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
@@ -1833,16 +1833,16 @@ Item {
                                 Layout.minimumWidth: 150
                                 Layout.maximumWidth: 150
                                 spacing: 4
-                                Label { text: "İLGİLİ KİŞİ"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
+                                Label { text: "TELEFON"; color: Theme.metinSoluk; font.family: Theme.fontAilesi; font.pixelSize: 10; font.letterSpacing: 1 }
                                 Rectangle {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: Theme.girdiYuksekligi
                                     radius: Theme.radiusKucuk
                                     color: Theme.arkaplan
                                     border.width: 1
-                                    border.color: ilgiliKisiAlani.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
+                                    border.color: ilgiliKisiTelAlani.activeFocus ? Theme.kenarlikVurgu : Theme.kenarlik
                                     TextField {
-                                        id: ilgiliKisiAlani
+                                        id: ilgiliKisiTelAlani
                                         readOnly: root.formKilitli
                                         onTextChanged: if (!activeFocus) cursorPosition = 0
                                         onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
@@ -2183,19 +2183,24 @@ Item {
         // ekranin TAM genisligini kullanabiliyor -- Sepet'teki Aciklama sutunu
         // dahil her sutun cok daha rahat nefes alir.
         RowLayout {
+            id: urunSepetSatiri
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 14
+            spacing: 0
 
             // Urun arama -- kilitli (salt goruntulenen) teklifte gizlenir; gizli
             // oge Layout'ta yer kaplamadigi icin sepet tam genislige yayilir.
+            // Genislik yandaki ayraci surukleyerek ayarlanir ve hatirlanir.
             Rectangle {
+                id: urunAramaPaneli
+                readonly property int enAz: 300
+                readonly property int enCok: Math.max(enAz, urunSepetSatiri.width * 0.6)
                 visible: root.urunAramaGorunur
                 // Revize moduna gecilip panel yeniden gorunur oldugunda liste bos
                 // kalmasin diye aramayi tazeliyoruz.
                 onVisibleChanged: if (visible) root.urunAramaTazele()
                 Layout.fillHeight: true
-                Layout.preferredWidth: 360
+                Layout.preferredWidth: Math.max(enAz, Math.min(enCok, Theme.urunAramaGenisligi))
                 radius: Theme.radiusNormal
                 color: Theme.panel
                 border.width: 1
@@ -2369,6 +2374,43 @@ Item {
                             }
                         }
                     }
+                }
+            }
+
+            // Urun Ara ile sepet arasindaki ayrac: saga-sola surukleyerek panel
+            // genisletilir/daraltilir, cift tiklama varsayilan genislige dondurur.
+            Item {
+                visible: urunAramaPaneli.visible
+                Layout.fillHeight: true
+                Layout.preferredWidth: 14
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 3
+                    height: 48
+                    radius: 2
+                    color: ayracAlani.pressed || ayracAlani.containsMouse ? Theme.vurgu : Theme.kenarlik
+                }
+
+                MouseArea {
+                    id: ayracAlani
+                    property real baslangicX: 0
+                    property int baslangicGenislik: 0
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.SplitHCursor
+                    onPressed: (fare) => {
+                        baslangicX = mapToItem(urunSepetSatiri, fare.x, 0).x
+                        baslangicGenislik = urunAramaPaneli.width
+                    }
+                    onPositionChanged: (fare) => {
+                        if (!pressed)
+                            return
+                        const fark = mapToItem(urunSepetSatiri, fare.x, 0).x - baslangicX
+                        Theme.urunAramaGenisligi = Math.round(Math.max(urunAramaPaneli.enAz,
+                            Math.min(urunAramaPaneli.enCok, baslangicGenislik + fark)))
+                    }
+                    onDoubleClicked: Theme.urunAramaGenisligi = 360
                 }
             }
 

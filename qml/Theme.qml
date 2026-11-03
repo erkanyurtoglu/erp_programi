@@ -25,9 +25,20 @@ QtObject {
     }
 
     readonly property Settings ayarlar: Settings {
+        id: gorunumAyarlari
         category: "Gorunum"
         property bool koyuMod: true
+        property bool yanMenuDar: false
+        property int urunAramaGenisligi: 360
     }
+
+    // Modul yan menusu yalnizca ikonlara daraltildi mi (bkz. YanMenuDaraltici).
+    property alias yanMenuDar: gorunumAyarlari.yanMenuDar
+    // Teklif Ver'deki Urun Ara panelinin surukleyerek ayarlanan genisligi.
+    property alias urunAramaGenisligi: gorunumAyarlari.urunAramaGenisligi
+
+    // Yan menunun acik ve daraltilmis (yalnizca ikon) genislikleri.
+    readonly property int yanMenuDarGenislik: 64
 
     // --- Zeminler ---
     // Acik temada zemin hafif mavi-gridir; beyaz kartlar onun uzerinde one cikar.

@@ -107,9 +107,14 @@ QVariantList cihazListesiSorgusu(QSqlDatabase &db, const QString &arama, bool ar
 // (ozellikle arama metni varken: teklif_kalemleri uzerinde EXISTS + LIKE)
 // pencereyi saniyelerce donduruyordu -- artik AramaWorker uzerinden async
 // calisir (bkz. Database::gecmisTekliflerGetirBaslat).
+// "siralamaSutunu": teklifNo | firma | teklifTarihi | kabulTarihi |
+//   teslimatTarihi | teslimTarihi | uretimPdfTarihi | tutar | durum;
+//   bos/bilinmeyen -> teklif tarihi. "artan" false ise buyukten kucuge.
 QVariantMap teklifListesiSorgusu(QSqlDatabase &db, const QString &arama,
                                  const QString &tarihFiltresi,
                                  const QString &baslangicTarihi,
                                  const QString &bitisTarihi,
                                  int sayfaNo, int sayfaBoyutu,
-                                 const QString &durumFiltresi);
+                                 const QString &durumFiltresi,
+                                 const QString &siralamaSutunu = QString(),
+                                 bool artan = false);

@@ -60,7 +60,8 @@ public slots:
     void teklifListesiCalistir(int istekNo, const QString &arama,
                                const QString &tarihFiltresi, const QString &baslangicTarihi,
                                const QString &bitisTarihi, int sayfaNo, int sayfaBoyutu,
-                               const QString &durumFiltresi);
+                               const QString &durumFiltresi, const QString &siralamaSutunu,
+                               bool artan);
 
 signals:
     // "arama" (ve urun icin "dil") istegi yapan tarafa aynen geri gonderilir;

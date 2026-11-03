@@ -145,7 +145,7 @@ ApplicationWindow {
                     pdfIndirici.mesaj = istek.baslik + " PDF kaydedildi: " + kayit.dosyaYolu
                     PdfOnizleme.kaydedildi(pdf, kayit.dosyaYolu)
                     if (istek.acilsin)
-                        Qt.openUrlExternally("file:///" + kayit.dosyaYolu)
+                        database.dosyayiAc(kayit.dosyaYolu)
                 } else {
                     pdfIndirici.hata = true
                     pdfIndirici.mesaj = istek.baslik + " PDF kaydedilemedi: " + kayit.hata
@@ -211,7 +211,7 @@ ApplicationWindow {
             enabled: pdfIndirici.dosyaYolu.length > 0
             cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
             onClicked: {
-                Qt.openUrlExternally("file:///" + pdfIndirici.dosyaYolu)
+                database.dosyayiAc(pdfIndirici.dosyaYolu)
                 pdfIndirici.visible = false
             }
         }
